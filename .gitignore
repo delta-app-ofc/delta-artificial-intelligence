@@ -1,0 +1,47 @@
+HELP.md
+target/
+.mvn/wrapper/maven-wrapper.jar
+!**/src/main/**/target/
+!**/src/test/**/target/
+__pycache__/
+
+### STS ###
+.apt_generated
+.classpath
+.factorypath
+.project
+.settings
+.springBeans
+.sts4-cache
+
+### IntelliJ IDEA ###
+.idea/
+*.iws
+*.iml
+*.ipr
+
+### NetBeans ###
+/nbproject/private/
+/nbbuild/
+/dist/
+/nbdist/
+/.nb-gradle/
+build/
+!**/src/main/**/build/
+!**/src/test/**/build/
+
+### VS Code ###
+.vscode/
+
+### Claude ###
+.claude
+
+### ENV ###
+.env
+
+### TASK.md ###
+TASK.md
+
+### detection/ — artefatos gerados por train.py (reproduzíveis) ###
+detection/models/*.joblib
+detection/models/z_threshold.json
