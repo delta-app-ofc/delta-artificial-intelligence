@@ -1,0 +1,53 @@
+# Ambiente de DESENVOLVIMENTO LOCAL para os agentes de Previsão e Vazamento.
+# Uso:
+#   docker compose -f docker-compose.dev.yml up -d
+#   python -m pytest -q
+#   docker compose -f docker-compose.dev.yml down -v   
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: delta_ia_postgres_dev
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: postgres
+    ports:
+      - "5432:5432"
+    volumes:
+      - ./db/postgres-init:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d postgres"]
+      interval: 3s
+      timeout: 5s
+      retries: 20
+
+  mongo:
+    image: mongo:7
+    container_name: delta_ia_mongo_dev
+    # --replSet: necessário para MongoDB Change Streams, usados pelo motor de
+    # detecção de vazamento (detection/watcher.py) para reagir quase em tempo
+    # real a novas janelas de consumo. Um replica set de 1 nó já basta em dev.
+    command: ["--replSet", "rs0", "--bind_ip_all"]
+    ports:
+      - "27017:27017"
+    volumes:
+      - ./db/mongo-init:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD", "mongosh", "--quiet", "--eval", "db.adminCommand('ping').ok"]
+      interval: 3s
+      timeout: 5s
+      retries: 20
+
+  # Roda uma vez (na primeira subida) pra inicializar o replica set do serviço
+  # `mongo` acima. Sem isso, o Mongo sobe respondendo a ping, mas sem oplog —
+  # e os Change Streams do detection/watcher.py não funcionam.
+  mongo-init-replica:
+    image: mongo:7
+    depends_on:
+      mongo:
+        condition: service_healthy
+    restart: "no"
+    entrypoint: >
+      mongosh --host mongo --quiet --eval
+      "try { rs.status() } catch (e) { rs.initiate() }"
