@@ -45,3 +45,4 @@ TASK.md
 ### detection/ — artefatos gerados por train.py (reproduzíveis) ###
 detection/models/*.joblib
 detection/models/z_threshold.json
+TASK.md
