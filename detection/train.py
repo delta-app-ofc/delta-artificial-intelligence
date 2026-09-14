@@ -6,21 +6,18 @@ import sys
 from pathlib import Path
 
 from bson import json_util
-from sklearn.model_selection import train_test_split
 
+from app.tools.models import ConsumptionPoint
 from detection.features import extract_features, hour_baseline_from_history
-from detection.model import save_model, train_model
 from detection.rules import calibrate_z_threshold
+from detection.scorer import evaluate_window
+
+MODELS_DIR = Path(__file__).resolve().parent / "models"
 
 
 def _run_simulator_generator(
     simulator_path: Path, collection_name: str, amount: int, scenario: str | None = None
 ) -> list[dict]:
-    """Roda um gerador do delta-hardware-data-simulator em modo --dry-run
-    (só imprime os documentos, não insere em lugar nenhum) e devolve o
-    resultado já parseado. Mantém os dois repositórios totalmente
-    desacoplados: sem estado compartilhado no Mongo, sem ambiguidade sobre
-    qual user_id pertence a qual cenário."""
     args = ["python", "-m", "dataload.cli", collection_name, str(amount), "--dry-run"]
     if scenario:
         args += ["--scenario", scenario]
@@ -38,9 +35,7 @@ def load_leak_windows(simulator_path: Path, amount: int = 100) -> list[dict]:
     return _run_simulator_generator(simulator_path, "consumption_summary", amount, scenario="leak")
 
 
-def _doc_to_point(doc: dict):
-    from app.tools.models import ConsumptionPoint
-
+def _doc_to_point(doc: dict) -> ConsumptionPoint:
     return ConsumptionPoint(
         user_id=int(doc["user_id"]),
         window_started_at=doc["window_started_at"],
@@ -50,6 +45,17 @@ def _doc_to_point(doc: dict):
         lpm_average=doc.get("lpm_average"),
         device_id=doc.get("device_id"),
     )
+
+
+def _count_flagged(docs: list[ConsumptionPoint], z_threshold: float) -> int:
+    flagged = 0
+    for i, doc in enumerate(docs):
+        recent = docs[max(0, i - 24):i]
+        hour_mean, hour_std = hour_baseline_from_history(doc.window_started_at.hour, docs)
+        result = evaluate_window(doc, recent, hour_mean, hour_std, "RESIDENCIAL", z_threshold)
+        if result.anomaly_detected:
+            flagged += 1
+    return flagged
 
 
 def main(simulator_path: Path) -> None:
@@ -63,32 +69,19 @@ def main(simulator_path: Path) -> None:
         )
         for i, doc in enumerate(normal_docs)
     ]
-    leak_features = [
-        extract_features(
-            doc, leak_docs[max(0, i - 24):i],
-            *hour_baseline_from_history(doc.window_started_at.hour, leak_docs),
-        )
-        for i, doc in enumerate(leak_docs)
-    ]
-
     z_threshold = calibrate_z_threshold(
         [f.baseline_deviation for f in normal_features], percentile=99
     )
 
-    train_set, validation_set = train_test_split(normal_features, test_size=0.2, random_state=42)
-    model = train_model([f.to_vector() for f in train_set])
-
-    detected = sum(model.predict([f.to_vector()])[0] == -1 for f in leak_features)
-    false_positives = sum(model.predict([f.to_vector()])[0] == -1 for f in validation_set)
+    detected = _count_flagged(leak_docs, z_threshold)
+    false_positives = _count_flagged(normal_docs, z_threshold)
 
     print(f"Z_THRESHOLD calibrado: {z_threshold:.2f}")
-    print(f"Vazamentos detectados: {detected}/{len(leak_features)}")
-    print(f"Falsos positivos (dados normais): {false_positives}/{len(validation_set)}")
+    print(f"Vazamentos detectados: {detected}/{len(leak_docs)}")
+    print(f"Falsos positivos (dados normais): {false_positives}/{len(normal_docs)}")
 
-    save_model(model)
-    (Path(__file__).resolve().parent / "models" / "z_threshold.json").write_text(
-        json.dumps({"z_threshold": z_threshold})
-    )
+    MODELS_DIR.mkdir(parents=True, exist_ok=True)
+    (MODELS_DIR / "z_threshold.json").write_text(json.dumps({"z_threshold": z_threshold}))
 
 
 if __name__ == "__main__":

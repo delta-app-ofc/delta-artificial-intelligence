@@ -1,8 +1,7 @@
-"""Extração das features usadas pelas regras e pelo modelo de detecção."""
+"""Extração das features usadas pelas regras de detecção."""
 
 from __future__ import annotations
 
-import math
 from dataclasses import dataclass
 
 from app.tools.models import ConsumptionPoint
@@ -15,27 +14,9 @@ MIN_FLOW_LITERS = 0.2  # abaixo disso é ruído do sensor, não "fluxo"
 @dataclass(frozen=True)
 class WindowFeatures:
     consumption_liters: float
-    lpm_average: float
-    hour_sin: float
-    hour_cos: float
     is_overnight: int
     consecutive_flow_windows: int
     baseline_deviation: float
-
-    def to_vector(self) -> list[float]:
-        """Ordem fixa usada pelo IsolationForest."""
-        return [
-            self.consumption_liters, self.lpm_average, self.hour_sin,
-            self.hour_cos, float(self.is_overnight),
-            float(self.consecutive_flow_windows), self.baseline_deviation,
-        ]
-
-
-def _cyclical_hour(hour: int) -> tuple[float, float]:
-    """Codifica a hora do dia em seno/cosseno, pra hora 23 ficar "perto"
-    da hora 0 (evita que o modelo veja meia-noite e 23h como opostos)."""
-    angle = 2 * math.pi * hour / 24
-    return math.sin(angle), math.cos(angle)
 
 
 def _count_consecutive_flow(current: ConsumptionPoint, recent_sorted: list[ConsumptionPoint]) -> int:
@@ -56,7 +37,7 @@ def _count_consecutive_flow(current: ConsumptionPoint, recent_sorted: list[Consu
         if window.consumption_liters <= MIN_FLOW_LITERS:
             break
         if window.window_finished_at != expected_end:
-            break  # tem um buraco no tempo: a sequência contínua para aqui
+            break 
         count += 1
         expected_end = window.window_started_at
     return count
@@ -86,15 +67,12 @@ def extract_features(
     hour_std: float,
 ) -> WindowFeatures:
     hour = window.window_started_at.hour
-    hour_sin, hour_cos = _cyclical_hour(hour)
     baseline_deviation = (
         (window.consumption_liters - hour_mean) / hour_std if hour_std > 0 else 0.0
     )
 
     return WindowFeatures(
         consumption_liters=window.consumption_liters,
-        lpm_average=window.lpm_average or 0.0,
-        hour_sin=hour_sin, hour_cos=hour_cos,
         is_overnight=int(OVERNIGHT_START_HOUR <= hour < OVERNIGHT_END_HOUR),
         consecutive_flow_windows=_count_consecutive_flow(window, recent_history),
         baseline_deviation=baseline_deviation,

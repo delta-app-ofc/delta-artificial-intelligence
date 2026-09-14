@@ -1,9 +1,3 @@
-"""Loop de Change Stream: avalia cada janela nova assim que ela é inserida.
-
-Exige o Mongo rodando como replica set (mesmo que de 1 nó só) — ver
-docker-compose.dev.yml e detection/README.md.
-"""
-
 from __future__ import annotations
 
 from datetime import timedelta
@@ -12,7 +6,7 @@ from app.config import MONGO_DB_APP, MONGO_DB_TELEMETRY
 from app.tools.db_mongo import get_client
 from app.tools.db_postgres import get_property_classification
 from app.tools.models import ConsumptionPoint
-from detection import baseline, model as model_module
+from detection import baseline
 from detection.scorer import DetectionResult, evaluate_window
 
 
@@ -41,22 +35,21 @@ def _fetch_history(collection, doc: dict, *, hours: int) -> list[ConsumptionPoin
 
 
 def process_event(
-    doc, recent_history, hour_mean, hour_std, property_classification, model, z_threshold
+    doc, recent_history, hour_mean, hour_std, property_classification, z_threshold
 ) -> DetectionResult:
     """Lógica pura (testável sem Mongo real) — o `watch()` só chama isto."""
     window = _doc_to_consumption_point(doc)
-    return evaluate_window(window, recent_history, hour_mean, hour_std, property_classification, model, z_threshold)
+    return evaluate_window(window, recent_history, hour_mean, hour_std, property_classification, z_threshold)
 
 
 def run(z_threshold: float) -> None:
-    model = model_module.load_model()
     telemetry = get_client()[MONGO_DB_TELEMETRY]
     collection = telemetry.consumption_summary
 
     with collection.watch(
         [{"$match": {"operationType": "insert"}}], full_document="updateLookup"
     ) as stream:
-        for event in stream:                        # fica parado até chegar algo novo
+        for event in stream:                        
             doc = event["fullDocument"]
             hour = doc["window_started_at"].hour
             recent_history = _fetch_history(collection, doc, hours=2)
@@ -67,16 +60,16 @@ def run(z_threshold: float) -> None:
             mean, variance, count = baseline.read_baseline(doc["user_id"], hour)
             hour_std = baseline.hour_std(variance, count)
 
-            result = process_event(doc, recent_history, mean, hour_std, classification, model, z_threshold)
+            result = process_event(doc, recent_history, mean, hour_std, classification, z_threshold)
             baseline.update_baseline(doc["user_id"], hour, float(doc["consumption_liters"]))
 
             collection.update_one({"_id": doc["_id"]}, {"$set": {"anomaly_detected": result.anomaly_detected}})
             if result.anomaly_detected and "continuous_flow" in result.reasons:
                 get_client()[MONGO_DB_APP].alerts_history.insert_one({
                     "device_id": doc["device_id"], "user_id": doc["user_id"],
-                    "alert_type": "vazamento_continuo",  # mantido como está: é um valor do enum
-                    "triggered_at": doc["window_started_at"],  # alert_type já existente, em
-                    "resolved_at": None, "severity": "medium",  # português, compartilhado com o delta-nosql-database
+                    "alert_type": "vazamento_continuo",  
+                    "triggered_at": doc["window_started_at"],  
+                    "resolved_at": None, "severity": "medium",  
                 })
 
 

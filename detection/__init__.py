@@ -1,4 +1,4 @@
-"""Motor de detecção de vazamento — regras explicáveis + Isolation Forest.
+"""Motor de detecção de vazamento — regras explicáveis.
 
 Componente separado do chat de IA (app/): não usa LLM, roda à parte,
 calculando consumption_summary.anomaly_detected e criando alerts_history. O

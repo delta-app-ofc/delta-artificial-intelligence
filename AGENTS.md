@@ -63,7 +63,7 @@ delta-artificial-intelligence/
 │       └── leak/                 # tools + análise do Agente de Vazamento
 │           ├── analysis.py       # resumo descritivo de janelas já sinalizadas
 │           └── tools.py          # as tools que o LLM chama de verdade
-├── detection/                     # motor de detecção de vazamento (regras + Isolation Forest)
+├── detection/                     # motor de detecção de vazamento (regras explicáveis, sem ML)
 ├── db/
 │   ├── postgres-init/            # cópias de bootstrap do delta-sql-database (01..07)
 │   └── mongo-init/seed.js        # seed de teste autoral

@@ -119,15 +119,12 @@ Componente separado do chat, sem LLM: calcula `anomaly_detected` em
 `consumption_summary` e cria alertas em `alerts_history` — exatamente o que o
 Agente de Vazamento só lê.
 
-Combina duas camadas (`detection/scorer.py`):
-
-- **Regras explicáveis** (`detection/rules.py`): fluxo contínuo (janela nunca
-  volta a ~zero por 30+ minutos), consumo de madrugada (só para propriedades
-  `RESIDENCIAL`), desvio extremo da baseline estatística do próprio usuário.
-- **Isolation Forest** (`detection/model.py`, scikit-learn): modelo
-  não-supervisionado, treinado uma vez (`detection/train.py`) sobre dados do
-  `delta-hardware-data-simulator`, que sinaliza padrões multivariados fora do
-  comum que as regras isoladas não previram.
+Detecta com regras explicáveis (`detection/rules.py`, combinadas em
+`detection/scorer.py`): fluxo contínuo (janela nunca volta a ~zero por 30+
+minutos), consumo de madrugada (só para propriedades `RESIDENCIAL`), e desvio
+extremo da baseline estatística do próprio usuário. Nenhum modelo de ML —
+toda decisão é auditável e vem de um `reasons` explícito, nunca de uma
+"caixa-preta".
 
 A baseline por usuário/hora (`detection/baseline.py`) fica guardada no Mongo
 (`db_delta_app.user_hour_baseline`) e é atualizada de forma incremental

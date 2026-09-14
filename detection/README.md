@@ -9,19 +9,19 @@ não o LLM do chat.
 
 ## Como funciona
 
-Duas camadas combinadas (`scorer.evaluate_window`):
+Só regras explicáveis (`rules.py`, combinadas em `scorer.evaluate_window`) —
+sem modelo de ML:
 
-1. **Regras explicáveis** (`rules.py`) — fluxo contínuo (janela nunca volta a
-   ~zero por 30+ min), consumo de madrugada (00h–05h, só pra propriedades
-   `RESIDENCIAL`), desvio extremo da baseline estatística do próprio usuário
-   (z-score por hora do dia, `Z_THRESHOLD` calibrado, não chutado).
-2. **Isolation Forest** (`model.py`, scikit-learn) — modelo não-supervisionado
-   que aprende "o que é normal" a partir do histórico e sinaliza outliers
-   multivariados que as regras sozinhas não previram.
+- **Fluxo contínuo** — janela nunca volta a ~zero por 30+ min.
+- **Consumo de madrugada** — 00h–05h, só pra propriedades `RESIDENCIAL`.
+- **Desvio extremo da baseline** — z-score por hora do dia, `Z_THRESHOLD`
+  calibrado (não chutado). É o sinal mais forte pra propriedades `COMERCIAL`,
+  já que se adapta ao padrão de cada uma sem depender de uma janela de
+  horário fixa.
 
-`anomaly_detected = True` quando **qualquer** regra dispara **ou** o modelo
-marca a janela como outlier. `scorer.DetectionResult.reasons` sempre traz o(s)
-motivo(s) — nunca uma decisão "caixa-preta".
+`anomaly_detected = True` quando **qualquer** regra dispara.
+`scorer.DetectionResult.reasons` sempre traz o(s) motivo(s) — nunca uma
+decisão "caixa-preta".
 
 A regra de madrugada (`overnight_rule`) só se aplica a propriedades
 `RESIDENCIAL` — nunca dispara pra `COMERCIAL` (ver `rules.py`).
@@ -63,17 +63,14 @@ ambiguidade entre os dois cenários.
 ## Rodando
 
 ```bash
-# 1. Instale as dependências extras
-pip install -r requirements.txt -r detection/requirements.txt
-
-# 2. Treine o modelo e calibre o Z_THRESHOLD
+# 1. Calibre o Z_THRESHOLD sobre dados sintéticos
 #    (aponte pro seu clone do delta-hardware-data-simulator)
 python -m detection.train ../repo-simulator/delta-hardware-data-simulator
 
-# 3. Suba o Postgres/Mongo locais (Mongo já em replica set, ver abaixo)
+# 2. Suba o Postgres/Mongo locais (Mongo já em replica set, ver abaixo)
 docker compose -f ../docker-compose.dev.yml up -d
 
-# 4. Rode o watcher (fica escutando o Change Stream)
+# 3. Rode o watcher (fica escutando o Change Stream)
 python -m detection.watcher
 ```
 

@@ -15,8 +15,8 @@ from detection.rules import (
 
 def _features(**overrides) -> WindowFeatures:
     defaults = dict(
-        consumption_liters=1.0, lpm_average=0.2, hour_sin=0.0, hour_cos=1.0,
-        is_overnight=0, consecutive_flow_windows=0, baseline_deviation=0.0,
+        consumption_liters=1.0, is_overnight=0,
+        consecutive_flow_windows=0, baseline_deviation=0.0,
     )
     defaults.update(overrides)
     return WindowFeatures(**defaults)

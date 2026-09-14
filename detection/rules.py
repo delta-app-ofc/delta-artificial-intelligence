@@ -1,5 +1,5 @@
 """
-REGRAS DE DETECÇÃO — heurísticas explicáveis (sem modelo de ML).
+REGRAS DE DETECÇÃO — heurísticas explicáveis.
 
 OBSERVAÇÃO / TRABALHO FUTURO — perfis não residenciais:
 `overnight_rule` assume rotina "residencial" (baixo consumo 00h-05h). Isso NÃO

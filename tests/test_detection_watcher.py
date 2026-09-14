@@ -8,16 +8,6 @@ from datetime import datetime, timedelta
 from detection.watcher import _doc_to_consumption_point, process_event
 
 
-class _StubModel:
-    """Nunca marca outlier — isola o teste no comportamento das regras."""
-
-    def predict(self, vectors):
-        return [1] * len(vectors)
-
-    def decision_function(self, vectors):
-        return [0.1] * len(vectors)
-
-
 def _doc(when: datetime, liters: float) -> dict:
     return {
         "device_id": "ESP32TEST",
@@ -47,7 +37,7 @@ def test_process_event_flags_continuous_overnight_flow():
     # hour_mean/hour_std = 0.0: sem baseline ainda pra esse usuário/hora — as
     # regras de fluxo contínuo e madrugada não dependem disso.
     result = process_event(
-        current_doc, recent_history, 0.0, 0.0, "RESIDENCIAL", _StubModel(), z_threshold=3.0
+        current_doc, recent_history, 0.0, 0.0, "RESIDENCIAL", z_threshold=3.0
     )
     assert result.anomaly_detected is True
     assert "continuous_flow" in result.reasons
@@ -58,6 +48,6 @@ def test_process_event_does_not_flag_an_isolated_daytime_window():
     when = datetime(2026, 9, 15, 12, 0, 0)
     current_doc = _doc(when, 5.0)
 
-    result = process_event(current_doc, [], 0.0, 0.0, "RESIDENCIAL", _StubModel(), z_threshold=3.0)
+    result = process_event(current_doc, [], 0.0, 0.0, "RESIDENCIAL", z_threshold=3.0)
     assert result.anomaly_detected is False
     assert result.reasons == []
