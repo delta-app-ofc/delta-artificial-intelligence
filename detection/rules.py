@@ -4,7 +4,7 @@ REGRAS DE DETECÇÃO — heurísticas explicáveis (sem modelo de ML).
 OBSERVAÇÃO / TRABALHO FUTURO — perfis não residenciais:
 `overnight_rule` assume rotina "residencial" (baixo consumo 00h-05h). Isso NÃO
 vale pra `tb_property.classification = 'COMERCIAL'` (ex.: comércio/indústria
-com operação/turno noturno). Hoje o schema (delta-database) não tem uma
+com operação/turno noturno). Hoje o schema (delta-sql-database) não tem uma
 tabela de horário de funcionamento por propriedade; quando/se existir,
 `overnight_rule` deve: (1) consultar a classificação e os turnos cadastrados;
 (2) só aplicar a janela "00h-05h suspeita" quando não houver operação noturna

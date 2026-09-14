@@ -1,6 +1,6 @@
 """Acesso de LEITURA ao PostgreSQL cadastral/transacional do Projeto Delta.
 
-Espelha o schema e as funções do repositório delta-database (fonte de
+Espelha o schema e as funções do repositório delta-sql-database (fonte de
 verdade). Esta tarefa só LÊ tabelas e reaproveita funções que já existem lá:
 fn_user_is_active, fn_get_property_region, fn_get_current_region_rate,
 fn_user_can_estimate e fn_get_property_classification.

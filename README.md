@@ -32,7 +32,7 @@ cp .env.example .env
 
 - **Postgres** (porta 5432): schema e funções inicializados por
   `db/postgres-init/`, cópias de bootstrap do repositório
-  `delta-app-ofc/delta-database` — a fonte de verdade do schema continua lá
+  `delta-app-ofc/delta-sql-database` — a fonte de verdade do schema continua lá
   (detalhe de origem de cada arquivo em `db/README.md`).
 - **Mongo** (porta 27017, replica set de 1 nó): inicializado por
   `db/mongo-init/seed.js`, autoral deste repositório. O replica set existe

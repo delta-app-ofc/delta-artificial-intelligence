@@ -4,12 +4,12 @@ Estes arquivos servem **só** para `docker-compose.dev.yml` subir um Postgres e 
 MongoDB locais já populados (ver `TASK.md`, item 0.2). **Não** são fonte de
 verdade de schema nem de modelagem.
 
-## `postgres-init/` — cópias do `delta-database`
+## `postgres-init/` — cópias do `delta-sql-database`
 
 Rodam em ordem alfabética na primeira inicialização do container
 (`/docker-entrypoint-initdb.d`):
 
-| Arquivo local | Origem em `delta-app-ofc/delta-database` |
+| Arquivo local | Origem em `delta-app-ofc/delta-sql-database` |
 |---|---|
 | `01-schema.sql` | `script-schema.sql` (cria as 12 tabelas) |
 | `02-fn_user_is_active.sql` | `functions/fn_user_is_active.sql` |
@@ -19,9 +19,9 @@ Rodam em ordem alfabética na primeira inicialização do container
 | `06-fn_get_property_classification.sql` | `functions/fn_get_property_classification.sql` (nova, mesmo padrão de `fn_get_property_region`) |
 | `07-dataload.sql` | `script-dataload.sql` (~200 usuários e dados verossímeis) |
 
-Cópia feita a partir do commit `35becd9` do `delta-database` (esse repositório já
-se chamou `delta-sql-database` — o nome antigo ainda redireciona no GitHub, mas
-o nome atual é `delta-database`). O schema real continua sendo mantido lá — se
+Cópia feita a partir do commit `35becd9` do `delta-sql-database` (esse
+repositório também é conhecido pelo nome `delta-database` no GitHub — a URL
+antiga redireciona pra essa). O schema real continua sendo mantido lá — se
 ele mudar, estas cópias precisam ser re-sincronizadas (não edite-as à mão).
 
 Fatos do dataload usados pelos testes:

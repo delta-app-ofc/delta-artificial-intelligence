@@ -55,7 +55,7 @@ delta-artificial-intelligence/
 │   └── tools/
 │       ├── exceptions.py         # todas as exceções do projeto
 │       ├── models.py             # dataclasses (LastWaterBill, ConsumptionPoint, Alert)
-│       ├── db_postgres.py        # leitura crua do PostgreSQL (delta-database)
+│       ├── db_postgres.py        # leitura crua do PostgreSQL (delta-sql-database)
 │       ├── db_mongo.py           # leitura crua do MongoDB (delta-nosql-database)
 │       ├── forecast/             # tools + cálculo do Agente de Previsão
 │       │   ├── calculations.py   # cálculo determinístico (sem LLM)
@@ -65,7 +65,7 @@ delta-artificial-intelligence/
 │           └── tools.py          # as tools que o LLM chama de verdade
 ├── detection/                     # motor de detecção de vazamento (regras + Isolation Forest)
 ├── db/
-│   ├── postgres-init/            # cópias de bootstrap do delta-database (01..07)
+│   ├── postgres-init/            # cópias de bootstrap do delta-sql-database (01..07)
 │   └── mongo-init/seed.js        # seed de teste autoral
 ├── docker-compose.dev.yml        # Postgres + Mongo locais para dev manual (Mongo em replica set)
 ├── tests/                        # pytest — cobre agentes + cálculo puro + detection, sem banco
