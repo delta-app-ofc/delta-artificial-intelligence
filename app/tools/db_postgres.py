@@ -1,0 +1,202 @@
+"""Acesso de LEITURA ao PostgreSQL cadastral/transacional do Projeto Delta.
+
+Espelha o schema e as funções do repositório delta-database (fonte de
+verdade). Esta tarefa só LÊ tabelas e reaproveita funções que já existem lá:
+fn_user_is_active, fn_get_property_region, fn_get_current_region_rate,
+fn_user_can_estimate e fn_get_property_classification.
+
+Achamos e descartamos usar a API REST (delta-api-postgres) aqui: ela hoje só
+tem endpoints de CRUD por id (property, device, region-rate, habit...) e não
+tem nenhum jeito de ir de user_id até propriedade/região/última conta — que é
+exatamente o que toda função abaixo precisa. Se um dia existir um endpoint
+"propriedades do usuário", vale reconsiderar.
+
+As funções deste módulo levantam exceção em caso de erro, para os testes
+poderem verificar isso diretamente. Quem embrulha essas chamadas numa tool de
+agente (app/tools/forecast/tools.py, app/tools/leak/tools.py) é quem converte
+a exceção em algo tipo {"status": "error", ...}.
+"""
+
+from __future__ import annotations
+
+from datetime import date
+from decimal import Decimal
+
+import psycopg2
+
+from app.config import (
+    DATABASE_URL,
+    HOST_DB,
+    NAME_DB,
+    PASSWORD_DB,
+    PORT_DB,
+    USER_DB,
+)
+from app.tools.exceptions import RegionRateNotFound
+from app.tools.models import LastWaterBill
+
+
+def get_conn():
+    """Abre e devolve uma conexão com o Postgres. Quem chama é responsável por fechar.
+
+    Prefere as cinco variáveis separadas (HOST_DB/PORT_DB/...) quando todas
+    estiverem definidas; caso contrário usa DATABASE_URL. Esse duplo caminho
+    existe para facilitar a reconciliação futura com a configuração oficial (P4).
+    """
+    if all((HOST_DB, PORT_DB, USER_DB, PASSWORD_DB, NAME_DB)):
+        return psycopg2.connect(
+            host=HOST_DB,
+            port=PORT_DB,
+            user=USER_DB,
+            password=PASSWORD_DB,
+            dbname=NAME_DB,
+        )
+    return psycopg2.connect(DATABASE_URL)
+
+
+def user_can_estimate(user_id: int) -> bool:
+    """Reproduz fn_user_can_estimate: usuário ativo, propriedade vinculada,
+    dispositivo ativo e tarifa cadastrada para a região.
+
+    Deve ser chamado ANTES de qualquer estimativa de previsão. Quando retorna
+    False, o agente responde "dados insuficientes" e não calcula nada.
+    """
+    conn = get_conn()
+    cur = conn.cursor()
+    try:
+        cur.execute("SELECT fn_user_can_estimate(%s);", (user_id,))
+        row = cur.fetchone()
+        return bool(row[0]) if row is not None else False
+    finally:
+        cur.close()
+        conn.close()
+
+
+def get_user_property_id(user_id: int) -> int | None:
+    """Id da (primeira) propriedade vinculada ao usuário, ou None."""
+    conn = get_conn()
+    cur = conn.cursor()
+    try:
+        cur.execute(
+            """
+            SELECT property_id
+              FROM tb_user_property
+             WHERE user_id = %s
+             ORDER BY id
+             LIMIT 1;
+            """,
+            (user_id,),
+        )
+        row = cur.fetchone()
+        return int(row[0]) if row is not None else None
+    finally:
+        cur.close()
+        conn.close()
+
+
+def get_user_region_id(user_id: int) -> int | None:
+    """Id da região da (primeira) propriedade do usuário, ou None.
+
+    Mesmo caminho de join que fn_user_can_estimate percorre internamente:
+    tb_user_property -> tb_property -> tb_address.region_id.
+    """
+    conn = get_conn()
+    cur = conn.cursor()
+    try:
+        cur.execute(
+            """
+            SELECT a.region_id
+              FROM tb_user_property up
+              JOIN tb_property p ON p.id = up.property_id
+              JOIN tb_address  a ON a.id = p.address_id
+             WHERE up.user_id = %s
+             ORDER BY up.id
+             LIMIT 1;
+            """,
+            (user_id,),
+        )
+        row = cur.fetchone()
+        return int(row[0]) if row is not None else None
+    finally:
+        cur.close()
+        conn.close()
+
+
+def get_current_region_rate(region_id: int, on_date: date) -> Decimal:
+    """Tarifa vigente (R$/m³) da região na data, via fn_get_current_region_rate.
+
+    Levanta RegionRateNotFound quando não há tarifa válida — em vez de deixar
+    o erro cru do Postgres vazar.
+    """
+    conn = get_conn()
+    cur = conn.cursor()
+    try:
+        cur.execute("SELECT fn_get_current_region_rate(%s, %s);", (region_id, on_date))
+        row = cur.fetchone()
+        if row is None or row[0] is None:
+            raise RegionRateNotFound(
+                f"Sem tarifa vigente para a região {region_id} em {on_date}."
+            )
+        return Decimal(str(row[0]))
+    except psycopg2.errors.RaiseException as exc:  # type: ignore[attr-defined]
+        raise RegionRateNotFound(
+            f"Sem tarifa vigente para a região {region_id} em {on_date}."
+        ) from exc
+    finally:
+        cur.close()
+        conn.close()
+
+
+def get_property_classification(user_id: int) -> str | None:
+    """Classificação (RESIDENCIAL/COMERCIAL) da (primeira) propriedade do
+    usuário, ou None se ele não tiver propriedade. Usada pelo motor de
+    detecção (detection/) para não aplicar a regra de madrugada a
+    propriedades comerciais/industriais.
+
+    Duas consultas: acha o property_id do usuário aqui mesmo (igual
+    get_user_region_id faz), depois chama fn_get_property_classification —
+    a mesma função do banco que fn_get_property_region já usa, só que para
+    classification em vez de região.
+    """
+    property_id = get_user_property_id(user_id)
+    if property_id is None:
+        return None
+
+    conn = get_conn()
+    cur = conn.cursor()
+    try:
+        cur.execute("SELECT fn_get_property_classification(%s);", (property_id,))
+        row = cur.fetchone()
+        return str(row[0]) if row is not None and row[0] is not None else None
+    finally:
+        cur.close()
+        conn.close()
+
+
+def get_last_water_bill(user_id: int) -> LastWaterBill | None:
+    """Conta de água mais recente do usuário em tb_last_water_bill, ou None."""
+    conn = get_conn()
+    cur = conn.cursor()
+    try:
+        cur.execute(
+            """
+            SELECT user_id, month, total_value, m3_value
+              FROM tb_last_water_bill
+             WHERE user_id = %s
+             ORDER BY month DESC
+             LIMIT 1;
+            """,
+            (user_id,),
+        )
+        row = cur.fetchone()
+        if row is None:
+            return None
+        return LastWaterBill(
+            user_id=int(row[0]),
+            month=row[1],
+            total_value=Decimal(str(row[2])),
+            m3_value=Decimal(str(row[3])),
+        )
+    finally:
+        cur.close()
+        conn.close()
