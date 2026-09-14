@@ -1,11 +1,3 @@
-"""CLI: monta o dataset (normal + vazamento, os dois vindos do --dry-run do
-simulador), calibra o Z_THRESHOLD, treina o Isolation Forest, salva tudo e
-imprime as métricas de validação.
-
-Uso:
-    python -m detection.train <caminho-do-clone-do-delta-hardware-data-simulator>
-"""
-
 from __future__ import annotations
 
 import json
@@ -64,9 +56,6 @@ def main(simulator_path: Path) -> None:
     normal_docs = [_doc_to_point(d) for d in load_normal_windows(simulator_path)]
     leak_docs = [_doc_to_point(d) for d in load_leak_windows(simulator_path)]
 
-    # Treino em lote: calcula a baseline direto do próprio lote sintético
-    # (hour_baseline_from_history), diferente do caminho ao vivo, que usa a
-    # baseline incremental guardada (detection/baseline.py).
     normal_features = [
         extract_features(
             doc, normal_docs[max(0, i - 24):i],
@@ -86,8 +75,6 @@ def main(simulator_path: Path) -> None:
         [f.baseline_deviation for f in normal_features], percentile=99
     )
 
-    # train_test_split é do scikit-learn: separa aleatoriamente uma parte
-    # (aqui, 20%) pra validação, deixando o resto pro treino.
     train_set, validation_set = train_test_split(normal_features, test_size=0.2, random_state=42)
     model = train_model([f.to_vector() for f in train_set])
 
