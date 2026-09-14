@@ -1,0 +1,7 @@
+# Dependências específicas do motor de detecção, além das já exigidas pelo
+# requirements.txt principal (pymongo/bson, psycopg2-binary, python-dotenv).
+# Instale junto:
+#   pip install -r requirements.txt -r detection/requirements.txt
+scikit-learn
+numpy
+joblib
