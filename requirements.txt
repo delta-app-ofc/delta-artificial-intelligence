@@ -2,10 +2,10 @@ fastapi
 uvicorn[standard]
 python-dotenv
 pydantic
-langchain
-langchain-google-genai
-langchain-groq
-langgraph
+langchain>=1.2,<2
+langchain-google-genai>=4.2,<5
+langchain-groq>=1.1,<2
+langgraph>=1.0,<2
 psycopg2-binary
 pymongo
 redis

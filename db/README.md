@@ -25,9 +25,11 @@ ele mudar, estas cópias precisam ser re-sincronizadas (não edite-as à mão).
 
 Fatos do dataload usados pelos testes:
 
-- usuários **1–149**: `fn_user_can_estimate` = `TRUE` (ativo + propriedade +
-  dispositivo ativo + tarifa da região cadastrada);
-- usuário **150**: dispositivo `is_active = FALSE` → `fn_user_can_estimate` = `FALSE`;
+- usuários **1–150, exceto múltiplos de 10** (10, 20, 30 ... 150):
+  `fn_user_can_estimate` = `TRUE` (ativo + propriedade + dispositivo ativo +
+  tarifa da região cadastrada);
+- usuários **múltiplos de 10 entre 10 e 150**: dispositivo `is_active = FALSE`
+  → `fn_user_can_estimate` = `FALSE`;
 - usuários **151–200**: têm `tb_last_water_bill` mas **não** têm propriedade/dispositivo
   → `fn_user_can_estimate` = `FALSE`;
 - `tb_region_rate` tem tarifa vigente (`2025-01-01` → aberto) para as 5 regiões.
