@@ -2,9 +2,10 @@
 
 Função pura: só AGREGA o que db_mongo.get_anomalous_consumption_windows já
 retornou (janelas com anomaly_detected true, sinalizadas por outro componente
-do sistema — o motor de detecção em detection/). Não cria limiar novo, não
-decide por conta própria se algo é ou não indício — isso violaria a regra do
-prompt do Agente de Vazamento ("nunca invente limiares/padrões").
+do sistema — o motor de detecção no repositório delta-business-rules). Não
+cria limiar novo, não decide por conta própria se algo é ou não indício —
+isso violaria a regra do prompt do Agente de Vazamento ("nunca invente
+limiares/padrões").
 
 O objetivo é só dar ao agente material para explicar, em linguagem natural, o
 padrão que já foi sinalizado (quantas janelas, quando começaram, quanto tempo

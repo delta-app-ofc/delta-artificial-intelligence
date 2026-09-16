@@ -2,8 +2,8 @@
 
 Espelha o schema e as funções do repositório delta-sql-database (fonte de
 verdade). Esta tarefa só LÊ tabelas e reaproveita funções que já existem lá:
-fn_user_is_active, fn_get_property_region, fn_get_current_region_rate,
-fn_user_can_estimate e fn_get_property_classification.
+fn_user_is_active, fn_get_property_region, fn_get_current_region_rate e
+fn_user_can_estimate.
 
 Achamos e descartamos usar a API REST (delta-api-postgres) aqui: ela hoje só
 tem endpoints de CRUD por id (property, device, region-rate, habit...) e não
@@ -72,28 +72,6 @@ def user_can_estimate(user_id: int) -> bool:
         conn.close()
 
 
-def get_user_property_id(user_id: int) -> int | None:
-    """Id da (primeira) propriedade vinculada ao usuário, ou None."""
-    conn = get_conn()
-    cur = conn.cursor()
-    try:
-        cur.execute(
-            """
-            SELECT property_id
-              FROM tb_user_property
-             WHERE user_id = %s
-             ORDER BY id
-             LIMIT 1;
-            """,
-            (user_id,),
-        )
-        row = cur.fetchone()
-        return int(row[0]) if row is not None else None
-    finally:
-        cur.close()
-        conn.close()
-
-
 def get_user_region_id(user_id: int) -> int | None:
     """Id da região da (primeira) propriedade do usuário, ou None.
 
@@ -142,32 +120,6 @@ def get_current_region_rate(region_id: int, on_date: date) -> Decimal:
         raise RegionRateNotFound(
             f"Sem tarifa vigente para a região {region_id} em {on_date}."
         ) from exc
-    finally:
-        cur.close()
-        conn.close()
-
-
-def get_property_classification(user_id: int) -> str | None:
-    """Classificação (RESIDENCIAL/COMERCIAL) da (primeira) propriedade do
-    usuário, ou None se ele não tiver propriedade. Usada pelo motor de
-    detecção (detection/) para não aplicar a regra de madrugada a
-    propriedades comerciais/industriais.
-
-    Duas consultas: acha o property_id do usuário aqui mesmo (igual
-    get_user_region_id faz), depois chama fn_get_property_classification —
-    a mesma função do banco que fn_get_property_region já usa, só que para
-    classification em vez de região.
-    """
-    property_id = get_user_property_id(user_id)
-    if property_id is None:
-        return None
-
-    conn = get_conn()
-    cur = conn.cursor()
-    try:
-        cur.execute("SELECT fn_get_property_classification(%s);", (property_id,))
-        row = cur.fetchone()
-        return str(row[0]) if row is not None and row[0] is not None else None
     finally:
         cur.close()
         conn.close()

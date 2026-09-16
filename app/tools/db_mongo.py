@@ -4,7 +4,8 @@ Dois bancos lógicos, conforme a modelagem oficial (delta-nosql-database):
 
 - db_delta_telemetry.consumption_summary — janelas de 5 min já consolidadas,
   com o campo anomaly_detected calculado por outro componente do sistema
-  (o motor de detecção em detection/), não pelo agente de chat.
+  (o motor de detecção no repositório delta-business-rules), não pelo agente
+  de chat.
 - db_delta_app.user_preferences — preferências do usuário (meta diária).
 - db_delta_app.alerts_history — alertas já disparados.
 

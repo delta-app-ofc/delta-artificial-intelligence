@@ -25,10 +25,6 @@ services:
   mongo:
     image: mongo:7
     container_name: delta_ia_mongo_dev
-    # --replSet: necessário para MongoDB Change Streams, usados pelo motor de
-    # detecção de vazamento (detection/watcher.py) para reagir quase em tempo
-    # real a novas janelas de consumo. Um replica set de 1 nó já basta em dev.
-    command: ["--replSet", "rs0", "--bind_ip_all"]
     ports:
       - "27017:27017"
     volumes:
@@ -38,16 +34,3 @@ services:
       interval: 3s
       timeout: 5s
       retries: 20
-
-  # Roda uma vez (na primeira subida) pra inicializar o replica set do serviço
-  # `mongo` acima. Sem isso, o Mongo sobe respondendo a ping, mas sem oplog —
-  # e os Change Streams do detection/watcher.py não funcionam.
-  mongo-init-replica:
-    image: mongo:7
-    depends_on:
-      mongo:
-        condition: service_healthy
-    restart: "no"
-    entrypoint: >
-      mongosh --host mongo --quiet --eval
-      "try { rs.status() } catch (e) { rs.initiate() }"

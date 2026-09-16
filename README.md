@@ -1,10 +1,15 @@
 # delta-artificial-intelligence
 
 Chatbot de IA do Projeto Delta — plataforma de monitoramento inteligente de
-consumo residencial de água. Este repositório reúne os agentes especialistas,
-as tools de acesso a dados e o motor de detecção de vazamento; a API HTTP
-(FastAPI), o roteamento entre agentes (LangGraph), guardrails e memória de
-sessão ainda são só o esqueleto de pastas, sem implementação.
+consumo residencial de água. Este repositório reúne os agentes especialistas
+e as tools de acesso a dados; a API HTTP (FastAPI), o roteamento entre
+agentes (LangGraph), guardrails e memória de sessão ainda são só o esqueleto
+de pastas, sem implementação.
+
+O motor de detecção de vazamento (regras que calculam `anomaly_detected` e
+criam alertas) não usa LLM e por isso mora em outro repositório,
+[`delta-business-rules`](https://github.com/delta-app-ofc/delta-business-rules)
+— o `LeakAgent` aqui só lê o que ele já sinalizou.
 
 Convenção de código: identificadores (nomes de arquivo, função, classe,
 variável) em **inglês**; comentários, docstrings e o conteúdo dos prompts em
@@ -34,10 +39,8 @@ cp .env.example .env
   `db/postgres-init/`, cópias de bootstrap do repositório
   `delta-app-ofc/delta-sql-database` — a fonte de verdade do schema continua lá
   (detalhe de origem de cada arquivo em `db/README.md`).
-- **Mongo** (porta 27017, replica set de 1 nó): inicializado por
-  `db/mongo-init/seed.js`, autoral deste repositório. O replica set existe
-  porque o motor de detecção de vazamento usa MongoDB Change Streams, que
-  exigem isso (ver seção do motor abaixo).
+- **Mongo** (porta 27017): inicializado por `db/mongo-init/seed.js`, autoral
+  deste repositório.
 
 ## Testes
 
@@ -47,8 +50,8 @@ python -m pytest -q
 ```
 
 Todos os testes são puros ou usam LLM falso/tools stubadas — nenhum depende
-de Postgres/Mongo rodando. Cobrem os dois agentes, o cálculo determinístico da
-previsão e o motor de detecção (regras, EWMA da baseline, scorer).
+de Postgres/Mongo rodando. Cobrem os dois agentes e o cálculo determinístico
+da previsão.
 
 ## Estrutura de `app/tools/`
 
@@ -113,41 +116,24 @@ sinalizado e explicita que é um indício, não uma certeza.
 - Sem tool de limiar/detecção própria: quem decide o que é indício é o motor
   de detecção, descrito a seguir.
 
-## Motor de detecção de vazamento (`detection/`)
+## Motor de detecção de vazamento — repositório `delta-business-rules`
 
-Componente separado do chat, sem LLM: calcula `anomaly_detected` em
-`consumption_summary` e cria alertas em `alerts_history` — exatamente o que o
-Agente de Vazamento só lê.
-
-Detecta com regras explicáveis (`detection/rules.py`, combinadas em
-`detection/scorer.py`): fluxo contínuo (janela nunca volta a ~zero por 30+
-minutos), consumo de madrugada (só para propriedades `RESIDENCIAL`), e desvio
-extremo da baseline estatística do próprio usuário. Nenhum modelo de ML —
-toda decisão é auditável e vem de um `reasons` explícito, nunca de uma
-"caixa-preta".
-
-A baseline por usuário/hora (`detection/baseline.py`) fica guardada no Mongo
-(`db_delta_app.user_hour_baseline`) e é atualizada de forma incremental
-(EWMA) a cada janela nova, em vez de reler o histórico inteiro do usuário a
-cada vez. `detection/watcher.py` reage quase em tempo real via MongoDB Change
-Streams — por isso o Mongo local roda como replica set.
-
-Detalhe completo de cada peça, com o motivo de cada escolha, em
-[`detection/README.md`](detection/README.md).
+Quem calcula `anomaly_detected` em `consumption_summary` e cria alertas em
+`alerts_history` não mora aqui: é um componente sem LLM (regras explicáveis +
+baseline estatística incremental), e por não precisar de IA generativa vive
+no repositório
+[`delta-app-ofc/delta-business-rules`](https://github.com/delta-app-ofc/delta-business-rules)
+(pasta `detection/` lá). O Agente de Vazamento deste repositório só lê o que
+já foi sinalizado — nunca decide um limiar sozinho.
 
 ## Acesso a dados: SQL direto ao Postgres
 
 `app/tools/db_postgres.py` lê o Postgres direto (SQL + as funções do banco:
-`fn_user_can_estimate`, `fn_get_current_region_rate`,
-`fn_get_property_classification`), em vez de passar pela API REST
-`delta-api-postgres`. Essa API hoje só tem endpoints de CRUD por id
+`fn_user_can_estimate`, `fn_get_current_region_rate`), em vez de passar pela
+API REST `delta-api-postgres`. Essa API hoje só tem endpoints de CRUD por id
 (`/delta/property/{id}`, `/delta/device/{id}`, `/delta/region-rate/{regionId}`
 etc.) e nenhum caminho de `user_id` até propriedade/região/última conta — que
 é o que toda tool de Previsão precisa.
-
-`get_property_classification` usa uma função nova no banco,
-`fn_get_property_classification(property_id)`, no mesmo padrão de
-`fn_get_property_region` (que já existia).
 
 ## `app/services/prompts.py` e `app/services/llms.py`
 

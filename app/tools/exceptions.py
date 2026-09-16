@@ -9,10 +9,3 @@ class RegionRateNotFound(RuntimeError):
 
 class ForecastUnavailableError(RuntimeError):
     """O usuário não está apto a receber estimativas (fn_user_can_estimate = false)."""
-
-
-class ModelNotTrainedError(RuntimeError):
-    """O modelo de detecção de vazamento ainda não foi treinado.
-
-    Rode python -m detection.train antes de usar o watcher.
-    """

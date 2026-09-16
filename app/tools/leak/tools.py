@@ -1,7 +1,7 @@
 """As tools de verdade do Agente de Vazamento — o que o LLM efetivamente chama.
 
 Só MongoDB, sem tool de cálculo/limiar próprio: o indício vem do que o motor
-de detecção (detection/) já sinalizou.
+de detecção (repositório delta-business-rules) já sinalizou.
 """
 
 from __future__ import annotations

@@ -33,8 +33,10 @@ O esqueleto de pastas da arquitetura multiagente existe, mas a maior parte dos a
 afirme que rotas, LangGraph, guardrails, memória, observabilidade ou os demais agentes estão funcionais sem
 conferir o código real e validar a execução. O que já foi implementado (branch `feat/arquitetura-inicial`):
 `app/services/{llms,prompts}.py`; `app/config.py` (dev local); as tools em `app/tools/`; os agentes
-`app/agents/{forecast,leak}.py`; o motor de detecção `detection/`; o ambiente local `docker-compose.dev.yml` +
-`db/`; e a suíte `tests/`.
+`app/agents/{forecast,leak}.py`; o ambiente local `docker-compose.dev.yml` + `db/`; e a suíte `tests/`.
+
+O motor de detecção de vazamento (`anomaly_detected`, `alerts_history`) não usa LLM e por isso não mora aqui —
+fica no repositório `delta-business-rules`. Este repositório só lê o que ele já calculou.
 
 Convenção de código: identificadores (arquivo/função/classe/variável) em inglês; comentários, docstrings e o
 conteúdo dos prompts em português.
@@ -63,12 +65,11 @@ delta-artificial-intelligence/
 │       └── leak/                 # tools + análise do Agente de Vazamento
 │           ├── analysis.py       # resumo descritivo de janelas já sinalizadas
 │           └── tools.py          # as tools que o LLM chama de verdade
-├── detection/                     # motor de detecção de vazamento (regras explicáveis, sem ML)
 ├── db/
-│   ├── postgres-init/            # cópias de bootstrap do delta-sql-database (01..07)
+│   ├── postgres-init/            # cópias de bootstrap do delta-sql-database (01..06)
 │   └── mongo-init/seed.js        # seed de teste autoral
-├── docker-compose.dev.yml        # Postgres + Mongo locais para dev manual (Mongo em replica set)
-├── tests/                        # pytest — cobre agentes + cálculo puro + detection, sem banco
+├── docker-compose.dev.yml        # Postgres + Mongo locais para dev manual
+├── tests/                        # pytest — cobre agentes + cálculo puro, sem banco
 ├── .env.example                 # nomes de variáveis, sem segredos
 ├── requirements.txt / requirements-dev.txt
 └── README.md

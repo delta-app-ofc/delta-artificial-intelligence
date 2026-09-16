@@ -16,8 +16,7 @@ Rodam em ordem alfabética na primeira inicialização do container
 | `03-fn_get_property_region.sql` | `functions/fn_get_property_region.sql` |
 | `04-fn_get_current_region_rate.sql` | `functions/fn_get_current_region_rate.sql` |
 | `05-fn_user_can_estimate.sql` | `functions/fn_user_can_estimate.sql` (depende das 3 acima) |
-| `06-fn_get_property_classification.sql` | `functions/fn_get_property_classification.sql` (nova, mesmo padrão de `fn_get_property_region`) |
-| `07-dataload.sql` | `script-dataload.sql` (~200 usuários e dados verossímeis) |
+| `06-dataload.sql` | `script-dataload.sql` (~200 usuários e dados verossímeis) |
 
 Cópia feita a partir do commit `35becd9` do `delta-sql-database` (esse
 repositório também é conhecido pelo nome `delta-database` no GitHub — a URL

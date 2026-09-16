@@ -3,8 +3,8 @@
 Este arquivo é só a "cola": pega o prompt, pega as tools prontas (definidas em
 app/tools/leak/tools.py, não aqui) e roda o laço de tool-calling
 (app/agents/_runtime.py). Identifica INDÍCIOS de vazamento a partir de sinais
-que o motor de detecção (detection/) já calculou — nunca inventa limiar ou
-padrão, nunca dá diagnóstico definitivo.
+que o motor de detecção (repositório delta-business-rules) já calculou —
+nunca inventa limiar ou padrão, nunca dá diagnóstico definitivo.
 """
 
 from __future__ import annotations
