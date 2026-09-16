@@ -3,7 +3,7 @@ from __future__ import annotations
 from typing import Any
 
 from app.agents._runtime import AgentResult, run_agent
-from app.services.prompts import VAZAMENTO_PROMPT_COMPLETO
+from app.services.prompts import vazamento_prompt_completo
 from app.tools.leak.tools import build_tools
 
 
@@ -20,7 +20,7 @@ class LeakAgent:
     def run(self, question: str) -> AgentResult:
         return run_agent(
             llm=self.llm,
-            system_prompt=VAZAMENTO_PROMPT_COMPLETO,
+            system_prompt=vazamento_prompt_completo(),
             tools=self.tools,
             question=question,
         )

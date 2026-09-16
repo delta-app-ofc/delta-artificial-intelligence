@@ -4,7 +4,7 @@ from datetime import date
 from typing import Any
 
 from app.agents._runtime import AgentResult, run_agent
-from app.services.prompts import PREVISAO_PROMPT_COMPLETO
+from app.services.prompts import previsao_prompt_completo
 from app.tools.forecast.tools import build_tools
 
 
@@ -23,7 +23,7 @@ class ForecastAgent:
     def run(self, question: str) -> AgentResult:
         return run_agent(
             llm=self.llm,
-            system_prompt=PREVISAO_PROMPT_COMPLETO,
+            system_prompt=previsao_prompt_completo(),
             tools=self.tools,
             question=question,
         )

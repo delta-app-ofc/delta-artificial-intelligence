@@ -37,6 +37,15 @@ _data_hora_fmt = _agora.strftime(
 )
 
 
+def _contexto_temporal_atual() -> str:
+    """Data/hora em UTC calculada no momento da chamada (não no import do
+    módulo), para PREVISAO_PROMPT/VAZAMENTO_PROMPT não ficarem com uma
+    referência temporal presa ao instante em que o processo iniciou."""
+    agora = datetime.now(timezone.utc)
+    data_hora_fmt = agora.strftime("%A, %d de %B de %Y — %H:%M:%S UTC")
+    return _CONTEXTO_TEMPORAL_TEMPLATE.format(data_hora_fmt=data_hora_fmt)
+
+
 # ==============================================================================
 # PERSONA COMPARTILHADA
 # ==============================================================================
@@ -74,15 +83,15 @@ Nunca invente informações para completar uma resposta.
 
 
 # ==============================================================================
-# CONTEXTO TEMPORAL 
+# CONTEXTO TEMPORAL
 # ==============================================================================
 
-_CONTEXTO_TEMPORAL = f"""
+_CONTEXTO_TEMPORAL_TEMPLATE = """
 ### CONTEXTO TEMPORAL
 
 Data e hora atual fornecida pelo sistema:
 
-{_data_hora_fmt}
+{data_hora_fmt}
 
 Utilize esta referência para interpretar expressões como:
 
@@ -101,6 +110,8 @@ a janela temporal antes de realizar a consulta.
 
 Nunca invente datas ou períodos.
 """
+
+_CONTEXTO_TEMPORAL = _CONTEXTO_TEMPORAL_TEMPLATE.format(data_hora_fmt=_data_hora_fmt)
 
 
 # ==============================================================================
@@ -676,10 +687,11 @@ PERFIL_PROMPT_COMPLETO = (
 # AGENTE 4 — PREVISÃO
 # ==============================================================================
 
-PREVISAO_PROMPT = f"""
+def _previsao_prompt() -> str:
+    return f"""
 {PERSONA_SISTEMA}
 
-{_CONTEXTO_TEMPORAL}
+{_contexto_temporal_atual()}
 
 ### ENTRADA E OBJETIVO
 
@@ -788,21 +800,22 @@ Considere como dados reais somente a solicitação atual e os
 resultados efetivamente retornados pelas ferramentas.
 """
 
-PREVISAO_PROMPT_COMPLETO = (
-    PREVISAO_PROMPT
-    + "\n\n"
-    + PREVISAO_SHOTS_OPEN
-    + "\n\n"
-    + PREVISAO_SHOT_1
-    + "\n\n"
-    + PREVISAO_SHOT_2
-    + "\n\n"
-    + PREVISAO_SHOT_3
-    + "\n\n"
-    + PREVISAO_SHOT_4
-    + "\n\n"
-    + PREVISAO_SHOTS_CUT
-)
+def previsao_prompt_completo() -> str:
+    return (
+        _previsao_prompt()
+        + "\n\n"
+        + PREVISAO_SHOTS_OPEN
+        + "\n\n"
+        + PREVISAO_SHOT_1
+        + "\n\n"
+        + PREVISAO_SHOT_2
+        + "\n\n"
+        + PREVISAO_SHOT_3
+        + "\n\n"
+        + PREVISAO_SHOT_4
+        + "\n\n"
+        + PREVISAO_SHOTS_CUT
+    )
 
 
 # ==============================================================================
@@ -1013,10 +1026,11 @@ RAG_PROMPT_COMPLETO = (
 # AGENTE 6 — VAZAMENTO
 # ==============================================================================
 
-VAZAMENTO_PROMPT = f"""
+def _vazamento_prompt() -> str:
+    return f"""
 {PERSONA_SISTEMA}
 
-{_CONTEXTO_TEMPORAL}
+{_contexto_temporal_atual()}
 
 ### ENTRADA E OBJETIVO
 
@@ -1125,21 +1139,22 @@ Considere como dados reais somente a solicitação atual e os
 resultados efetivamente retornados pelas ferramentas.
 """
 
-VAZAMENTO_PROMPT_COMPLETO = (
-    VAZAMENTO_PROMPT
-    + "\n\n"
-    + VAZAMENTO_SHOTS_OPEN
-    + "\n\n"
-    + VAZAMENTO_SHOT_1
-    + "\n\n"
-    + VAZAMENTO_SHOT_2
-    + "\n\n"
-    + VAZAMENTO_SHOT_3
-    + "\n\n"
-    + VAZAMENTO_SHOT_4
-    + "\n\n"
-    + VAZAMENTO_SHOTS_CUT
-)
+def vazamento_prompt_completo() -> str:
+    return (
+        _vazamento_prompt()
+        + "\n\n"
+        + VAZAMENTO_SHOTS_OPEN
+        + "\n\n"
+        + VAZAMENTO_SHOT_1
+        + "\n\n"
+        + VAZAMENTO_SHOT_2
+        + "\n\n"
+        + VAZAMENTO_SHOT_3
+        + "\n\n"
+        + VAZAMENTO_SHOT_4
+        + "\n\n"
+        + VAZAMENTO_SHOTS_CUT
+    )
 
 
 # ==============================================================================

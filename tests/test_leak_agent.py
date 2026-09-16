@@ -7,7 +7,7 @@ from datetime import datetime, timedelta, timezone
 import pytest
 
 from app.agents.leak import LeakAgent
-from app.services.prompts import VAZAMENTO_PROMPT_COMPLETO
+from app.services.prompts import vazamento_prompt_completo
 from app.tools.models import Alert, ConsumptionPoint
 from tests.fakes import ScriptedChatModel, ai_final, ai_tool_call
 
@@ -39,9 +39,10 @@ def _active_alert() -> Alert:
 
 
 def test_prompt_forbids_definitive_diagnosis():
-    assert "Existe um vazamento." in VAZAMENTO_PROMPT_COMPLETO
-    assert "não" in VAZAMENTO_PROMPT_COMPLETO.lower()
-    assert "possível vazamento" in VAZAMENTO_PROMPT_COMPLETO.lower()
+    prompt = vazamento_prompt_completo()
+    assert "Existe um vazamento." in prompt
+    assert "não" in prompt.lower()
+    assert "possível vazamento" in prompt.lower()
 
 
 def test_leak_sign_present_model_receives_the_signals(monkeypatch):
