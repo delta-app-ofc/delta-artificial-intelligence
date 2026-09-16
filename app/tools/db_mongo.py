@@ -1,17 +1,3 @@
-"""Acesso de LEITURA ao MongoDB do Projeto Delta.
-
-Dois bancos lógicos, conforme a modelagem oficial (delta-nosql-database):
-
-- db_delta_telemetry.consumption_summary — janelas de 5 min já consolidadas,
-  com o campo anomaly_detected calculado por outro componente do sistema
-  (o motor de detecção no repositório delta-business-rules), não pelo agente
-  de chat.
-- db_delta_app.user_preferences — preferências do usuário (meta diária).
-- db_delta_app.alerts_history — alertas já disparados.
-
-O Agente de Vazamento LÊ o que já foi sinalizado; ele não inventa limiar nenhum.
-"""
-
 from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
@@ -25,7 +11,6 @@ from app.tools.models import Alert, ConsumptionPoint
 
 @lru_cache(maxsize=1)
 def get_client() -> MongoClient:
-    """Cliente MongoDB reutilizável. tz_aware para as datas já virem com timezone."""
     return MongoClient(MONGODB_URI, tz_aware=True)
 
 
@@ -38,10 +23,6 @@ def _app():
 
 
 def _since(days: int) -> datetime:
-    """Data/hora de corte para uma busca de 'últimos N dias': agora menos N
-    dias. As funções abaixo usam isso pra filtrar 'window_started_at >= corte'
-    ou 'triggered_at >= corte', em vez de trazer o histórico inteiro do usuário.
-    """
     return datetime.now(timezone.utc) - timedelta(days=days)
 
 
@@ -72,9 +53,6 @@ def _to_alert(doc: dict) -> Alert:
 
 # Tools do Agente de Previsão (app/tools/forecast/tools.py)
 def get_consumption_history(user_id: int, days: int) -> list[ConsumptionPoint]:
-    """Janelas de consumption_summary dos últimos days dias, mais antigas
-    primeiro. Lista vazia quando o usuário não tem histórico (ex.: primeiro uso).
-    """
     cursor = (
         _telemetry()
         .consumption_summary.find(
@@ -86,11 +64,6 @@ def get_consumption_history(user_id: int, days: int) -> list[ConsumptionPoint]:
 
 
 def get_daily_liters_target(user_id: int) -> float | None:
-    """Meta diária de consumo (user_preferences.daily_liters_target) ou None.
-
-    Nota (P1): esta é a fonte de meta inferida da modelagem oficial de MongoDB;
-    não está explícita na seção "Agente 3" do documento de arquitetura.
-    """
     doc = _app().user_preferences.find_one({"user_id": user_id})
     if not doc or doc.get("daily_liters_target") is None:
         return None
@@ -99,9 +72,6 @@ def get_daily_liters_target(user_id: int) -> float | None:
 
 # Tools do Agente de Vazamento (app/tools/leak/tools.py)
 def get_anomalous_consumption_windows(user_id: int, days: int) -> list[ConsumptionPoint]:
-    """Janelas de consumption_summary com anomaly_detected true nos últimos
-    days dias, mais antigas primeiro.
-    """
     cursor = (
         _telemetry()
         .consumption_summary.find(
@@ -119,12 +89,6 @@ def get_anomalous_consumption_windows(user_id: int, days: int) -> list[Consumpti
 def get_alerts_history(
     user_id: int, days: int, only_active: bool = False
 ) -> list[Alert]:
-    """Alertas de alerts_history do usuário nos últimos days dias, mais
-    recentes primeiro.
-
-    Com only_active=True retorna apenas os não resolvidos (resolved_at nulo),
-    aproveitando o índice parcial {device_id, resolved_at} da modelagem.
-    """
     query: dict = {
         "user_id": user_id,
         "triggered_at": {"$gte": _since(days)},

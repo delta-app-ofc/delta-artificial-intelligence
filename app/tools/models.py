@@ -1,9 +1,3 @@
-"""Estruturas de dados retornadas pelas tools de acesso a dados.
-
-São dataclasses para deixar explícito o formato dos
-dados que trafegam entre as tools, os cálculos e os agentes.
-"""
-
 from __future__ import annotations
 
 from dataclasses import dataclass

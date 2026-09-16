@@ -1,17 +1,5 @@
-"""Cálculo DETERMINÍSTICO da previsão de consumo — sem LLM.
-
-A regra anti-alucinação compartilhada pelos agentes exige que todo número
-apresentado venha de uma ferramenta ou de um cálculo sobre dados de ferramenta.
-Por isso o LLM do Agente de Previsão não calcula nada: ele só chama as funções
-deste arquivo (através de app/tools/forecast/tools.py).
-
-Heurística de projeção (item pendente P3 do TASK.md — ponto de partida, não
-decisão fechada): média móvel diária linear sobre a janela recente do
-histórico, extrapolada linearmente até o fim do mês.
-
-Guarda (R5): calculate_full_forecast levanta ForecastUnavailableError quando
-can_estimate é False — nenhuma outra função de cálculo é chamada.
-"""
+"""Cálculo DETERMINÍSTICO da previsão de consumo — sem LLM. O LLM do Agente
+de Previsão nunca calcula: só chama estas funções (via forecast/tools.py)."""
 
 from __future__ import annotations
 
@@ -84,7 +72,6 @@ class FullForecast:
 
 
 def _daily_series(history: list[ConsumptionPoint]) -> dict[date, float]:
-    """Soma o consumo (litros) por dia-calendário (UTC) das janelas do histórico."""
     series: dict[date, float] = {}
     for point in history:
         day = point.window_started_at.date()
@@ -97,12 +84,10 @@ def _days_in_month(today: date) -> int:
 
 
 def has_enough_history(history: list[ConsumptionPoint]) -> bool:
-    """True quando há pelo menos MIN_HISTORY_DAYS dias distintos com leitura."""
     return len(_daily_series(history)) >= MIN_HISTORY_DAYS
 
 
 def project_month_consumption(history: list[ConsumptionPoint], today: date) -> ConsumptionProjection:
-    """1. Projeção de consumo até o fim do mês."""
     series = _daily_series(history)
     days_in_month = _days_in_month(today)
     remaining_days = days_in_month - today.day
@@ -140,11 +125,6 @@ def estimate_next_bill(
     region_rate: Decimal | None,
     today: date,
 ) -> BillEstimate | None:
-    """2. Estimativa da próxima conta.
-
-    Sem histórico Mongo suficiente, usa tb_last_water_bill (primeiro uso).
-    Com histórico, usa projeção x tarifa vigente. None se não houver base alguma.
-    """
     enough_history = has_enough_history(history)
 
     if not enough_history or region_rate is None:
@@ -173,8 +153,6 @@ def estimate_next_bill(
 
 
 def calculate_trend(history: list[ConsumptionPoint], today: date) -> Trend:
-    """3. Tendência: compara a média da metade recente do histórico com a
-    metade anterior."""
     series = _daily_series(history)
     days = sorted(d for d in series if d <= today)
 
@@ -209,7 +187,6 @@ def calculate_trend(history: list[ConsumptionPoint], today: date) -> Trend:
 def assess_target_risk(
     month_projection_liters: float, daily_target: float | None, days_in_month: int
 ) -> TargetRisk:
-    """4. Risco de ultrapassar a meta."""
     if daily_target is None:
         return TargetRisk(False, False, None, month_projection_liters, None)
 
@@ -235,7 +212,6 @@ def calculate_full_forecast(
     daily_target: float | None,
     today: date,
 ) -> FullForecast:
-    """Orquestra os quatro cálculos acima, com a guarda do R5."""
     if not can_estimate:
         raise ForecastUnavailableError(
             "fn_user_can_estimate retornou False: usuário sem cadastro suficiente "

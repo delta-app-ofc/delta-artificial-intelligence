@@ -11,12 +11,8 @@ from pydantic import PrivateAttr
 
 
 class ScriptedChatModel(BaseChatModel):
-    """Devolve, em ordem, uma lista pré-definida de AIMessage.
-
-    Cada invoke consome a próxima mensagem do roteiro. bind_tools é no-op (o
-    roteiro já traz as tool_calls explícitas). Serve para exercitar
-    app.agents._runtime.run_agent de forma determinística.
-    """
+    """Devolve, em ordem, uma lista pré-definida de AIMessage. Cada invoke
+    consome a próxima; bind_tools é no-op (o roteiro já traz as tool_calls)."""
 
     responses: list[BaseMessage]
     _index: int = PrivateAttr(default=0)
@@ -39,7 +35,6 @@ class ScriptedChatModel(BaseChatModel):
 
 
 def ai_tool_call(name: str, args: dict | None = None, call_id: str = "call_1") -> AIMessage:
-    """AIMessage que pede a execução de uma ferramenta."""
     return AIMessage(
         content="",
         tool_calls=[
@@ -49,5 +44,4 @@ def ai_tool_call(name: str, args: dict | None = None, call_id: str = "call_1") -
 
 
 def ai_final(text: str) -> AIMessage:
-    """AIMessage de resposta final (sem tool call)."""
     return AIMessage(content=text)

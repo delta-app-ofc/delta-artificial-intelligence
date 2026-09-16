@@ -1,11 +1,6 @@
-"""Modelos de IA generativa usados pelos agentes.
-
-Provedor/modelo (Gemini + fallback Groq) não é decisão desta tarefa e não foi
-alterado. Só a construção virou preguiçosa: antes os clientes eram criados no
-import do módulo, e isso quebrava sem GEMINI_API_KEY/GROQ_API_KEY no ambiente.
-Agora nada é criado até o primeiro acesso (llm_especialista, llm_rapido etc.,
-resolvidos via __getattr__ de módulo e cacheados).
-"""
+"""Modelos de IA generativa usados pelos agentes. Construção preguiçosa via
+__getattr__ de módulo: nada é criado até o primeiro acesso, então o módulo
+importa mesmo sem GEMINI_API_KEY/GROQ_API_KEY no ambiente."""
 
 from functools import lru_cache
 

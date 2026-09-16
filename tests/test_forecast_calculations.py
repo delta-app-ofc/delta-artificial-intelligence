@@ -21,10 +21,6 @@ TODAY = date(2026, 9, 15)  # mês de 30 dias, 15 dias restantes
 
 
 def _series(today: date, days: int, liters_per_day, hours=(7, 12, 19)) -> list[ConsumptionPoint]:
-    """Gera janelas do dia today - days até today - 1.
-
-    liters_per_day(i) recebe i = 0 (dia mais antigo) .. days - 1.
-    """
     points: list[ConsumptionPoint] = []
     for i in range(days):
         day = today - timedelta(days=days - i)
@@ -45,7 +41,6 @@ def _series(today: date, days: int, liters_per_day, hours=(7, 12, 19)) -> list[C
     return points
 
 
-# ── 1. Novo usuário / primeiro uso: sem histórico -> usa a última conta ──────
 def test_first_use_falls_back_to_last_bill():
     last_bill = LastWaterBill(
         user_id=13, month=date(2025, 6, 1),
@@ -66,7 +61,6 @@ def test_first_use_falls_back_to_last_bill():
     assert forecast.trend.direction == "undefined"
 
 
-# ── 2. Tendência de queda ──────────────────────────────────────────────────
 def test_downward_trend():
     history = _series(TODAY, 40, lambda i: 300 - i * 4)  # 300 -> 144
     assert has_enough_history(history) is True
@@ -77,7 +71,6 @@ def test_downward_trend():
     assert trend.recent_average_liters_per_day < trend.previous_average_liters_per_day
 
 
-# ── 3. Tendência de alta perto da meta -> risco de ultrapassar ─────────────
 def test_upward_trend_near_target():
     history = _series(TODAY, 40, lambda i: 120 + i * 5)  # 120 -> 315
 
@@ -102,7 +95,6 @@ def test_target_risk_without_target_is_not_assessed():
     assert risk.at_risk is False
 
 
-# ── 4. Guarda do R5: can_estimate=False -> erro, nenhum cálculo ────────────
 def test_can_estimate_false_raises_and_calculates_nothing():
     history = _series(TODAY, 30, lambda i: 200)
     with pytest.raises(ForecastUnavailableError):

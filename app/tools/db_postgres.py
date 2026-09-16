@@ -1,22 +1,3 @@
-"""Acesso de LEITURA ao PostgreSQL cadastral/transacional do Projeto Delta.
-
-Espelha o schema e as funções do repositório delta-sql-database (fonte de
-verdade). Esta tarefa só LÊ tabelas e reaproveita funções que já existem lá:
-fn_user_is_active, fn_get_property_region, fn_get_current_region_rate e
-fn_user_can_estimate.
-
-Achamos e descartamos usar a API REST (delta-api-postgres) aqui: ela hoje só
-tem endpoints de CRUD por id (property, device, region-rate, habit...) e não
-tem nenhum jeito de ir de user_id até propriedade/região/última conta — que é
-exatamente o que toda função abaixo precisa. Se um dia existir um endpoint
-"propriedades do usuário", vale reconsiderar.
-
-As funções deste módulo levantam exceção em caso de erro, para os testes
-poderem verificar isso diretamente. Quem embrulha essas chamadas numa tool de
-agente (app/tools/forecast/tools.py, app/tools/leak/tools.py) é quem converte
-a exceção em algo tipo {"status": "error", ...}.
-"""
-
 from __future__ import annotations
 
 from datetime import date
@@ -37,12 +18,6 @@ from app.tools.models import LastWaterBill
 
 
 def get_conn():
-    """Abre e devolve uma conexão com o Postgres. Quem chama é responsável por fechar.
-
-    Prefere as cinco variáveis separadas (HOST_DB/PORT_DB/...) quando todas
-    estiverem definidas; caso contrário usa DATABASE_URL. Esse duplo caminho
-    existe para facilitar a reconciliação futura com a configuração oficial (P4).
-    """
     if all((HOST_DB, PORT_DB, USER_DB, PASSWORD_DB, NAME_DB)):
         return psycopg2.connect(
             host=HOST_DB,
@@ -55,12 +30,6 @@ def get_conn():
 
 
 def user_can_estimate(user_id: int) -> bool:
-    """Reproduz fn_user_can_estimate: usuário ativo, propriedade vinculada,
-    dispositivo ativo e tarifa cadastrada para a região.
-
-    Deve ser chamado ANTES de qualquer estimativa de previsão. Quando retorna
-    False, o agente responde "dados insuficientes" e não calcula nada.
-    """
     conn = get_conn()
     cur = conn.cursor()
     try:
@@ -73,11 +42,6 @@ def user_can_estimate(user_id: int) -> bool:
 
 
 def get_user_region_id(user_id: int) -> int | None:
-    """Id da região da (primeira) propriedade do usuário, ou None.
-
-    Mesmo caminho de join que fn_user_can_estimate percorre internamente:
-    tb_user_property -> tb_property -> tb_address.region_id.
-    """
     conn = get_conn()
     cur = conn.cursor()
     try:
@@ -101,11 +65,6 @@ def get_user_region_id(user_id: int) -> int | None:
 
 
 def get_current_region_rate(region_id: int, on_date: date) -> Decimal:
-    """Tarifa vigente (R$/m³) da região na data, via fn_get_current_region_rate.
-
-    Levanta RegionRateNotFound quando não há tarifa válida — em vez de deixar
-    o erro cru do Postgres vazar.
-    """
     conn = get_conn()
     cur = conn.cursor()
     try:
@@ -126,7 +85,6 @@ def get_current_region_rate(region_id: int, on_date: date) -> Decimal:
 
 
 def get_last_water_bill(user_id: int) -> LastWaterBill | None:
-    """Conta de água mais recente do usuário em tb_last_water_bill, ou None."""
     conn = get_conn()
     cur = conn.cursor()
     try:

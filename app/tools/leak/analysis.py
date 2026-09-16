@@ -1,16 +1,5 @@
-"""Resumo DESCRITIVO de janelas de consumo já sinalizadas como anômalas.
-
-Função pura: só AGREGA o que db_mongo.get_anomalous_consumption_windows já
-retornou (janelas com anomaly_detected true, sinalizadas por outro componente
-do sistema — o motor de detecção no repositório delta-business-rules). Não
-cria limiar novo, não decide por conta própria se algo é ou não indício —
-isso violaria a regra do prompt do Agente de Vazamento ("nunca invente
-limiares/padrões").
-
-O objetivo é só dar ao agente material para explicar, em linguagem natural, o
-padrão que já foi sinalizado (quantas janelas, quando começaram, quanto tempo
-duraram, quantas foram de madrugada).
-"""
+"""Resumo DESCRITIVO de janelas já sinalizadas como anômalas — só agrega, não
+decide se algo é indício (isso já foi decidido pelo motor de detecção)."""
 
 from __future__ import annotations
 
@@ -36,7 +25,6 @@ class AnomalySummary:
 
 
 def _sort_by_start(windows: list[ConsumptionPoint]) -> list[ConsumptionPoint]:
-    """Ordena as janelas da mais antiga para a mais recente."""
     return sorted(windows, key=_window_start)
 
 
@@ -50,8 +38,6 @@ def _is_overnight(window: ConsumptionPoint) -> bool:
 
 
 def summarize_anomalous_windows(windows: list[ConsumptionPoint]) -> AnomalySummary:
-    """Agrega uma lista de janelas anômalas num resumo descritivo, com um
-    laço só (mais fácil de acompanhar do que várias contas separadas)."""
     if not windows:
         return AnomalySummary(
             total_windows=0, first_occurrence=None, last_occurrence=None,

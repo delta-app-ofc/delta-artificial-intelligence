@@ -1,10 +1,4 @@
-"""Testes do Agente de Vazamento com LLM falso (sem Gemini/Groq) e tools stubadas.
-
-Cobrem os três casos dos shots do prompt: indício presente, sem indício e sem
-dados. Com LLM stubado a resposta final é roteirizada — os testes verificam o
-encanamento (tools certas, sinais entregues ao modelo, registro preenchido) e
-que o prompt do agente carrega a regra "nunca diagnóstico definitivo".
-"""
+"""Testes do Agente de Vazamento com LLM falso e tools stubadas."""
 
 from __future__ import annotations
 
@@ -47,7 +41,6 @@ def _active_alert() -> Alert:
 def test_prompt_forbids_definitive_diagnosis():
     assert "Existe um vazamento." in VAZAMENTO_PROMPT_COMPLETO
     assert "não" in VAZAMENTO_PROMPT_COMPLETO.lower()
-    # o texto do shot ilustra a formulação correta ("possível vazamento")
     assert "possível vazamento" in VAZAMENTO_PROMPT_COMPLETO.lower()
 
 

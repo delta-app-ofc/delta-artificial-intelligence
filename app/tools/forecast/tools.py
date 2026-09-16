@@ -24,7 +24,6 @@ DEFAULT_HISTORY_DAYS = 45
 
 
 def _serialize(value: Any) -> Any:
-    """Torna dataclasses/Decimais/datas serializáveis para o registro e o ToolMessage."""
     if dataclasses.is_dataclass(value) and not isinstance(value, type):
         return {k: _serialize(v) for k, v in dataclasses.asdict(value).items()}
     if isinstance(value, Decimal):

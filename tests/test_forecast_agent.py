@@ -1,10 +1,4 @@
-"""Testes do Agente de Previsão com LLM falso (sem Gemini/Groq) e tools stubadas.
-
-Verificam o encanamento do agente: ferramentas chamadas com os argumentos
-certos, user_id nunca exposto ao LLM, registro de tool calls preenchido,
-guarda de user_can_estimate respeitada e o número da resposta batendo com a
-saída determinística da ferramenta de cálculo.
-"""
+"""Testes do Agente de Previsão com LLM falso e tools stubadas."""
 
 from __future__ import annotations
 
@@ -41,7 +35,6 @@ def _history(days: int, liters_per_day: float) -> list[ConsumptionPoint]:
 
 @pytest.fixture
 def forecast_stubs(monkeypatch):
-    """Stub padrão: usuário apto, com histórico, meta e tarifa."""
     monkeypatch.setattr("app.tools.db_postgres.user_can_estimate", lambda uid: True)
     monkeypatch.setattr("app.tools.db_postgres.get_last_water_bill", lambda uid: None)
     monkeypatch.setattr("app.tools.db_postgres.get_user_region_id", lambda uid: 1)
@@ -57,7 +50,6 @@ def forecast_stubs(monkeypatch):
 
 
 def test_response_number_matches_the_calculation_tool(forecast_stubs):
-    # A mesma conta determinística que a tool fará internamente.
     expected = calc.calculate_full_forecast(
         can_estimate=True, history=_history(30, 100.0), last_bill=None,
         region_rate=Decimal("6.90"), daily_target=400.0, today=TODAY,

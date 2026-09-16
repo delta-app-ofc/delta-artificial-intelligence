@@ -1,7 +1,3 @@
-"""
-Configuração da aplicação de IA — VERSÃO DE DESENVOLVIMENTO LOCAL.
-"""
-
 import os
 from pathlib import Path
 
@@ -34,8 +30,6 @@ def _has_split_postgres_vars() -> bool:
 
 
 def validate_config() -> list[str]:
-    """Devolve a lista de problemas de configuração (lista vazia = tudo certo).
-    Nunca levanta exceção — só reporta."""
     problems: list[str] = []
 
     if not GEMINI_API_KEY:
