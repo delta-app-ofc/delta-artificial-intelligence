@@ -38,9 +38,10 @@ def forecast_stubs(monkeypatch):
     monkeypatch.setattr("app.tools.db_postgres.user_can_estimate", lambda uid: True)
     monkeypatch.setattr("app.tools.db_postgres.get_last_water_bill", lambda uid: None)
     monkeypatch.setattr("app.tools.db_postgres.get_user_region_id", lambda uid: 1)
+    monkeypatch.setattr("app.tools.db_postgres.get_user_property_classification_id", lambda uid: 1)
     monkeypatch.setattr(
         "app.tools.db_postgres.get_current_region_rate",
-        lambda region_id, on_date: Decimal("6.90"),
+        lambda region_id, classification_id, on_date: Decimal("6.90"),
     )
     monkeypatch.setattr(
         "app.tools.db_mongo.get_consumption_history",

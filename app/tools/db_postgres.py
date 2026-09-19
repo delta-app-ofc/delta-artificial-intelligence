@@ -64,20 +64,45 @@ def get_user_region_id(user_id: int) -> int | None:
         conn.close()
 
 
-def get_current_region_rate(region_id: int, on_date: date) -> Decimal:
+def get_user_property_classification_id(user_id: int) -> int | None:
     conn = get_conn()
     cur = conn.cursor()
     try:
-        cur.execute("SELECT fn_get_current_region_rate(%s, %s);", (region_id, on_date))
+        cur.execute(
+            """
+            SELECT p.classification_id
+              FROM tb_user_property up
+              JOIN tb_property p ON p.id = up.property_id
+             WHERE up.user_id = %s
+             ORDER BY up.id
+             LIMIT 1;
+            """,
+            (user_id,),
+        )
+        row = cur.fetchone()
+        return int(row[0]) if row is not None else None
+    finally:
+        cur.close()
+        conn.close()
+
+
+def get_current_region_rate(region_id: int, classification_id: int, on_date: date) -> Decimal:
+    conn = get_conn()
+    cur = conn.cursor()
+    try:
+        cur.execute(
+            "SELECT fn_get_current_region_rate(%s, %s, %s);",
+            (region_id, classification_id, on_date),
+        )
         row = cur.fetchone()
         if row is None or row[0] is None:
             raise RegionRateNotFound(
-                f"Sem tarifa vigente para a região {region_id} em {on_date}."
+                f"Sem tarifa vigente para a região {region_id}, categoria {classification_id} em {on_date}."
             )
         return Decimal(str(row[0]))
     except psycopg2.errors.RaiseException as exc:  # type: ignore[attr-defined]
         raise RegionRateNotFound(
-            f"Sem tarifa vigente para a região {region_id} em {on_date}."
+            f"Sem tarifa vigente para a região {region_id}, categoria {classification_id} em {on_date}."
         ) from exc
     finally:
         cur.close()

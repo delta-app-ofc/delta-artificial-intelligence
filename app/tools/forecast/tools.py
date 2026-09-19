@@ -99,13 +99,14 @@ def build_tools(user_id: int, today: date) -> list[BaseTool]:
         monetárias baseadas em projeção de consumo.
         """
         region_id = db_postgres.get_user_region_id(user_id)
-        if region_id is None:
-            return {"status": "insufficient_data", "message": "Usuário sem região identificável."}
+        classification_id = db_postgres.get_user_property_classification_id(user_id)
+        if region_id is None or classification_id is None:
+            return {"status": "insufficient_data", "message": "Usuário sem região ou categoria de imóvel identificável."}
         try:
-            rate = db_postgres.get_current_region_rate(region_id, today)
+            rate = db_postgres.get_current_region_rate(region_id, classification_id, today)
         except RegionRateNotFound as exc:
             return {"status": "insufficient_data", "message": str(exc)}
-        return {"status": "ok", "region_id": region_id, "rate_m3": float(rate)}
+        return {"status": "ok", "region_id": region_id, "classification_id": classification_id, "rate_m3": float(rate)}
 
     @tool
     def calculate_forecast(history_days: int = DEFAULT_HISTORY_DAYS) -> dict:
@@ -134,10 +135,11 @@ def build_tools(user_id: int, today: date) -> list[BaseTool]:
         daily_target = db_mongo.get_daily_liters_target(user_id)
 
         region_id = db_postgres.get_user_region_id(user_id)
+        classification_id = db_postgres.get_user_property_classification_id(user_id)
         region_rate: Decimal | None = None
-        if region_id is not None:
+        if region_id is not None and classification_id is not None:
             try:
-                region_rate = db_postgres.get_current_region_rate(region_id, today)
+                region_rate = db_postgres.get_current_region_rate(region_id, classification_id, today)
             except RegionRateNotFound:
                 region_rate = None
 
