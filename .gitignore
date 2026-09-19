@@ -33,8 +33,14 @@ build/
 ### VS Code ###
 .vscode/
 
+### Claude ###
+.claude
+
 ### ENV ###
 .env
 
 ### TASK.md ###
 TASK.md
+
+### detection/ — artefatos gerados por train.py (reproduzíveis) ###
+detection/models/z_threshold.json

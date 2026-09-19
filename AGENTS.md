@@ -29,29 +29,55 @@ O `delta-artificial-intelligence` contém o chatbot de IA do Projeto Delta e sua
 oferecer uma camada HTTP para conversas e integrações do produto, conectando o fluxo conversacional aos serviços
 e bancos necessários quando isso estiver implementado e documentado.
 
-No estado inicial desta cópia, a árvore contém apenas `README.md`, `LICENSE`, `.gitignore`, `.github/workflows/`
-e este arquivo. Portanto, não afirme que existem agentes, rotas, persistência, provedores de LLM, LangGraph,
-MongoDB, PostgreSQL ou autenticação funcionais sem conferir o código real e validar a execução.
+O esqueleto de pastas da arquitetura multiagente existe, mas a maior parte dos arquivos ainda está vazia. Não
+afirme que rotas, LangGraph, guardrails, memória, observabilidade ou os demais agentes estão funcionais sem
+conferir o código real e validar a execução. O que já foi implementado (branch `feat/arquitetura-inicial`):
+`app/services/{llms,prompts}.py`; `app/config.py` (dev local); as tools em `app/tools/`; os agentes
+`app/agents/{forecast,leak}.py`; o ambiente local `docker-compose.dev.yml` + `db/`; e a suíte `tests/`.
 
-Quando a implementação for adicionada, mantenha como referência uma organização simples e explícita, por exemplo:
+O motor de detecção de vazamento (`anomaly_detected`, `alerts_history`) não usa LLM e por isso não mora aqui —
+fica no repositório `delta-business-rules`. Este repositório só lê o que ele já calculou.
+
+Convenção de código: identificadores (arquivo/função/classe/variável) em inglês; comentários, docstrings e o
+conteúdo dos prompts em português.
+
+Árvore real das partes implementadas (o restante de `app/` continua como stubs vazios):
 
 ```text
 delta-artificial-intelligence/
 ├── app/
-│   ├── main.py              # criação da aplicação FastAPI e montagem das rotas
-│   ├── api/                 # routers e contratos HTTP
-│   ├── agents/              # fluxo/agentes de IA
-│   ├── services/            # integrações e regras de aplicação
-│   ├── models/              # modelos de domínio e persistência, quando existirem
-│   └── core/                # configuração e dependências compartilhadas
-├── tests/                   # testes automatizados
-├── .env.example             # nomes de variáveis, sem segredos
-├── requirements.txt ou pyproject.toml
+│   ├── config.py                 # config de DESENVOLVIMENTO LOCAL (ver README, P4)
+│   ├── agents/
+│   │   ├── _runtime.py           # laço de tool-calling mínimo (sem LangGraph)
+│   │   ├── forecast.py           # Agente de Previsão (standalone, só a cola: prompt + tools)
+│   │   └── leak.py               # Agente de Vazamento (standalone, idem)
+│   ├── services/
+│   │   ├── llms.py               # llm_especialista (Gemini + fallback Groq), llm_rapido
+│   │   └── prompts.py            # prompts de sistema dos 7 agentes
+│   └── tools/
+│       ├── exceptions.py         # todas as exceções do projeto
+│       ├── models.py             # dataclasses (LastWaterBill, ConsumptionPoint, Alert)
+│       ├── db_postgres.py        # leitura crua do PostgreSQL (delta-sql-database)
+│       ├── db_mongo.py           # leitura crua do MongoDB (delta-nosql-database)
+│       ├── forecast/             # tools + cálculo do Agente de Previsão
+│       │   ├── calculations.py   # cálculo determinístico (sem LLM)
+│       │   └── tools.py          # as tools que o LLM chama de verdade
+│       └── leak/                 # tools + análise do Agente de Vazamento
+│           ├── analysis.py       # resumo descritivo de janelas já sinalizadas
+│           └── tools.py          # as tools que o LLM chama de verdade
+├── db/
+│   ├── postgres-init/            # cópias de bootstrap do delta-sql-database (01..06)
+│   └── mongo-init/seed.js        # seed de teste autoral
+├── docker-compose.dev.yml        # Postgres + Mongo locais para dev manual
+├── tests/                        # pytest — cobre agentes + cálculo puro, sem banco
+├── .env.example                 # nomes de variáveis, sem segredos
+├── requirements.txt / requirements-dev.txt
 └── README.md
 ```
 
-Essa árvore é uma orientação de contexto, não uma autorização para criar todas essas pastas. Adapte-a somente
-quando a tarefa solicitar e depois atualize esta seção com a árvore real.
+Atualize esta seção quando a árvore real mudar de forma relevante. Não existe
+mais CHANGES.md versionado no repositório — mudanças em prompts.py/llms.py são
+reportadas diretamente a quem pediu a tarefa, não guardadas em arquivo.
 
 ## 3. Leitura obrigatória do `TASK.md`
 

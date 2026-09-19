@@ -1,0 +1,36 @@
+# Ambiente de DESENVOLVIMENTO LOCAL para os agentes de Previsão e Vazamento.
+# Uso:
+#   docker compose -f docker-compose.dev.yml up -d
+#   python -m pytest -q
+#   docker compose -f docker-compose.dev.yml down -v   
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: delta_ia_postgres_dev
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: postgres
+    ports:
+      - "127.0.0.1:5432:5432"
+    volumes:
+      - ./db/postgres-init:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d postgres"]
+      interval: 3s
+      timeout: 5s
+      retries: 20
+
+  mongo:
+    image: mongo:7
+    container_name: delta_ia_mongo_dev
+    ports:
+      - "127.0.0.1:27017:27017"
+    volumes:
+      - ./db/mongo-init:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD", "mongosh", "--quiet", "--eval", "db.adminCommand('ping').ok"]
+      interval: 3s
+      timeout: 5s
+      retries: 20
