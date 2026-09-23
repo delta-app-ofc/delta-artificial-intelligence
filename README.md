@@ -39,8 +39,11 @@ cp .env.example .env
   `db/postgres-init/`, cópias de bootstrap do repositório
   `delta-app-ofc/delta-sql-database` — a fonte de verdade do schema continua lá
   (detalhe de origem de cada arquivo em `db/README.md`).
-- **Mongo** (porta 27017): inicializado por `db/mongo-init/seed.js`, autoral
-  deste repositório.
+- **Mongo** (porta 27017): sobe vazio — não tem mais seed próprio deste
+  repositório. Populado com
+  [`delta-hardware-data-simulator`](https://github.com/delta-app-ofc/delta-hardware-data-simulator)
+  (`python -m dataload.cli <coleção> <quantidade>`), que cobre as 7 coleções
+  de telemetria/app (antes duplicadas manualmente em `seed.js`).
 
 ## Testes
 

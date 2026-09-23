@@ -34,9 +34,14 @@ Fatos do dataload usados pelos testes:
   → `fn_user_can_estimate` = `FALSE`;
 - `tb_region_rate` tem tarifa vigente (`2025-01-01` → aberto) para as 5 regiões.
 
-## `mongo-init/seed.js` — autoral desta tarefa
+## Mongo — sem seed próprio
 
-**Não** é cópia do `delta-nosql-database`. Segue as estruturas da modelagem
-oficial (`consumption_summary`, `user_preferences`, `alerts_history`) e cria os
-cenários da seção R8. Os `user_id` (11, 12, 13, 14, 15) são reaproveitados como
-constantes nos testes. Detalhe de cada cenário no cabeçalho do próprio `seed.js`.
+O container `mongo` do `docker-compose.dev.yml` sobe vazio (não tem mais
+`mongo-init/`). Pra popular localmente, use
+[`delta-hardware-data-simulator`](https://github.com/delta-app-ofc/delta-hardware-data-simulator)
+(`python -m dataload.cli <coleção> <quantidade>`) — cobre as 7 coleções de
+telemetria/app (`pulses_raw`, `consumption_summary`, `device_status`,
+`user_preferences`, `alerts_history`, `chat_sessions`, `chat_feedback`), que
+antes eram duplicadas manualmente no `seed.js` deste repositório. Os testes
+automatizados não dependem disso (ver README principal, seção "Testes") —
+tools de Mongo são stubadas nos testes.
