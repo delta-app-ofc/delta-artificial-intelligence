@@ -25,8 +25,10 @@ services:
   mongo:
     image: mongo:7
     container_name: delta_ia_mongo_dev
+    # 27018 no host, nao 27017: evita conflito com um MongoDB local ja
+    # instalado como servico no Windows (porta padrao ocupada fora do Docker).
     ports:
-      - "127.0.0.1:27017:27017"
+      - "127.0.0.1:27018:27017"
     healthcheck:
       test: ["CMD", "mongosh", "--quiet", "--eval", "db.adminCommand('ping').ok"]
       interval: 3s

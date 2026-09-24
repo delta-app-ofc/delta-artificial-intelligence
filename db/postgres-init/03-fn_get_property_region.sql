@@ -1,11 +1,11 @@
 CREATE OR REPLACE FUNCTION fn_get_property_region(
     p_property_id INTEGER
 )
-RETURNS VARCHAR(20)
+RETURNS VARCHAR(30)
 LANGUAGE plpgsql
 AS $$
 DECLARE
-    v_region_name VARCHAR(20);
+    v_region_name VARCHAR(30);
 BEGIN
 
     SELECT r.name
