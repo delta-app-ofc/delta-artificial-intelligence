@@ -1,11 +1,3 @@
-"""Laço de tool-calling mínimo, compartilhado pelos agentes standalone.
-
-LangChain 1.x removeu create_tool_calling_agent/AgentExecutor; só sobrou
-create_agent, já montado em cima do LangGraph. Como os agentes têm que ser
-standalone, este arquivo é um substituto temporário sobre bind_tools/
-tool_calls/ToolMessage.
-"""
-
 from __future__ import annotations
 
 import json

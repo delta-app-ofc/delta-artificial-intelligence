@@ -4,6 +4,7 @@ target/
 !**/src/main/**/target/
 !**/src/test/**/target/
 __pycache__/
+.pytest_cache
 
 ### STS ###
 .apt_generated
@@ -41,6 +42,3 @@ build/
 
 ### TASK.md ###
 TASK.md
-
-### detection/ — artefatos gerados por train.py (reproduzíveis) ###
-detection/models/z_threshold.json

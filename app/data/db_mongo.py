@@ -5,21 +5,31 @@ from functools import lru_cache
 
 from pymongo import ASCENDING, DESCENDING, MongoClient
 
-from app.config import MONGO_DB_APP, MONGO_DB_TELEMETRY, MONGODB_URI
+from app.config import (
+    MONGO_DB_APP,
+    MONGO_DB_TELEMETRY,
+    MONGODB_APP_URI,
+    MONGODB_TELEMETRY_URI,
+)
 from app.tools.models import Alert, ConsumptionPoint
 
 
 @lru_cache(maxsize=1)
-def get_client() -> MongoClient:
-    return MongoClient(MONGODB_URI, tz_aware=True)
+def get_app_client() -> MongoClient:
+    return MongoClient(MONGODB_APP_URI, tz_aware=True)
+
+
+@lru_cache(maxsize=1)
+def get_telemetry_client() -> MongoClient:
+    return MongoClient(MONGODB_TELEMETRY_URI, tz_aware=True)
 
 
 def _telemetry():
-    return get_client()[MONGO_DB_TELEMETRY]
+    return get_telemetry_client()[MONGO_DB_TELEMETRY]
 
 
 def _app():
-    return get_client()[MONGO_DB_APP]
+    return get_app_client()[MONGO_DB_APP]
 
 
 def _since(days: int) -> datetime:
@@ -70,7 +80,6 @@ def get_daily_liters_target(user_id: int) -> float | None:
     return float(doc["daily_liters_target"])
 
 
-# Tools do Agente de Vazamento (app/tools/leak/tools.py)
 def get_anomalous_consumption_windows(user_id: int, days: int) -> list[ConsumptionPoint]:
     cursor = (
         _telemetry()

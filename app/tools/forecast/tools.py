@@ -15,7 +15,7 @@ from typing import Any
 
 from langchain_core.tools import BaseTool, tool
 
-from app.tools import db_mongo, db_postgres
+from app.data import db_mongo, db_postgres
 from app.tools.exceptions import RegionRateNotFound
 from app.tools.forecast import calculations as calc
 

@@ -54,11 +54,12 @@ delta-artificial-intelligence/
 │   ├── services/
 │   │   ├── llms.py               # llm_especialista (Gemini + fallback Groq), llm_rapido
 │   │   └── prompts.py            # prompts de sistema dos 7 agentes
+│   ├── data/
+│   │   ├── db_postgres.py        # leitura crua do PostgreSQL (delta-sql-database)
+│   │   └── db_mongo.py           # leitura crua do MongoDB (delta-nosql-database), 2 clusters Atlas
 │   └── tools/
 │       ├── exceptions.py         # todas as exceções do projeto
 │       ├── models.py             # dataclasses (LastWaterBill, ConsumptionPoint, Alert)
-│       ├── db_postgres.py        # leitura crua do PostgreSQL (delta-sql-database)
-│       ├── db_mongo.py           # leitura crua do MongoDB (delta-nosql-database)
 │       ├── forecast/             # tools + cálculo do Agente de Previsão
 │       │   ├── calculations.py   # cálculo determinístico (sem LLM)
 │       │   └── tools.py          # as tools que o LLM chama de verdade

@@ -1,8 +1,4 @@
-"""Testa ForecastAgent e LeakAgent standalone, sem API/FastAPI.
-
-Requer docker-compose.dev.yml de pé (Postgres + Mongo) e .env configurado
-(GEMINI_API_KEY ou GROQ_API_KEY, DATABASE_URL, MONGODB_URI).
-
+"""Testa ForecastAgent e LeakAgent:
     python manual_chat.py forecast "Quanto eu vou gastar de água esse mês?"
     python manual_chat.py leak "Tem algum indício de vazamento na minha casa?"
 """
@@ -15,16 +11,8 @@ from datetime import date
 from app.agents.forecast import ForecastAgent
 from app.agents.leak import LeakAgent
 
-# user_id=1: usuário elegível no dataload do Postgres (tem propriedade,
-# dispositivo ativo e tarifa cadastrada) — mas sem histórico no Mongo local,
-# então o ForecastAgent cai no fallback "usa a última conta cadastrada".
-FORECAST_USER_ID = 1
 
-# user_id=217: gerado pelo delta-hardware-data-simulator com
-# anomaly_detected=True em consumption_summary — dá pra ver o LeakAgent
-# descrever uma janela anômala de verdade. Rode o simulador antes
-# (python -m dataload.cli consumption_summary 20) se este id não existir
-# no seu Mongo.
+FORECAST_USER_ID = 1
 LEAK_USER_ID = 217
 
 
