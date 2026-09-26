@@ -27,6 +27,8 @@ def _get_llm_gemini() -> ChatGoogleGenerativeAI:
         temperature=0.3,
         top_p=0.95,
         api_key=GEMINI_API_KEY,
+        max_retries=1,
+        timeout=15,
     )
 
 
