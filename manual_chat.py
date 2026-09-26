@@ -11,6 +11,7 @@ from datetime import date
 from app.agents.forecast import ForecastAgent
 from app.agents.leak import LeakAgent
 
+sys.stdout.reconfigure(encoding="utf-8")
 
 FORECAST_USER_ID = 1
 LEAK_USER_ID = 217
