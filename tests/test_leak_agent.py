@@ -47,11 +47,11 @@ def test_prompt_forbids_definitive_diagnosis():
 
 def test_leak_sign_present_model_receives_the_signals(monkeypatch):
     monkeypatch.setattr(
-        "app.tools.db_mongo.get_anomalous_consumption_windows",
+        "app.data.db_mongo.get_anomalous_consumption_windows",
         lambda uid, days: [_anomalous_window(3), _anomalous_window(27), _anomalous_window(51)],
     )
     monkeypatch.setattr(
-        "app.tools.db_mongo.get_alerts_history",
+        "app.data.db_mongo.get_alerts_history",
         lambda uid, days, only_active=False: [_active_alert()],
     )
 
@@ -80,10 +80,10 @@ def test_leak_sign_present_model_receives_the_signals(monkeypatch):
 
 def test_no_leak_sign(monkeypatch):
     monkeypatch.setattr(
-        "app.tools.db_mongo.get_anomalous_consumption_windows", lambda uid, days: []
+        "app.data.db_mongo.get_anomalous_consumption_windows", lambda uid, days: []
     )
     monkeypatch.setattr(
-        "app.tools.db_mongo.get_alerts_history",
+        "app.data.db_mongo.get_alerts_history",
         lambda uid, days, only_active=False: [],
     )
 
@@ -111,7 +111,7 @@ def test_no_data_states_the_limitation(monkeypatch):
         raise RuntimeError("mongo indisponível")
 
     monkeypatch.setattr(
-        "app.tools.db_mongo.get_anomalous_consumption_windows", _error
+        "app.data.db_mongo.get_anomalous_consumption_windows", _error
     )
 
     llm = ScriptedChatModel(

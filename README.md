@@ -39,8 +39,18 @@ cp .env.example .env
   `db/postgres-init/`, cópias de bootstrap do repositório
   `delta-app-ofc/delta-sql-database` — a fonte de verdade do schema continua lá
   (detalhe de origem de cada arquivo em `db/README.md`).
-- **Mongo** (porta 27017): inicializado por `db/mongo-init/seed.js`, autoral
-  deste repositório.
+- **Mongo** (porta 27018 no host — 27017 já costuma estar ocupada por um
+  MongoDB local instalado fora do Docker, então usamos outra porta pra não
+  conflitar): sobe vazio — não tem mais seed próprio deste repositório.
+  Populado com
+  [`delta-hardware-data-simulator`](https://github.com/delta-app-ofc/delta-hardware-data-simulator)
+  (`python -m dataload.cli <coleção> <quantidade>`), que cobre as 7 coleções
+  de telemetria/app (antes duplicadas manualmente em `seed.js`).
+
+Em produção, `db_delta_app` e `db_delta_telemetry` vivem em **dois clusters
+Atlas separados**, não um só — por isso `MONGODB_APP_URI` e
+`MONGODB_TELEMETRY_URI` são duas variáveis distintas (localmente as duas
+apontam pro mesmo container, só o nome do banco muda).
 
 ## Testes
 
@@ -53,17 +63,19 @@ Todos os testes são puros ou usam LLM falso/tools stubadas — nenhum depende
 de Postgres/Mongo rodando. Cobrem os dois agentes e o cálculo determinístico
 da previsão.
 
-## Estrutura de `app/tools/`
+## Estrutura de `app/data/` e `app/tools/`
 
-As tools ficam organizadas por agente, para deixar claro o que pertence a
-quem:
+`app/data/` tem a leitura crua dos bancos, sem `@tool`. `app/tools/` tem as
+tools organizadas por agente, que chamam `app/data/` por baixo:
 
 ```
+app/data/
+├── db_postgres.py       # leitura crua do PostgreSQL
+└── db_mongo.py           # leitura crua do MongoDB (2 clusters Atlas: app + telemetria)
+
 app/tools/
 ├── exceptions.py       # todas as exceções do projeto
 ├── models.py           # dataclasses compartilhados
-├── db_postgres.py       # leitura crua do PostgreSQL, sem @tool
-├── db_mongo.py           # leitura crua do MongoDB, sem @tool
 ├── forecast/             # tudo do Agente de Previsão
 │   ├── calculations.py   # cálculo determinístico (sem LLM)
 │   └── tools.py          # as tools que o LLM chama de verdade
@@ -128,7 +140,7 @@ já foi sinalizado — nunca decide um limiar sozinho.
 
 ## Acesso a dados: SQL direto ao Postgres
 
-`app/tools/db_postgres.py` lê o Postgres direto (SQL + as funções do banco:
+`app/data/db_postgres.py` lê o Postgres direto (SQL + as funções do banco:
 `fn_user_can_estimate`, `fn_get_current_region_rate`), em vez de passar pela
 API REST `delta-api-postgres`. Essa API hoje só tem endpoints de CRUD por id
 (`/delta/property/{id}`, `/delta/device/{id}`, `/delta/region-rate/{regionId}`

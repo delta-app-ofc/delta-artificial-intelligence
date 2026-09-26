@@ -140,6 +140,12 @@ _REGRA_ANTI_ALUCINACAO = """
 - Nunca diga que uma ferramenta foi consultada se ela não foi
   realmente utilizada.
 
+- Nunca mencione o nome de uma ferramenta, função ou tool na resposta
+  final ao usuário (ex.: não diga "de acordo com calculate_forecast" ou
+  "a ferramenta get_last_bill retornou"). Descreva a origem do dado em
+  linguagem natural (ex.: "com base no seu histórico de consumo", "de
+  acordo com a última conta registrada").
+
 - Nunca trate os valores presentes nos SHOTS como dados reais.
 
 - Se houver conflito entre dados retornados por ferramentas,

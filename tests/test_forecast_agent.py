@@ -35,19 +35,19 @@ def _history(days: int, liters_per_day: float) -> list[ConsumptionPoint]:
 
 @pytest.fixture
 def forecast_stubs(monkeypatch):
-    monkeypatch.setattr("app.tools.db_postgres.user_can_estimate", lambda uid: True)
-    monkeypatch.setattr("app.tools.db_postgres.get_last_water_bill", lambda uid: None)
-    monkeypatch.setattr("app.tools.db_postgres.get_user_region_id", lambda uid: 1)
-    monkeypatch.setattr("app.tools.db_postgres.get_user_property_classification_id", lambda uid: 1)
+    monkeypatch.setattr("app.data.db_postgres.user_can_estimate", lambda uid: True)
+    monkeypatch.setattr("app.data.db_postgres.get_last_water_bill", lambda uid: None)
+    monkeypatch.setattr("app.data.db_postgres.get_user_region_id", lambda uid: 1)
+    monkeypatch.setattr("app.data.db_postgres.get_user_property_classification_id", lambda uid: 1)
     monkeypatch.setattr(
-        "app.tools.db_postgres.get_current_region_rate",
+        "app.data.db_postgres.get_current_region_rate",
         lambda region_id, classification_id, on_date: Decimal("6.90"),
     )
     monkeypatch.setattr(
-        "app.tools.db_mongo.get_consumption_history",
+        "app.data.db_mongo.get_consumption_history",
         lambda uid, days: _history(30, 100.0),
     )
-    monkeypatch.setattr("app.tools.db_mongo.get_daily_liters_target", lambda uid: 400.0)
+    monkeypatch.setattr("app.data.db_mongo.get_daily_liters_target", lambda uid: 400.0)
 
 
 def test_response_number_matches_the_calculation_tool(forecast_stubs):
@@ -82,9 +82,9 @@ def test_response_number_matches_the_calculation_tool(forecast_stubs):
 
 
 def test_can_estimate_false_guard_invents_no_number(monkeypatch):
-    monkeypatch.setattr("app.tools.db_postgres.user_can_estimate", lambda uid: False)
+    monkeypatch.setattr("app.data.db_postgres.user_can_estimate", lambda uid: False)
     monkeypatch.setattr(
-        "app.tools.db_mongo.get_consumption_history", lambda uid, days: []
+        "app.data.db_mongo.get_consumption_history", lambda uid, days: []
     )
 
     llm = ScriptedChatModel(
