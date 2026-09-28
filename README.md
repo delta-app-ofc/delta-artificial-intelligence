@@ -128,6 +128,18 @@ sinalizado e explicita que é um indício, não uma certeza.
 - Sem tool de limiar/detecção própria: quem decide o que é indício é o motor
   de detecção, descrito a seguir.
 
+### Limitação conhecida — cobertura organizacional
+
+O Agente de Vazamento ainda não distingue unidades de uma organização
+multi-propriedade: as coleções do MongoDB (`consumption_summary`,
+`alerts_history`) são indexadas só por `user_id`, sem `property_id`/
+`organization_id` consultável. Um usuário "gestor" (vínculo só via
+`tb_user_organization`) recebe respostas de "sem indícios"/"dados
+insuficientes" quando não há documentos Mongo associados ao seu `user_id` —
+não é um erro, é a ausência de dado granular por propriedade nessa camada.
+Corrigir isso depende de mudança no pipeline de ingestão/`delta-business-rules`
+(fora de escopo desta tarefa) para gravar `property_id` nos documentos.
+
 ## Motor de detecção de vazamento — repositório `delta-business-rules`
 
 Quem calcula `anomaly_detected` em `consumption_summary` e cria alertas em
