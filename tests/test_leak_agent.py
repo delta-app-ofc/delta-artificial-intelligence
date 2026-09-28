@@ -4,8 +4,6 @@ from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
 
-import pytest
-
 from app.agents.leak import LeakAgent
 from app.services.prompts import vazamento_prompt_completo
 from app.tools.models import Alert, ConsumptionPoint
@@ -104,6 +102,39 @@ def test_no_leak_sign(monkeypatch):
     assert outputs["get_anomalous_windows"]["status"] == "insufficient_data"
     assert outputs["get_anomalous_windows"]["total_anomalous_windows"] == 0
     assert "evidências suficientes" in result.response.lower()
+
+
+def test_organizational_user_without_mongo_documents_degrades_gracefully(monkeypatch):
+    """Usuário gestor (vínculo só via tb_user_organization, sem tb_device próprio
+    via tb_user_property) não tem documentos Mongo atrelados ao seu user_id —
+    isso não é um erro, é a limitação conhecida registrada no README (Mongo não
+    tem property_id/organization_id consultável). As tools devem degradar
+    graciosamente, igual ao caminho residencial sem indícios."""
+    monkeypatch.setattr(
+        "app.data.db_mongo.get_anomalous_consumption_windows", lambda uid, days: []
+    )
+    monkeypatch.setattr(
+        "app.data.db_mongo.get_alerts_history",
+        lambda uid, days, only_active=False: [],
+    )
+
+    llm = ScriptedChatModel(
+        responses=[
+            ai_tool_call("get_anomalous_windows", {"days": 30}, "c1"),
+            ai_tool_call("get_alerts_history", {"days": 30}, "c2"),
+            ai_final(
+                "Não há dados suficientes para analisar indícios de vazamento "
+                "para este usuário."
+            ),
+        ]
+    )
+    agent = LeakAgent(user_id=200, llm=llm)
+    result = agent.run("Tenho algum indício de vazamento na minha organização?")
+
+    outputs = {tc.name: tc.output for tc in result.tool_calls}
+    assert outputs["get_anomalous_windows"]["status"] == "insufficient_data"
+    assert outputs["get_alerts_history"]["status"] == "insufficient_data"
+    assert "não há dados suficientes" in result.response.lower()
 
 
 def test_no_data_states_the_limitation(monkeypatch):
