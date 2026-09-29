@@ -9,12 +9,13 @@ from langchain_groq import ChatGroq
 
 from app.config import GEMINI_API_KEY, GROQ_API_KEY
 
+# Os 4 nomes de LLM abaixo só existem via __getattr__ (lazy loading).
 __all__ = [
-    "llm_gemini",
-    "llm_groq_especialista",
-    "llm_especialista",
-    "llm_rapido",
     "EMBEDDING_MODEL_NAME",
+    "llm_especialista",  # noqa: F822
+    "llm_gemini",  # noqa: F822
+    "llm_groq_especialista",  # noqa: F822
+    "llm_rapido",  # noqa: F822
 ]
 
 EMBEDDING_MODEL_NAME = "gemini-embedding-2-preview"

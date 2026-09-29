@@ -4,8 +4,6 @@ from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
 
-import pytest
-
 from app.agents.leak import LeakAgent
 from app.services.prompts import vazamento_prompt_completo
 from app.tools.models import Alert, ConsumptionPoint
