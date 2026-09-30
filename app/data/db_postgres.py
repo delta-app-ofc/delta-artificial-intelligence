@@ -225,7 +225,7 @@ def get_organization_consumption_history(
     property_ids: list[int], days: int, today: date
 ) -> list[ConsumptionPoint]:
     """Histórico diário (litros) somado por dia entre as propriedades
-    informadas, lido de dw.vw_consumption_daily. Cada dia vira um
+    informadas, lido de dw.vw_ft_consumption_daily. Cada dia vira um
     ConsumptionPoint sintético (janela de meia-noite a meia-noite) — formato
     aceito sem nenhuma mudança por app/tools/forecast/calculations.py, que só
     usa window_started_at e consumption_liters. user_id fica como placeholder
@@ -239,7 +239,7 @@ def get_organization_consumption_history(
         cur.execute(
             """
             SELECT full_date, SUM(total_liters)
-              FROM dw.vw_consumption_daily
+              FROM dw.vw_ft_consumption_daily
              WHERE property_id = ANY(%s)
                AND full_date BETWEEN %s AND %s
              GROUP BY full_date
@@ -288,7 +288,7 @@ def get_organization_last_billed_period(
         cur.execute(
             """
             SELECT SUM(total_liters), SUM(cost_value)
-              FROM dw.vw_consumption_daily
+              FROM dw.vw_ft_consumption_daily
              WHERE property_id = ANY(%s)
                AND full_date BETWEEN %s AND %s;
             """,
@@ -302,11 +302,11 @@ def get_organization_last_billed_period(
                 """
                 WITH last_month AS (
                     SELECT DATE_TRUNC('month', MAX(full_date))::DATE AS m
-                      FROM dw.vw_consumption_daily
+                      FROM dw.vw_ft_consumption_daily
                      WHERE property_id = ANY(%s)
                 )
                 SELECT SUM(v.total_liters), SUM(v.cost_value), MAX(lm.m)
-                  FROM dw.vw_consumption_daily v
+                  FROM dw.vw_ft_consumption_daily v
                   JOIN last_month lm ON DATE_TRUNC('month', v.full_date)::DATE = lm.m
                  WHERE v.property_id = ANY(%s);
                 """,
@@ -347,7 +347,7 @@ def get_organization_effective_rate(
         cur.execute(
             """
             SELECT SUM(total_liters), SUM(cost_value)
-              FROM dw.vw_consumption_daily
+              FROM dw.vw_ft_consumption_daily
              WHERE property_id = ANY(%s)
                AND full_date BETWEEN %s AND %s;
             """,
