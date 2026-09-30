@@ -1,8 +1,5 @@
--- Cópia read-only de script-datamart.sql (delta-database, branch
--- feat/data-mart-industrial-bi), sem dw.vw_audit_history_chain (depende de
--- tb_log_region_rate, que não existe neste postgres-init local) nem os
--- GRANTs de fim de arquivo (roles sys_data_engineer/sys_bi_analyst não
--- existem aqui — script-roles.sql não faz parte deste bootstrap).
+-- Cópia read-only de script-datamart.sql (delta-sql-database), sem
+-- dw.vw_audit_history_chain nem os GRANTs de roles que não existem aqui.
 
 CREATE SCHEMA IF NOT EXISTS stage;
 

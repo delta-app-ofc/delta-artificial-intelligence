@@ -1,15 +1,6 @@
--- Cópia/adaptação read-only do schema já implementado e testado em
--- delta-database — não é mudança de schema criada por este repositório;
--- existe só para rodar o ambiente de dev local e validar manualmente o
--- caminho organizacional.
---
--- Dataload mínimo: 1 organização de teste, 1 unidade em Lins/SP, vínculo do
--- usuário 151 (já existe no dataload residencial em 06-dataload.sql e, por
--- não ter linha em tb_user_property, cai direto no caminho organizacional) e
--- ~14 dias de telemetria fabricada direto em gold.ft_consumption_daily (sem
--- rodar stage/silver, já que não há Mongo real espelhado localmente) —
--- suficiente para passar de MIN_HISTORY_DAYS=7 em
--- app/tools/forecast/calculations.py.
+-- Dataload mínimo pro caminho organizacional: 1 organização, 1 unidade em
+-- Lins/SP, usuário 151 (sem tb_user_property) vinculado a ela, e ~14 dias de
+-- consumo fabricado direto em gold.ft_consumption_daily (sem stage/silver).
 
 BEGIN;
 

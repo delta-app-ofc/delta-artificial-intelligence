@@ -1,7 +1,5 @@
--- Cópia read-only do schema já implementado e testado em delta-database
--- (branch feat/data-mart-industrial-bi, tables/tb_organization.sql e afins)
--- — não é mudança de schema criada por este repositório; existe só para
--- rodar o ambiente de dev local. organization_id/built_area_m2 em
+-- Cópia read-only do schema de organização do delta-sql-database
+-- (branch feat/data-mart-industrial-bi). organization_id/built_area_m2 em
 -- tb_property são ALTER porque 01-schema.sql já cria a tabela sem eles.
 
 CREATE TABLE tb_organization (
