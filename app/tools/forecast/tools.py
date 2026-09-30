@@ -62,10 +62,10 @@ def build_tools(user_id: int, today: date) -> list[BaseTool]:
             return kind, None, None
 
         all_props = db_postgres.get_user_organization_properties(user_id)
-        if property_name is None:
+        needle = (property_name or "").strip().lower()
+        if not needle:
             return "organizational", [p.property_id for p in all_props], all_props
 
-        needle = property_name.strip().lower()
         matches = [p for p in all_props if needle in p.name.lower()]
         if not matches:
             return "organizational_not_found", None, all_props

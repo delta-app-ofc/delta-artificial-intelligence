@@ -272,9 +272,10 @@ def get_organization_last_billed_period(
     """Equivalente organizacional de tb_last_water_bill (que não existe para
     organização): soma total_liters/cost_value do último mês calendário
     fechado. Como hoje só um punhado de propriedades têm telemetria real e
-    podem não ter um mês inteiro fechado, cai no fallback de somar todo o
-    histórico disponível, rotulado com o mês da leitura mais recente — evita
-    retornar None sempre que o dado real ainda for escasso.
+    podem não ter um mês inteiro fechado, cai no fallback de somar só o mês
+    calendário da leitura mais recente disponível — evita retornar None
+    sempre que o dado real ainda for escasso, sem misturar meses diferentes
+    numa única "conta".
     """
     if not property_ids:
         return None
@@ -299,16 +300,21 @@ def get_organization_last_billed_period(
         if liters is None:
             cur.execute(
                 """
-                SELECT SUM(total_liters), SUM(cost_value), MAX(full_date)
-                  FROM dw.vw_consumption_daily
-                 WHERE property_id = ANY(%s);
+                WITH last_month AS (
+                    SELECT DATE_TRUNC('month', MAX(full_date))::DATE AS m
+                      FROM dw.vw_consumption_daily
+                     WHERE property_id = ANY(%s)
+                )
+                SELECT SUM(v.total_liters), SUM(v.cost_value), MAX(lm.m)
+                  FROM dw.vw_consumption_daily v
+                  JOIN last_month lm ON DATE_TRUNC('month', v.full_date)::DATE = lm.m
+                 WHERE v.property_id = ANY(%s);
                 """,
-                (property_ids,),
+                (property_ids, property_ids),
             )
-            liters, cost, max_date = cur.fetchone()
+            liters, cost, reference_month = cur.fetchone()
             if liters is None:
                 return None
-            reference_month = max_date.replace(day=1)
 
         return LastWaterBill(
             user_id=0,
