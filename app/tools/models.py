@@ -29,6 +29,16 @@ class ConsumptionPoint:
 
 
 @dataclass(frozen=True)
+class OrganizationProperty:
+    """Uma unidade (tb_property) de uma organização vinculada ao usuário via tb_user_organization."""
+
+    property_id: int
+    name: str
+    city: str
+    state: str
+
+
+@dataclass(frozen=True)
 class Alert:
     """Um alerta de alerts_history (MongoDB)."""
 

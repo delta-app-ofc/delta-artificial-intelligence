@@ -54,11 +54,12 @@ delta-artificial-intelligence/
 │   ├── services/
 │   │   ├── llms.py               # llm_especialista (Gemini + fallback Groq), llm_rapido
 │   │   └── prompts.py            # prompts de sistema dos 7 agentes
+│   ├── data/
+│   │   ├── db_postgres.py        # leitura crua do PostgreSQL (delta-sql-database)
+│   │   └── db_mongo.py           # leitura crua do MongoDB (delta-nosql-database), 2 clusters Atlas
 │   └── tools/
 │       ├── exceptions.py         # todas as exceções do projeto
 │       ├── models.py             # dataclasses (LastWaterBill, ConsumptionPoint, Alert)
-│       ├── db_postgres.py        # leitura crua do PostgreSQL (delta-sql-database)
-│       ├── db_mongo.py           # leitura crua do MongoDB (delta-nosql-database)
 │       ├── forecast/             # tools + cálculo do Agente de Previsão
 │       │   ├── calculations.py   # cálculo determinístico (sem LLM)
 │       │   └── tools.py          # as tools que o LLM chama de verdade
@@ -66,8 +67,8 @@ delta-artificial-intelligence/
 │           ├── analysis.py       # resumo descritivo de janelas já sinalizadas
 │           └── tools.py          # as tools que o LLM chama de verdade
 ├── db/
-│   ├── postgres-init/            # cópias de bootstrap do delta-sql-database (01..06)
-│   └── mongo-init/seed.js        # seed de teste autoral
+│   └── postgres-init/            # cópias de bootstrap do delta-sql-database (01..06)
+│       # Mongo sobe vazio — popule com delta-hardware-data-simulator
 ├── docker-compose.dev.yml        # Postgres + Mongo locais para dev manual
 ├── tests/                        # pytest — cobre agentes + cálculo puro, sem banco
 ├── .env.example                 # nomes de variáveis, sem segredos

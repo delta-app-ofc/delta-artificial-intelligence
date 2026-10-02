@@ -12,7 +12,7 @@ from typing import Any
 
 from langchain_core.tools import BaseTool, tool
 
-from app.tools import db_mongo
+from app.data import db_mongo
 from app.tools.leak import analysis
 
 # Janela padrão de análise (dias).

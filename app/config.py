@@ -20,7 +20,8 @@ USER_DB = os.getenv("USER_DB")
 PASSWORD_DB = os.getenv("PASSWORD_DB")
 NAME_DB = os.getenv("NAME_DB")
 
-MONGODB_URI = os.getenv("MONGODB_URI", "mongodb://localhost:27017")
+MONGODB_APP_URI = os.getenv("MONGODB_APP_URI", "mongodb://localhost:27018")
+MONGODB_TELEMETRY_URI = os.getenv("MONGODB_TELEMETRY_URI", "mongodb://localhost:27018")
 MONGO_DB_TELEMETRY = os.getenv("MONGO_DB_TELEMETRY", "db_delta_telemetry")
 MONGO_DB_APP = os.getenv("MONGO_DB_APP", "db_delta_app")
 
@@ -43,7 +44,9 @@ def validate_config() -> list[str]:
             "USER_DB, PASSWORD_DB e NAME_DB."
         )
 
-    if not MONGODB_URI:
-        problems.append("MONGODB_URI ausente no .env.")
+    if not MONGODB_APP_URI:
+        problems.append("MONGODB_APP_URI ausente no .env.")
+    if not MONGODB_TELEMETRY_URI:
+        problems.append("MONGODB_TELEMETRY_URI ausente no .env.")
 
     return problems

@@ -7,12 +7,16 @@ AS $$
 DECLARE
     v_property_id INTEGER;
     v_region_id INTEGER;
+    v_classification_id INTEGER;
 BEGIN
 
+    -- Verifica se o usuário existe e está ativo
     IF NOT fn_user_is_active(p_user_id) THEN
         RETURN FALSE;
     END IF;
 
+
+    -- Busca uma propriedade vinculada ao usuário
     SELECT property_id
       INTO v_property_id
       FROM tb_user_property
@@ -24,6 +28,8 @@ BEGIN
         RETURN FALSE;
     END IF;
 
+
+    -- Verifica se existe dispositivo ativo na propriedade
     IF NOT EXISTS
     (
         SELECT 1
@@ -35,8 +41,10 @@ BEGIN
         RETURN FALSE;
     END IF;
 
-    SELECT region_id
-      INTO v_region_id
+
+    -- Busca a região e a categoria da propriedade
+    SELECT a.region_id, p.classification_id
+      INTO v_region_id, v_classification_id
       FROM tb_address a
       JOIN tb_property p
         ON p.address_id = a.id
@@ -47,11 +55,14 @@ BEGIN
         RETURN FALSE;
     END IF;
 
+
+    -- Verifica se existe tarifa cadastrada para a região e categoria
     IF NOT EXISTS
     (
         SELECT 1
           FROM tb_region_rate
          WHERE region_id = v_region_id
+           AND classification_id = v_classification_id
            AND initial_validity <= CURRENT_DATE
            AND (
                 final_validity IS NULL

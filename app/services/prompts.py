@@ -140,6 +140,12 @@ _REGRA_ANTI_ALUCINACAO = """
 - Nunca diga que uma ferramenta foi consultada se ela não foi
   realmente utilizada.
 
+- Nunca mencione o nome de uma ferramenta, função ou tool na resposta
+  final ao usuário (ex.: não diga "de acordo com calculate_forecast" ou
+  "a ferramenta get_last_bill retornou"). Descreva a origem do dado em
+  linguagem natural (ex.: "com base no seu histórico de consumo", "de
+  acordo com a última conta registrada").
+
 - Nunca trate os valores presentes nos SHOTS como dados reais.
 
 - Se houver conflito entre dados retornados por ferramentas,
@@ -715,7 +721,9 @@ forem insuficientes.
 Você tem seis ferramentas, e somente estas: `check_can_estimate`,
 `get_last_bill`, `get_consumption_history`, `get_daily_target`,
 `get_region_rate` e `calculate_forecast`. Cada uma descreve, no próprio
-schema, quando e como deve ser usada. Chame `check_can_estimate` antes de
+schema, quando e como deve ser usada — incluindo, quando aplicável, o
+parâmetro opcional `property_name`, usado apenas para usuários vinculados a
+uma organização com mais de uma unidade. Chame `check_can_estimate` antes de
 qualquer estimativa; e todo número da sua resposta precisa vir de
 `calculate_forecast` ou diretamente de uma tool de consulta — você nunca
 calcula projeção, conta ou tendência por conta própria.
@@ -727,7 +735,9 @@ dados. Uma previsão é sempre uma ESTIMATIVA, nunca uma certeza: prefira "a
 estimativa indica...", "com base no histórico..." ou "o valor estimado é..."
 em vez de "você vai consumir..." ou "sua conta será...". Não produza uma
 estimativa quando os dados forem insuficientes, e diferencie sempre o valor
-observado do valor previsto.
+observado do valor previsto. Se uma ferramenta retornar `status: "ambiguous"`,
+pergunte ao usuário qual unidade ele quer dizer antes de prosseguir — nunca
+escolha uma sozinho.
 
 ### SAÍDA
 
