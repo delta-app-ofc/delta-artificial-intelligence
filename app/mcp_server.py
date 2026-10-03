@@ -2,21 +2,25 @@
 
 Execute com: python app/mcp_server.py
 O processo aguarda entrada via stdin (protocolo stdio do MCP).
+Não use print() aqui: stdout é o canal JSON-RPC. Use sys.stderr para logs.
 """
 
 from __future__ import annotations
+import sys
+from pathlib import Path
 
-from mcp.server.fastmcp import FastMCP
-from mcp.server.fastmcp.tools import ToolAnnotations
+# O Cursor não inicia o processo de dentro da pasta do projeto.
+# Sem isso, `from app.tools...` falha com ModuleNotFoundError.
+_BASE = Path(__file__).resolve().parent.parent
+if str(_BASE) not in sys.path:
+    sys.path.insert(0, str(_BASE))
+
+from mcp.server.mcpserver import MCPServer
+from mcp.types import ToolAnnotations
 
 from app.tools.habits.tools import build_tools
 
-mcp = FastMCP("delta-ai")
-
-_PLACEHOLDER_USER_ID = 1
-
-_habits_tools = build_tools(_PLACEHOLDER_USER_ID)
-_tools_by_name = {t.name: t for t in _habits_tools}
+mcp = MCPServer(name="delta-ai")
 
 
 @mcp.tool(
