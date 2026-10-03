@@ -74,6 +74,16 @@ def _run(coro_fn) -> dict:
         return pool.submit(lambda: asyncio.run(coro_fn())).result()
 
 
+_FORECAST_FIELDS = [
+    "temperature",
+    "precipitationIntensity",
+    "precipitationProbability",
+    "humidity",
+    "windSpeed",
+    "weatherCode",
+]
+
+
 @tool
 def get_realtime_weather(location: str) -> dict:
     """Retorna condições climáticas atuais (temperatura, chuva, umidade etc.)
@@ -82,10 +92,16 @@ def get_realtime_weather(location: str) -> dict:
     Use quando o usuário perguntar sobre o tempo atual e isso for relevante para
     o consumo de água (ex.: calor intenso, chuva que dispensa irrigação).
 
-    location: nome da cidade ou endereço (ex.: 'São Paulo, Brasil').
+    location: coordenadas 'lat,lon' (ex.: '-23.5505,-46.6333') ou nome da cidade
+      sem vírgula (ex.: 'Sao Paulo Brazil'). Prefira coordenadas para maior precisão.
     """
     try:
-        return _run(lambda: _chamar_weather_mcp("realtime_weather", {"location": location}))
+        return _run(
+            lambda: _chamar_weather_mcp(
+                "get_realtime_weather",
+                {"location": location, "units": "metric"},
+            )
+        )
     except BaseException as exc:
         return {"status": "error", "message": _motivo(exc)}
 
@@ -98,13 +114,20 @@ def get_forecast_timeline(location: str, timesteps: str = "1d") -> dict:
     Use quando o usuário perguntar sobre previsão de chuva ou calor para planejar
     consumo de água (ex.: regar plantas, lavar quintal).
 
-    location: nome da cidade ou endereço.
-    timesteps: intervalo da previsão — '1h' (horária) ou '1d' (diária, padrão).
+    location: coordenadas 'lat,lon' (ex.: '-23.5505,-46.6333') ou nome da cidade
+      sem vírgula (ex.: 'Sao Paulo Brazil'). Prefira coordenadas para maior precisão.
+    timesteps: intervalo — '1h' (horária) ou '1d' (diária, padrão).
     """
     try:
         return _run(
             lambda: _chamar_weather_mcp(
-                "forecast_timeline", {"location": location, "timesteps": timesteps}
+                "get_forecast_timeline",
+                {
+                    "location": location,
+                    "fields": _FORECAST_FIELDS,
+                    "timesteps": [timesteps],
+                    "units": "metric",
+                },
             )
         )
     except BaseException as exc:
