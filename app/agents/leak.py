@@ -5,7 +5,7 @@ from typing import Any
 from app.agents._runtime import AgentResult, ToolCall, run_agent
 from app.services.prompts import vazamento_prompt_completo
 from app.tools.leak.tools import build_tools
-from app.integrations.mcp.weather import WEATHER_TOOLS
+from app.integrations.mcp.weather import get_weather_tools
 
 
 def _build_leak_chart(tool_calls: list[ToolCall]) -> dict | None:
@@ -52,7 +52,7 @@ class LeakAgent:
 
             llm = llm_especialista
         self.llm = llm
-        self.tools = build_tools(self.user_id) + WEATHER_TOOLS
+        self.tools = build_tools(self.user_id) + get_weather_tools()
 
     def run(self, question: str) -> AgentResult:
         result = run_agent(
