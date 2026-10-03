@@ -10,6 +10,8 @@ from pydantic import BaseModel, Field, create_model
 
 from app.config import TOMORROW_API_KEY, TOMORROW_MCP_URL
 
+_WEATHER_TOOLS = {"get_realtime_weather", "get_forecast_timeline"}
+
 _cached_tools: list[BaseTool] | None = None
 
 
@@ -79,6 +81,8 @@ async def _discover_tools() -> list[BaseTool]:
                 catalog = await session.list_tools()
 
                 for mcp_tool in catalog.tools:
+                    if mcp_tool.name not in _WEATHER_TOOLS:
+                        continue
                     schema = mcp_tool.input_schema or {}
                     props = schema.get("properties", {})
                     required = set(schema.get("required", []))
