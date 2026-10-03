@@ -358,11 +358,6 @@ def get_user_habits(user_id: int) -> list[dict]:
 def create_habit(
     user_id: int, habit_name: str, frequency: int, days: list[str]
 ) -> dict:
-    """Cadastra ou atualiza um hábito para o usuário.
-
-    Retorna o id do registro em tb_user_habit e os dias vinculados.
-    Lança ValueError se habit_name ou algum day não existirem no banco.
-    """
     conn = get_conn()
     cur = conn.cursor()
     try:

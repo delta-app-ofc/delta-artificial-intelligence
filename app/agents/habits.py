@@ -9,7 +9,6 @@ from app.integrations.mcp.weather import get_weather_tools
 
 
 def _build_habits_chart(tool_calls: list[ToolCall]) -> dict | None:
-    """Gera gráfico de barras horizontal com frequência semanal dos hábitos."""
     habits: list[dict] = []
     for tc in tool_calls:
         if tc.name == "list_habits" and isinstance(tc.output, dict):

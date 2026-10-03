@@ -1,13 +1,3 @@
-"""Cliente MCP do Tomorrow.io — descoberta dinâmica de tools em runtime.
-
-O Delta é CLIENTE de um servidor que a Tomorrow.io hospeda:
-https://api.tomorrow.io/v4/tomorrow-weather/mcp (streamable HTTP).
-
-Diferença de uma chamada REST simples: as tools e seus schemas são descobertos
-em `list_tools()` no servidor — não estão hardcoded aqui. O LLM recebe o
-catálogo real e decide o que chamar com base nas descrições do servidor.
-"""
-
 from __future__ import annotations
 
 import asyncio
@@ -20,13 +10,6 @@ from pydantic import BaseModel, Field, create_model
 
 from app.config import TOMORROW_API_KEY, TOMORROW_MCP_URL
 
-# Tools relevantes para contexto de consumo de água (filtro aplicado ao catálogo).
-_RELEVANT_TOOLS = {
-    "get_realtime_weather",
-    "get_forecast_timeline",
-}
-
-# Cache: tools descobertas uma vez por processo.
 _cached_tools: list[BaseTool] | None = None
 
 
@@ -43,7 +26,6 @@ def _motivo(exc: BaseException) -> str:
 
 
 async def _call_tool(tool_name: str, args: dict) -> dict:
-    """Abre uma sessão MCP, chama a tool e retorna o resultado parseado."""
     from mcp import ClientSession
     from mcp.client.streamable_http import streamable_http_client
     from mcp.shared._httpx_utils import create_mcp_http_client
@@ -75,7 +57,6 @@ async def _call_tool(tool_name: str, args: dict) -> dict:
 
 
 async def _discover_tools() -> list[BaseTool]:
-    """Conecta ao servidor, chama list_tools() e constrói LangChain tools dinamicamente."""
     from mcp import ClientSession
     from mcp.client.streamable_http import streamable_http_client
     from mcp.shared._httpx_utils import create_mcp_http_client
@@ -98,10 +79,6 @@ async def _discover_tools() -> list[BaseTool]:
                 catalog = await session.list_tools()
 
                 for mcp_tool in catalog.tools:
-                    if mcp_tool.name not in _RELEVANT_TOOLS:
-                        continue
-
-                    # Constrói um modelo Pydantic com os campos obrigatórios do schema.
                     schema = mcp_tool.input_schema or {}
                     props = schema.get("properties", {})
                     required = set(schema.get("required", []))
@@ -122,7 +99,8 @@ async def _discover_tools() -> list[BaseTool]:
                         f"{mcp_tool.name}_args", **fields
                     )
 
-                    # Captura nome para o closure.
+                    # sem captura explícita, todas as closures referenciariam
+                    # o mesmo mcp_tool.name ao final do loop
                     captured_name = mcp_tool.name
 
                     def _make_fn(name: str):
@@ -147,12 +125,7 @@ async def _discover_tools() -> list[BaseTool]:
 
 
 def get_weather_tools() -> list[BaseTool]:
-    """Retorna as tools de clima descobertas do servidor MCP Tomorrow.io.
-
-    Na primeira chamada conecta ao servidor e chama list_tools(). As chamadas
-    seguintes usam o cache (as tools não mudam entre requisições).
-    Retorna lista vazia se TOMORROW_API_KEY não estiver configurada.
-    """
+    """Tools do Tomorrow.io descobertas via list_tools() — cache por processo."""
     global _cached_tools
     if _cached_tools is not None:
         return _cached_tools

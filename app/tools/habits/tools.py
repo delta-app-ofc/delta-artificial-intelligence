@@ -1,9 +1,3 @@
-"""As tools de verdade do Agente de Hábitos — o que o LLM efetivamente chama.
-
-Somente usuários residenciais: sem branching organizacional.
-O user_id nunca é exposto ao LLM como argumento.
-"""
-
 from __future__ import annotations
 
 from langchain_core.tools import BaseTool, tool
@@ -65,10 +59,6 @@ def _normalize_day(day: str) -> str | None:
 
 
 def build_tools(user_id: int) -> list[BaseTool]:
-    """Cria as tools já amarradas a user_id.
-
-    O user_id nunca é um argumento exposto ao LLM.
-    """
 
     @tool
     def list_habits() -> dict:
