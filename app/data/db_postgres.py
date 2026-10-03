@@ -355,6 +355,68 @@ def get_user_habits(user_id: int) -> list[dict]:
         conn.close()
 
 
+def create_habit(
+    user_id: int, habit_name: str, frequency: int, days: list[str]
+) -> dict:
+    """Cadastra ou atualiza um hábito para o usuário.
+
+    Retorna o id do registro em tb_user_habit e os dias vinculados.
+    Lança ValueError se habit_name ou algum day não existirem no banco.
+    """
+    conn = get_conn()
+    cur = conn.cursor()
+    try:
+        cur.execute("SELECT id FROM tb_habit WHERE name = %s;", (habit_name,))
+        row = cur.fetchone()
+        if row is None:
+            raise ValueError(f"Hábito '{habit_name}' não existe no catálogo.")
+        habit_id = int(row[0])
+
+        cur.execute(
+            """
+            INSERT INTO tb_user_habit (user_id, habit_id, frequency)
+            VALUES (%s, %s, %s)
+            ON CONFLICT (user_id, habit_id)
+            DO UPDATE SET frequency = EXCLUDED.frequency
+            RETURNING id;
+            """,
+            (user_id, habit_id, frequency),
+        )
+        user_habit_id = int(cur.fetchone()[0])
+
+        linked_days: list[str] = []
+        for day_name in days:
+            cur.execute(
+                "SELECT id FROM tb_day_of_week WHERE name = %s;", (day_name,)
+            )
+            day_row = cur.fetchone()
+            if day_row is None:
+                raise ValueError(f"Dia '{day_name}' não existe no banco.")
+            cur.execute(
+                """
+                INSERT INTO tb_user_habit_day (user_habit_id, day_of_week_id)
+                VALUES (%s, %s)
+                ON CONFLICT (user_habit_id, day_of_week_id) DO NOTHING;
+                """,
+                (user_habit_id, int(day_row[0])),
+            )
+            linked_days.append(day_name)
+
+        conn.commit()
+        return {
+            "user_habit_id": user_habit_id,
+            "habit_name": habit_name,
+            "frequency": frequency,
+            "days": linked_days,
+        }
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        cur.close()
+        conn.close()
+
+
 def get_habits_by_weekday(user_id: int, day: str) -> list[dict]:
     conn = get_conn()
     cur = conn.cursor()
