@@ -327,6 +327,55 @@ def get_organization_last_billed_period(
         conn.close()
 
 
+def get_user_habits(user_id: int) -> list[dict]:
+    conn = get_conn()
+    cur = conn.cursor()
+    try:
+        cur.execute(
+            """
+            SELECT h.name, uh.frequency,
+                   array_agg(dw.name ORDER BY dw.id)
+                     FILTER (WHERE dw.name IS NOT NULL) AS days
+              FROM tb_user_habit uh
+              JOIN tb_habit h ON h.id = uh.habit_id
+              LEFT JOIN tb_user_habit_day uhd ON uhd.user_habit_id = uh.id
+              LEFT JOIN tb_day_of_week dw ON dw.id = uhd.day_of_week_id
+             WHERE uh.user_id = %s
+             GROUP BY h.name, uh.frequency
+             ORDER BY h.name;
+            """,
+            (user_id,),
+        )
+        return [
+            {"name": row[0], "frequency": row[1], "days": row[2] or []}
+            for row in cur.fetchall()
+        ]
+    finally:
+        cur.close()
+        conn.close()
+
+
+def get_habits_by_weekday(user_id: int, day: str) -> list[dict]:
+    conn = get_conn()
+    cur = conn.cursor()
+    try:
+        cur.execute(
+            """
+            SELECT h.name, uh.frequency
+              FROM tb_user_habit uh
+              JOIN tb_habit h ON h.id = uh.habit_id
+              JOIN tb_user_habit_day uhd ON uhd.user_habit_id = uh.id
+              JOIN tb_day_of_week dw ON dw.id = uhd.day_of_week_id
+             WHERE uh.user_id = %s AND dw.name = %s;
+            """,
+            (user_id, day),
+        )
+        return [{"name": row[0], "frequency": row[1]} for row in cur.fetchall()]
+    finally:
+        cur.close()
+        conn.close()
+
+
 def get_organization_effective_rate(
     property_ids: list[int], today: date, window_days: int = 30
 ) -> Decimal | None:
