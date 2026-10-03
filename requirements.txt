@@ -10,3 +10,7 @@ psycopg2-binary
 pymongo
 dnspython
 redis
+mcp
+httpx
+qdrant-client
+plotly

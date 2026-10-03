@@ -25,6 +25,14 @@ MONGODB_TELEMETRY_URI = os.getenv("MONGODB_TELEMETRY_URI", "mongodb://localhost:
 MONGO_DB_TELEMETRY = os.getenv("MONGO_DB_TELEMETRY", "db_delta_telemetry")
 MONGO_DB_APP = os.getenv("MONGO_DB_APP", "db_delta_app")
 
+QDRANT_URL = os.getenv("QDRANT_URL", "http://localhost:6333")
+QDRANT_API_KEY = os.getenv("QDRANT_API_KEY", "")
+
+TOMORROW_API_KEY = os.getenv("TOMORROW_API_KEY", "")
+TOMORROW_MCP_URL = "https://api.tomorrow.io/v4/tomorrow-weather/mcp"
+
+A2A_RESEARCH_AGENT_URL = os.getenv("A2A_RESEARCH_AGENT_URL", "")
+
 
 def _has_split_postgres_vars() -> bool:
     return all((HOST_DB, PORT_DB, USER_DB, PASSWORD_DB, NAME_DB))
