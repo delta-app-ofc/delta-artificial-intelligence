@@ -116,14 +116,17 @@ def _aware_datetime(document: dict, field: str) -> datetime:
 
 def _to_point(doc: dict) -> ConsumptionPoint:
     device_id = doc["device_id"]
+    anomaly_detected = doc.get("anomaly_detected", False)
     if not isinstance(device_id, str):
         raise ValueError("documento contém um identificador inválido")
+    if not isinstance(anomaly_detected, bool):
+        raise ValueError("documento contém uma flag de anomalia inválida")
     return ConsumptionPoint(
         user_id=int(doc["user_id"]),
         window_started_at=_aware_datetime(doc, "window_started_at"),
         window_finished_at=_aware_datetime(doc, "window_finished_at"),
         consumption_liters=float(doc["consumption_liters"]),
-        anomaly_detected=bool(doc.get("anomaly_detected", False)),
+        anomaly_detected=anomaly_detected,
         lpm_average=(
             float(doc["lpm_average"]) if doc.get("lpm_average") is not None else None
         ),

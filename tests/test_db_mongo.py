@@ -338,6 +338,18 @@ def test_missing_required_device_id_is_a_safe_data_error(monkeypatch, use_mongo_
     assert collection.cursor is not None and collection.cursor.closed
 
 
+def test_invalid_anomaly_flag_is_not_coerced_to_true(monkeypatch, use_mongo_settings):
+    collection = FakeCollection(documents=[_point(anomaly_detected="false")])
+    monkeypatch.setattr(
+        db_mongo,
+        "_telemetry",
+        lambda: FakeDatabase("delta_test_telemetry", {"consumption_summary": collection}),
+    )
+
+    with pytest.raises(DatabaseQueryError):
+        db_mongo.get_consumption_history(42, 7)
+
+
 def test_alert_with_invalid_resolved_at_is_a_safe_data_error(
     monkeypatch, use_mongo_settings
 ):
