@@ -101,6 +101,7 @@ def test_rolling_periods_are_exact_windows_and_previous_month_matches_day_count(
         now=datetime(2026, 3, 31, 12, tzinfo=UTC),
     )
     assert march_end.end.isoformat() == "2026-03-01T00:00:00-03:00"
+    assert march_end.calendar_days == 28
 
 
 @pytest.mark.parametrize(
@@ -200,6 +201,18 @@ def test_negative_and_non_finite_measurements_are_rejected(liters):
     point = _point(datetime(2026, 9, 1, 12, tzinfo=UTC), liters)
     with pytest.raises(InconsistentConsumptionData):
         aggregate_windows([point], period=_period(), user_id=11, as_of=NOW)
+
+
+def test_negative_daily_row_is_not_hidden_by_positive_row_for_another_unit():
+    with pytest.raises(InconsistentConsumptionData):
+        aggregate_daily_records(
+            [
+                (date(2026, 9, 1), 150),
+                (date(2026, 9, 1), -1),
+                (date(2026, 9, 2), 200),
+            ],
+            period=_period(),
+        )
 
 
 def test_invalid_timestamps_and_cross_midnight_windows_are_handled_explicitly():

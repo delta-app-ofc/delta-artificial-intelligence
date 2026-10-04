@@ -304,6 +304,41 @@ def get_organization_consumption_history(
     return points
 
 
+def get_organization_consumption_daily(
+    property_ids: list[int], start_date: date, end_date: date
+) -> list[tuple[date, Decimal]]:
+    """Lê os registros diários das unidades autorizadas no intervalo de datas.
+
+    A view tem granularidade diária. Os limites são datas inclusivas locais;
+    a função não cria horários nem soma linhas antes de validar cada valor.
+    """
+    if not property_ids:
+        return []
+    if (
+        not isinstance(start_date, date)
+        or isinstance(start_date, datetime)
+        or not isinstance(end_date, date)
+        or isinstance(end_date, datetime)
+    ):
+        raise ValueError("O período diário precisa usar datas sem horário.")
+    if start_date > end_date:
+        raise ValueError("A data inicial é posterior à data final.")
+
+    with _cursor() as cur:
+        cur.execute(
+            """
+            SELECT full_date, total_liters
+              FROM dw.vw_ft_consumption_daily
+             WHERE property_id = ANY(%s)
+               AND full_date BETWEEN %s AND %s
+             ORDER BY full_date, property_id;
+            """,
+            (property_ids, start_date, end_date),
+        )
+        rows = cur.fetchall()
+    return [(row[0], row[1]) for row in rows]
+
+
 def get_organization_last_billed_period(
     property_ids: list[int], today: date
 ) -> LastWaterBill | None:

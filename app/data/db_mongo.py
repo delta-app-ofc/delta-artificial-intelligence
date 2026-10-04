@@ -203,6 +203,41 @@ def get_consumption_history(user_id: int, days: int) -> list[ConsumptionPoint]:
     )
 
 
+def get_consumption_history_between(
+    user_id: int,
+    start_at_utc: datetime,
+    end_at_utc: datetime,
+    finished_before_utc: datetime,
+) -> list[ConsumptionPoint]:
+    """Lê janelas por início UTC em [start, end) e já finalizadas até o limite.
+
+    O helper antigo por número de dias continua sendo usado pela Previsão.
+    Este caminho é exclusivo das consultas de consumo observado.
+    """
+    bounds = (start_at_utc, end_at_utc, finished_before_utc)
+    if any(not isinstance(value, datetime) or value.utcoffset() is None for value in bounds):
+        raise ValueError("Os limites da consulta precisam ter fuso horário explícito.")
+
+    start = start_at_utc.astimezone(timezone.utc)
+    end = end_at_utc.astimezone(timezone.utc)
+    finished_before = finished_before_utc.astimezone(timezone.utc)
+    if start >= end:
+        raise ValueError("O início da consulta precisa ser anterior ao fim.")
+
+    return _read_many(
+        "telemetry",
+        "consumption_summary",
+        {
+            "user_id": user_id,
+            "window_started_at": {"$gte": start, "$lt": end},
+            "window_finished_at": {"$lte": finished_before},
+        },
+        "window_started_at",
+        ASCENDING,
+        _to_point,
+    )
+
+
 def get_daily_liters_target(user_id: int) -> float | None:
     doc = _read_one("app", "user_preferences", {"user_id": user_id})
     if not doc or doc.get("daily_liters_target") is None:
