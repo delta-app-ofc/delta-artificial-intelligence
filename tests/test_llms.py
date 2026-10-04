@@ -180,3 +180,71 @@ def test_provider_models_receive_settings_and_finite_parameters(monkeypatch):
         "max_tokens": 3456,
     }
     assert set(validated) >= {"specialist", "gemini", "groq_specialist", "fast"}
+
+
+def test_primary_success_does_not_invoke_fallback():
+    primary = ProviderSpy([ai_final("resposta principal")])
+    fallback = ProviderSpy([ai_final("resposta alternativa")])
+    tools = [{"type": "function", "function": {"name": "lookup"}}]
+    messages = [HumanMessage(content="consulta")]
+
+    response = llms._FallbackLLM(primary, fallback).bind_tools(tools).invoke(messages)
+
+    assert response.content == "resposta principal"
+    assert len(primary.inputs) == 1
+    assert fallback.inputs == []
+    assert primary.bound_tools[0][0] is tools
+    assert fallback.bound_tools[0][0] is tools
+
+
+def test_transient_primary_error_uses_fallback_with_same_tools_and_messages():
+    primary = ProviderSpy([_groq_timeout()])
+    fallback = ProviderSpy([ai_final("resposta alternativa")])
+    tools = [{"type": "function", "function": {"name": "lookup"}}]
+    messages = [HumanMessage(content="consulta")]
+
+    response = llms._FallbackLLM(primary, fallback).bind_tools(tools).invoke(messages)
+
+    assert response.content == "resposta alternativa"
+    assert primary.inputs[0] is messages
+    assert fallback.inputs[0] is messages
+    assert primary.bound_tools[0][0] is tools
+    assert fallback.bound_tools[0][0] is tools
+
+
+def test_fallback_tool_call_runs_once_and_receives_tool_message_on_next_turn():
+    tool_effects: list[int] = []
+
+    def lookup(value: int) -> dict[str, int]:
+        tool_effects.append(value)
+        return {"value": value + 1}
+
+    lookup_tool = StructuredTool.from_function(
+        lookup,
+        name="lookup",
+        description="Consulta um valor de teste.",
+    )
+    primary = ProviderSpy([_groq_timeout(), _groq_timeout()])
+    fallback = ProviderSpy(
+        [
+            ai_tool_call("lookup", {"value": 6}, "lookup-call"),
+            ai_final("A consulta retornou 7."),
+        ]
+    )
+
+    result = run_agent(
+        llm=llms._FallbackLLM(primary, fallback),
+        system_prompt="Responda usando a ferramenta quando necessário.",
+        tools=[lookup_tool],
+        question="Consulte o valor 6.",
+    )
+
+    assert result.response == "A consulta retornou 7."
+    assert [call.name for call in result.tool_calls] == ["lookup"]
+    assert tool_effects == [6]
+    assert len(fallback.bound_tools) == 1
+    assert fallback.bound_tools[0][0] == [lookup_tool]
+    assert len(fallback.input_snapshots) == 2
+    second_turn = fallback.input_snapshots[1]
+    assert any(isinstance(message, ToolMessage) for message in second_turn)
+    assert any('"value": 7' in message.content for message in second_turn if isinstance(message, ToolMessage))
