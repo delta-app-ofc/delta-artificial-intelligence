@@ -4,7 +4,7 @@
 
 ## Precedência e recarga
 
-As variáveis do processo prevalecem sobre o arquivo `.env`. Em desenvolvimento, o módulo lê `.env` sem alterar `os.environ`; o modo `APP_ENV=test` não lê o `.env` padrão. Uma chamada `load_settings(environ=...)` usa apenas o mapa recebido, sem ler arquivo por padrão, para permitir testes isolados. Um caminho de arquivo pode ser passado explicitamente para testar a precedência com dados temporários.
+As variáveis do processo prevalecem sobre o arquivo `.env`. Em desenvolvimento, o módulo lê `.env` sem alterar `os.environ`; o modo `APP_ENV=test` não lê nenhum arquivo `.env`, mesmo quando passado explicitamente. Uma chamada `load_settings(environ=...)` usa apenas o mapa recebido, sem ler arquivo por padrão, para permitir testes isolados. Um caminho de arquivo pode ser passado explicitamente para testar a precedência com dados temporários.
 
 `get_settings()` devolve um snapshot em cache. Use `get_settings(refresh=True)` ou `reload_settings()` depois de alterar variáveis durante a execução; não recarregue por requisição. `clear_settings_cache()` limpa o snapshot para testes. Os nomes uppercase existentes continuam disponíveis como aliases de compatibilidade. Para receber a configuração atualizada depois de uma recarga, use os campos de `get_settings()`.
 
