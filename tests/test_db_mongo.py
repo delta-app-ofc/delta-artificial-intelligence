@@ -408,8 +408,8 @@ def test_fixture_mode_accepts_only_explicit_local_test_databases():
             "APP_ENV": "test",
             "MONGODB_APP_URI": "mongodb://127.0.0.1:27018",
             "MONGODB_TELEMETRY_URI": "mongodb://localhost:27018",
-            "MONGO_DB_APP": "delta_ia_test_app",
-            "MONGO_DB_TELEMETRY": "delta_ia_test_telemetry",
+            "MONGO_DB_APP": "delta_test_app",
+            "MONGO_DB_TELEMETRY": "delta_test_telemetry",
         },
         env_file=None,
     )
@@ -422,8 +422,10 @@ def test_fixture_mode_accepts_only_explicit_local_test_databases():
     [
         {"APP_ENV": "production"},
         {"MONGODB_APP_URI": "mongodb+srv://cluster.example.invalid"},
-        {"MONGO_DB_APP": "delta_ia_latest"},
-        {"MONGO_DB_TELEMETRY": "delta_ia_test_app"},
+        {"MONGODB_APP_URI": "mongodb://localhost:27018,remote.example.invalid:27018"},
+        {"MONGODB_APP_URI": "mongodb://localhost"},
+        {"MONGO_DB_APP": "contest_production"},
+        {"MONGO_DB_TELEMETRY": "delta_test_app"},
     ],
 )
 def test_fixture_mode_rejects_targets_that_are_not_proven_local_and_isolated(
@@ -433,8 +435,8 @@ def test_fixture_mode_rejects_targets_that_are_not_proven_local_and_isolated(
         "APP_ENV": "test",
         "MONGODB_APP_URI": "mongodb://127.0.0.1:27018",
         "MONGODB_TELEMETRY_URI": "mongodb://localhost:27018",
-        "MONGO_DB_APP": "delta_ia_test_app",
-        "MONGO_DB_TELEMETRY": "delta_ia_test_telemetry",
+        "MONGO_DB_APP": "delta_test_app",
+        "MONGO_DB_TELEMETRY": "delta_test_telemetry",
     }
     values.update(override)
     settings = load_settings(environ=values, env_file=None)

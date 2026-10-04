@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import argparse
-import re
 import sys
 from datetime import datetime, timedelta, timezone
 from urllib.parse import urlsplit
@@ -66,15 +65,27 @@ def _validate_fixture_target(settings: Settings) -> None:
             parsed = urlsplit(uri or "")
             host = parsed.hostname
             scheme = parsed.scheme
+            authority = parsed.netloc.rsplit("@", 1)[-1]
+            port = parsed.port
         except ValueError:
             host = None
             scheme = None
-        if scheme != "mongodb" or host not in _LOCAL_HOSTS:
+            authority = ""
+            port = None
+        if (
+            scheme != "mongodb"
+            or host not in _LOCAL_HOSTS
+            or "," in authority
+            or port is None
+            or not 1 <= port <= 65535
+        ):
             raise ConfigurationError(
-                "A fixture exige URIs mongodb locais em localhost, 127.0.0.1 ou ::1."
+                "A fixture exige uma URI mongodb com porta explícita e um único host local."
             )
-        if re.search(r"(?:^|[_-])test(?:$|[_-])", database_name.casefold()) is None:
-            raise ConfigurationError("A fixture exige nomes de databases de teste.")
+        if not database_name.casefold().startswith("delta_test_"):
+            raise ConfigurationError(
+                "A fixture exige databases com prefixo delta_test_."
+            )
 
     if settings.mongo_db_app == settings.mongo_db_telemetry:
         raise ConfigurationError("Os databases de fixture devem ser distintos.")
@@ -159,8 +170,12 @@ def _run_fixture(settings: Settings) -> None:
             raise RuntimeError("A leitura sintética não corresponde ao documento criado.")
 
         print(
-            "MongoDB fixture: database=app+telemetry "
-            "collections=user_preferences+consumption_summary leitura=convertida"
+            f"MongoDB fixture app: database={settings.mongo_db_app} "
+            "collection=user_preferences leitura=convertida"
+        )
+        print(
+            f"MongoDB fixture telemetry: database={settings.mongo_db_telemetry} "
+            "collection=consumption_summary leitura=convertida"
         )
     finally:
         cleanup_errors = []
