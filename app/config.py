@@ -252,6 +252,7 @@ def _cached_settings() -> Settings:
     return load_settings()
 
 
+# Constantes públicas mantidas para compatibilidade com imports existentes.
 def _sync_legacy_constants(settings: Settings) -> None:
     globals().update(
         {
@@ -477,27 +478,6 @@ def validate_config() -> list[str]:
         except ConfigurationError as error:
             problems.append(str(error))
     return problems
-
-
-# Constantes públicas mantidas para compatibilidade com imports existentes.
-def _sync_legacy_constants(settings: Settings) -> None:
-    globals().update(
-        {
-            "APP_ENV": settings.app_env,
-            "GEMINI_API_KEY": settings.gemini_api_key or "",
-            "GROQ_API_KEY": settings.groq_api_key or "",
-            "DATABASE_URL": settings.database_url or "",
-            "HOST_DB": settings.host_db,
-            "PORT_DB": settings.port_db,
-            "USER_DB": settings.user_db,
-            "PASSWORD_DB": settings.password_db,
-            "NAME_DB": settings.name_db,
-            "MONGODB_APP_URI": settings.mongodb_app_uri or "",
-            "MONGODB_TELEMETRY_URI": settings.mongodb_telemetry_uri or "",
-            "MONGO_DB_APP": settings.mongo_db_app,
-            "MONGO_DB_TELEMETRY": settings.mongo_db_telemetry,
-        }
-    )
 
 
 _sync_legacy_constants(get_settings())
