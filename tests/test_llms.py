@@ -8,11 +8,16 @@ from typing import Any
 
 import httpx
 import pytest
-from google.genai.errors import APIError as GoogleAPIError
+from google.genai.errors import ClientError as GoogleClientError
+from google.genai.errors import ServerError as GoogleServerError
 from groq import APITimeoutError as GroqAPITimeoutError
 from groq import APIStatusError as GroqAPIStatusError
 from langchain_core.messages import HumanMessage, ToolMessage
 from langchain_core.tools import StructuredTool
+from langchain_google_genai.chat_models import (
+    ChatGoogleGenerativeAIError,
+    _handle_client_error,
+)
 
 from app.agents._runtime import run_agent
 from app.config import load_settings, validate_llm_config
@@ -76,8 +81,18 @@ def _groq_timeout() -> GroqAPITimeoutError:
     return GroqAPITimeoutError(request=request)
 
 
-def _google_error(status_code: int, detail: str = "synthetic-private-detail") -> GoogleAPIError:
-    return GoogleAPIError(status_code, {"error": {"message": detail}})
+def _google_error(
+    status_code: int, detail: str = "synthetic-private-detail"
+) -> Exception:
+    response_json = {"error": {"message": detail}}
+    if 400 <= status_code < 500:
+        cause = GoogleClientError(status_code, response_json)
+        try:
+            _handle_client_error(cause, {"model": "synthetic-model"})
+        except ChatGoogleGenerativeAIError as wrapper:
+            return wrapper
+        raise AssertionError("_handle_client_error deveria lançar o wrapper")
+    return GoogleServerError(status_code, response_json)
 
 
 def _groq_error(status_code: int, detail: str = "synthetic-private-detail") -> GroqAPIStatusError:
@@ -264,6 +279,19 @@ def test_non_transient_provider_errors_are_safe_and_do_not_fallback(
 
     assert f"HTTP {status_code}" in str(error.value)
     assert "synthetic-private-detail" not in str(error.value)
+    assert fallback.inputs == []
+
+
+def test_google_wrapper_without_recognized_cause_propagates():
+    wrapper = ChatGoogleGenerativeAIError("synthetic wrapper without cause")
+    primary = ProviderSpy([wrapper])
+    fallback = ProviderSpy([ai_final("não deve ser chamada")])
+    model = llms._FallbackLLM(primary, fallback).bind_tools([])
+
+    with pytest.raises(ChatGoogleGenerativeAIError) as error:
+        model.invoke([HumanMessage(content="consulta")])
+
+    assert error.value is wrapper
     assert fallback.inputs == []
 
 
