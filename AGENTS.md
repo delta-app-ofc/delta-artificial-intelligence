@@ -27,7 +27,8 @@ A stack declarada inclui Python, FastAPI/Uvicorn, Pydantic, LangChain/LangGraph,
 - `app/config.py` centraliza settings imutáveis em cache e valida cada componente antes do uso. Variáveis do processo prevalecem sobre `.env`; `APP_ENV=test` ignora qualquer arquivo `.env`. Defaults de bancos locais só existem em `development` e para variáveis ausentes, nunca explicitamente vazias.
 - `docs/settings.md` descreve ambientes, precedência, recarga e validação. `.env.example` usa somente valores descartáveis locais; `tests/.env.example` é explicativo e não é carregado pela suíte.
 - `app/services/prompts.py` mantém prompts dos sete agentes planejados. Ter prompt definido não significa que o agente correspondente esteja implementado.
-- `app/services/llms.py` configura, sob demanda, Gemini como modelo especialista com fallback Groq e um modelo Groq rápido. As chaves vêm de variáveis de ambiente.
+- `app/services/llms.py` configura modelos sob demanda a partir dos settings. O especialista mantém `bind_tools` nos dois provedores e usa Groq como fallback apenas para falhas transitórias; erros permanentes recebem mensagens públicas seguras e erros de programação propagam. O histórico de ferramentas é preservado sem repetir sua execução.
+- `docs/llm-models.md` registra papéis, modelos, parâmetros, retries e fontes oficiais. A disponibilidade de um modelo depende da conta; testes com clientes substituídos não comprovam acesso real nem qualidade das respostas.
 - `tests/` contém testes com modelo falso e ferramentas substituídas; os testes não precisam de banco nem de chamadas reais a provedores de LLM.
 - `manual_chat.py` permite exercitar manualmente os agentes de previsão e vazamento quando ambiente, bancos e chaves necessários estão configurados.
 
