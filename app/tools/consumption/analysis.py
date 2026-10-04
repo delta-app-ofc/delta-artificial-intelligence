@@ -491,8 +491,7 @@ def peak_days(
     aggregate: ConsumptionAggregate, limit: int
 ) -> tuple[list[dict[str, str | float]], int, bool]:
     """Retorna até dez maiores totais diários; empates ordenam por data crescente."""
-    if isinstance(limit, bool) or not isinstance(limit, int) or not 1 <= limit <= 10:
-        raise InvalidConsumptionInput("O limite de picos deve estar entre 1 e 10.")
+    validate_peak_limit(limit)
     ranked = sorted(aggregate.daily_totals, key=lambda item: (-item.liters, item.day))
     if not ranked:
         return [], 0, False
@@ -503,3 +502,9 @@ def peak_days(
         for item in ranked[:limit]
     ]
     return items, tied_for_peak, len(ranked) > limit and tied_for_peak > limit
+
+
+def validate_peak_limit(limit: int) -> None:
+    """Valida o limite antes que a tool consulte uma fonte externa."""
+    if isinstance(limit, bool) or not isinstance(limit, int) or not 1 <= limit <= 10:
+        raise InvalidConsumptionInput("O limite de picos deve estar entre 1 e 10.")
