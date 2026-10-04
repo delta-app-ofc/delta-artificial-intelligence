@@ -332,3 +332,72 @@ def test_both_transient_providers_fail_with_safe_error():
     assert "synthetic-private-detail" not in str(error.value)
     assert len(primary.inputs) == 1
     assert len(fallback.inputs) == 1
+
+
+def test_disabled_fallback_does_not_require_or_construct_groq(monkeypatch):
+    settings = load_settings(
+        environ={
+            "APP_ENV": "test",
+            "GEMINI_API_KEY": "synthetic-gemini-key",
+            "LLM_FALLBACK_ENABLED": "false",
+        }
+    )
+    assert settings.groq_api_key is None
+    primary = ProviderSpy([ai_final("resposta Gemini")])
+    constructed: list[str] = []
+    validated: list[str] = []
+
+    def validate_selected_provider(*, provider: str) -> None:
+        validated.append(provider)
+        validate_llm_config(provider, settings=settings)
+
+    monkeypatch.setattr(llms, "get_settings", lambda: settings)
+    monkeypatch.setattr(
+        llms,
+        "validate_llm_config",
+        validate_selected_provider,
+    )
+    monkeypatch.setattr(
+        llms,
+        "ChatGoogleGenerativeAI",
+        lambda **kwargs: (constructed.append("gemini"), primary)[1],
+    )
+    monkeypatch.setattr(
+        llms,
+        "ChatGroq",
+        lambda **kwargs: (constructed.append("groq"), ProviderSpy([]))[1],
+    )
+
+    specialist = llms.llm_especialista
+    response = specialist.bind_tools([]).invoke([HumanMessage(content="consulta")])
+
+    assert response.content == "resposta Gemini"
+    assert constructed == ["gemini"]
+    assert set(validated) >= {"specialist", "gemini"}
+    assert "groq_specialist" not in validated
+
+
+def test_invalid_configuration_fails_before_constructing_models(monkeypatch):
+    settings = load_settings(environ={"APP_ENV": "test"})
+    constructed: list[str] = []
+
+    def validate(*, provider: str) -> None:
+        validate_llm_config(provider, settings=settings)
+
+    monkeypatch.setattr(llms, "get_settings", lambda: settings)
+    monkeypatch.setattr(llms, "validate_llm_config", validate)
+    monkeypatch.setattr(
+        llms,
+        "ChatGoogleGenerativeAI",
+        lambda **kwargs: constructed.append("gemini"),
+    )
+    monkeypatch.setattr(
+        llms,
+        "ChatGroq",
+        lambda **kwargs: constructed.append("groq"),
+    )
+
+    with pytest.raises(ValueError, match="GEMINI_API_KEY"):
+        _ = llms.llm_especialista
+
+    assert constructed == []
