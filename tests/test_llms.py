@@ -248,3 +248,87 @@ def test_fallback_tool_call_runs_once_and_receives_tool_message_on_next_turn():
     second_turn = fallback.input_snapshots[1]
     assert any(isinstance(message, ToolMessage) for message in second_turn)
     assert any('"value": 7' in message.content for message in second_turn if isinstance(message, ToolMessage))
+
+
+@pytest.mark.parametrize("provider", ["google", "groq"])
+@pytest.mark.parametrize("status_code", [400, 401, 403])
+def test_non_transient_provider_errors_are_safe_and_do_not_fallback(
+    provider: str, status_code: int
+):
+    primary = ProviderSpy([_provider_error(provider, status_code)])
+    fallback = ProviderSpy([ai_final("não deve ser chamada")])
+    model = llms._FallbackLLM(primary, fallback).bind_tools([])
+
+    with pytest.raises(llms.LLMProviderError) as error:
+        model.invoke([HumanMessage(content="consulta")])
+
+    assert f"HTTP {status_code}" in str(error.value)
+    assert "synthetic-private-detail" not in str(error.value)
+    assert fallback.inputs == []
+
+
+@pytest.mark.parametrize("provider", ["google", "groq"])
+@pytest.mark.parametrize("status_code", [408, 429, 500, 503])
+def test_transient_provider_status_uses_fallback(provider: str, status_code: int):
+    primary = ProviderSpy([_provider_error(provider, status_code)])
+    fallback = ProviderSpy([ai_final("resposta alternativa")])
+    messages = [HumanMessage(content="consulta")]
+
+    response = llms._FallbackLLM(primary, fallback).bind_tools([]).invoke(messages)
+
+    assert response.content == "resposta alternativa"
+    assert primary.inputs == [messages]
+    assert fallback.inputs == [messages]
+
+
+@pytest.mark.parametrize(
+    "transport_error",
+    [
+        httpx.TimeoutException("synthetic timeout"),
+        httpx.ConnectError(
+            "synthetic connection",
+            request=httpx.Request("POST", "https://generativelanguage.googleapis.com"),
+        ),
+        GroqAPITimeoutError(
+            request=httpx.Request("POST", "https://api.groq.com/openai/v1/chat/completions")
+        ),
+    ],
+    ids=["httpx-timeout", "httpx-connect", "groq-timeout"],
+)
+def test_transport_errors_use_fallback(transport_error: Exception):
+    primary = ProviderSpy([transport_error])
+    fallback = ProviderSpy([ai_final("resposta alternativa")])
+
+    response = llms._FallbackLLM(primary, fallback).bind_tools([]).invoke(
+        [HumanMessage(content="consulta")]
+    )
+
+    assert response.content == "resposta alternativa"
+    assert len(primary.inputs) == 1
+    assert len(fallback.inputs) == 1
+
+
+@pytest.mark.parametrize("programming_error", [TypeError("tipo"), ValueError("valor")])
+def test_programming_errors_are_not_masked_or_retried(programming_error: Exception):
+    primary = ProviderSpy([programming_error])
+    fallback = ProviderSpy([ai_final("não deve ser chamada")])
+    model = llms._FallbackLLM(primary, fallback)
+
+    with pytest.raises(type(programming_error), match=str(programming_error)):
+        model.invoke([HumanMessage(content="consulta")])
+
+    assert fallback.inputs == []
+
+
+def test_both_transient_providers_fail_with_safe_error():
+    primary = ProviderSpy([_google_error(503)])
+    fallback = ProviderSpy([_groq_error(429)])
+    model = llms._FallbackLLM(primary, fallback).bind_tools([])
+
+    with pytest.raises(llms.LLMUnavailableError) as error:
+        model.invoke([HumanMessage(content="consulta")])
+
+    assert str(error.value) == "O serviço de linguagem está indisponível no momento."
+    assert "synthetic-private-detail" not in str(error.value)
+    assert len(primary.inputs) == 1
+    assert len(fallback.inputs) == 1
