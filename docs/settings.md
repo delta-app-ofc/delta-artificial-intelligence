@@ -45,7 +45,7 @@ As conexões Mongo de aplicação e telemetria sempre permanecem independentes. 
 | `DB_CONNECT_TIMEOUT_SECONDS` | `5` | Timeout inteiro positivo de conexão com banco. |
 | `DB_QUERY_TIMEOUT_SECONDS` | `30` | Timeout inteiro positivo para operações de banco. |
 
-Temperatura e `top_p` continuam como parâmetros fixos do código dos provedores. A seleção efetiva dos modelos e o uso dos parâmetros LLM serão ligados na TASK-02; os timeouts serão usados pelos drivers de banco nas TASK-03 e TASK-04.
+Temperatura e `top_p` continuam como parâmetros fixos do código dos provedores. A seleção dos modelos e os parâmetros LLM são aplicados em `app/services/llms.py`; os drivers PostgreSQL/MongoDB aplicam os timeouts de banco. Consulte [provedores](llm-models.md), [PostgreSQL](postgres-connection.md) e [MongoDB](mongo-connection.md) para a semântica de cada parâmetro.
 
 ## Validação por componente
 

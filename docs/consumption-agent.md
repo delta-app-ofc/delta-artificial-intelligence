@@ -105,3 +105,8 @@ credenciais ou banco real. Eles não validam a qualidade da redação de um LLM
 real nem comprovam a integração com serviços externos. A validação com MongoDB,
 PostgreSQL e provedor LLM reais continua dependente desses serviços e de suas
 credenciais.
+
+A regressão completa do conjunto integrado das cinco tarefas passou com
+160 testes em 4,29 segundos. Houve uma advertência de depreciação em
+`google.genai`, sem falhas de teste. Os imports dos três agentes e dos
+conectores também foram validados sem credenciais nem chamadas externas.
