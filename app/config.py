@@ -232,7 +232,8 @@ def load_settings(
     """Carrega settings novos sem cache, útil para testes e recarga explícita.
 
     Um ambiente injetado é isolado por padrão. Sem ``environ``, o processo
-    prevalece sobre o .env local. ``APP_ENV=test`` nunca lê o arquivo padrão.
+    prevalece sobre o .env local. ``APP_ENV=test`` não lê nenhum arquivo .env,
+    mesmo quando passado explicitamente.
     """
     process_values = dict(os.environ if environ is None else environ)
     if env_file is _DEFAULT_ENV_FILE:
