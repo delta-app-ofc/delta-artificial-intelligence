@@ -20,6 +20,7 @@ from app.tools.exceptions import (
     DatabaseDataError,
     DatabaseQueryError,
 )
+from scripts.check_mongo import _validate_fixture_target
 
 
 class FakeCursor:
@@ -399,6 +400,47 @@ def test_invalid_query_timeout_stays_a_configuration_error(monkeypatch, mongo_se
 
     with pytest.raises(ConfigurationError):
         db_mongo.get_daily_liters_target(42)
+
+
+def test_fixture_mode_accepts_only_explicit_local_test_databases():
+    settings = load_settings(
+        environ={
+            "APP_ENV": "test",
+            "MONGODB_APP_URI": "mongodb://127.0.0.1:27018",
+            "MONGODB_TELEMETRY_URI": "mongodb://localhost:27018",
+            "MONGO_DB_APP": "delta_ia_test_app",
+            "MONGO_DB_TELEMETRY": "delta_ia_test_telemetry",
+        },
+        env_file=None,
+    )
+
+    _validate_fixture_target(settings)
+
+
+@pytest.mark.parametrize(
+    "override",
+    [
+        {"APP_ENV": "production"},
+        {"MONGODB_APP_URI": "mongodb+srv://cluster.example.invalid"},
+        {"MONGO_DB_APP": "delta_ia_latest"},
+        {"MONGO_DB_TELEMETRY": "delta_ia_test_app"},
+    ],
+)
+def test_fixture_mode_rejects_targets_that_are_not_proven_local_and_isolated(
+    mongo_settings, override
+):
+    values = {
+        "APP_ENV": "test",
+        "MONGODB_APP_URI": "mongodb://127.0.0.1:27018",
+        "MONGODB_TELEMETRY_URI": "mongodb://localhost:27018",
+        "MONGO_DB_APP": "delta_ia_test_app",
+        "MONGO_DB_TELEMETRY": "delta_ia_test_telemetry",
+    }
+    values.update(override)
+    settings = load_settings(environ=values, env_file=None)
+
+    with pytest.raises(ConfigurationError):
+        _validate_fixture_target(settings)
 
 
 @pytest.mark.parametrize(
