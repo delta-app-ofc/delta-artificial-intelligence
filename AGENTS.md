@@ -12,13 +12,17 @@ Os repositórios Delta são independentes. Faça alterações e operações Git 
 
 ## 2. Contexto e estado atual deste repositório
 
-O `delta-artificial-intelligence` contém código Python para agentes especialistas de previsão e vazamento, ferramentas de acesso a dados, cálculos determinísticos, prompts e testes. A API HTTP e a orquestração geral continuam como espaço reservado: a presença de dependências ou arquivos vazios não comprova que estejam implementadas.
+O `delta-artificial-intelligence` contém código Python para agentes especialistas de consumo, previsão e vazamento, ferramentas de acesso a dados, cálculos determinísticos, prompts e testes. A API HTTP e a orquestração geral continuam como espaço reservado: a presença de dependências ou arquivos vazios não comprova que estejam implementadas.
 
 A stack declarada inclui Python, FastAPI/Uvicorn, Pydantic, LangChain/LangGraph, integrações Gemini e Groq, PostgreSQL (`psycopg2`), MongoDB (`pymongo`) e Redis. No código atual, os agentes usam LangChain, Gemini/Groq e acessos PostgreSQL/MongoDB; FastAPI, LangGraph e Redis não têm fluxo de aplicação implementado.
 
 ### Componentes implementados
 
-- `ForecastAgent` e `LeakAgent` funcionam de forma independente, sem depender de uma API FastAPI ou do grafo LangGraph.
+- `ConsumptionAgent`, `ForecastAgent` e `LeakAgent` funcionam de forma independente, sem depender de uma API FastAPI ou do grafo LangGraph.
+- `app/tools/consumption/analysis.py` resolve períodos e calcula totais, médias, comparações e picos em Python. `app/tools/consumption/tools.py` entrega resumos com série diária e metadados, vinculados ao usuário confiável; não usa elegibilidade de previsão para bloquear consumo observado.
+- Consumo prioriza o vínculo residencial e lê janelas Mongo pelo usuário. No caminho organizacional, resolve unidades autorizadas antes de consultar a view diária SQL; nomes ambíguos não consultam consumo, e `unit_id` nunca dispensa autorização. A fonte residencial não permite segmentar por imóvel.
+- Cada `ConsumptionAgent.run()` captura uma referência temporal única para prompt e tools, renovada na próxima execução. O default é `America/Sao_Paulo`; timestamps Mongo são consultados em UTC. Períodos usam [início, fim), datas customizadas são inclusivas na entrada e o limite é 366 dias.
+- Consumo diferencia ausência, zero registrado, lacunas, fonte indisponível e dados inconsistentes. Médias usam dias com registros, duplicatas idênticas do mesmo dispositivo contam uma vez e conflitos são rejeitados. A fonte SQL diária não fornece pico horário nem horário da última leitura. Veja `docs/consumption-agent.md`.
 - `app/agents/_runtime.py` implementa um laço simples de chamadas de ferramentas com limite de iterações e registro dos resultados.
 - `app/tools/forecast/calculations.py` realiza os cálculos de previsão em Python puro; o LLM não deve calcular os valores numéricos da previsão.
 - `app/tools/forecast/tools.py` reúne ferramentas que consultam dados e chamam os cálculos. O usuário residencial usa PostgreSQL e MongoDB; o caminho organizacional consulta dados consolidados no PostgreSQL.
@@ -34,15 +38,15 @@ A stack declarada inclui Python, FastAPI/Uvicorn, Pydantic, LangChain/LangGraph,
 - `app/services/llms.py` configura modelos sob demanda a partir dos settings. O especialista mantém `bind_tools` nos dois provedores e usa Groq como fallback apenas para falhas transitórias; erros permanentes recebem mensagens públicas seguras e erros de programação propagam. O histórico de ferramentas é preservado sem repetir sua execução.
 - `docs/llm-models.md` registra papéis, modelos, parâmetros, retries e fontes oficiais. A disponibilidade de um modelo depende da conta; testes com clientes substituídos não comprovam acesso real nem qualidade das respostas.
 - `tests/` contém testes com modelo falso e ferramentas substituídas; os testes não precisam de banco nem de chamadas reais a provedores de LLM.
-- `manual_chat.py` permite exercitar manualmente os agentes de previsão e vazamento quando ambiente, bancos e chaves necessários estão configurados.
+- `manual_chat.py` permite exercitar manualmente consumo, previsão e vazamento quando ambiente, bancos e chaves necessários estão configurados. Os IDs fixos são demonstrativos; uma futura integração deve fornecer o usuário autenticado pelo backend.
 
 ### Componentes ainda sem implementação
 
-Os arquivos abaixo existem, mas estão vazios na `main` inspecionada. Não descreva seu comportamento como funcional nem os preencha fora do escopo da tarefa:
+Os componentes abaixo continuam reservados no código revisado. Não descreva seu comportamento como funcional nem os preencha fora do escopo da tarefa:
 
 - API e rotas: `app/main.py`, `app/routes/`, `app/schemas.py`;
 - fluxo LangGraph: `app/graph/workflow.py` e `app/graph/state.py`;
-- agentes `consumption`, `habits`, `judge`, `profile` e `rag`;
+- agentes `habits`, `judge`, `profile` e `rag`;
 - guardrails de entrada e saída em `app/guardrails/`;
 - memória de sessão ou de longo prazo em `app/memory/`;
 - métricas em `app/observability/`.
@@ -55,7 +59,7 @@ LangGraph está listado nas dependências, mas o fluxo em `app/graph/` ainda nã
 delta-artificial-intelligence/
 ├── .github/workflows/       # Verificações organizacionais de Pull Request
 ├── app/
-│   ├── agents/              # ForecastAgent, LeakAgent, runtime e módulos reservados
+│   ├── agents/              # ConsumptionAgent, ForecastAgent, LeakAgent e runtime
 │   ├── data/                # Acesso PostgreSQL e MongoDB
 │   ├── graph/               # Reservado para estado e workflow LangGraph
 │   ├── guardrails/          # Reservado para validações de entrada e saída
@@ -63,7 +67,7 @@ delta-artificial-intelligence/
 │   ├── observability/       # Reservado para métricas
 │   ├── routes/              # Reservado para rotas HTTP
 │   ├── services/            # Configuração de LLMs e prompts
-│   ├── tools/               # Modelos, ferramentas e cálculos dos agentes existentes
+│   ├── tools/               # consumption/, forecast/, leak/, modelos e exceções
 │   ├── config.py
 │   └── main.py              # Vazio na main inspecionada
 ├── db/
@@ -98,7 +102,8 @@ Se o `TASK.md` não existir, não o crie nem invente requisitos. Siga a solicita
 - Mantenha cálculos determinísticos em Python; não delegue ao LLM aritmética que o código pode calcular e validar.
 - O `LeakAgent` apenas lê e descreve sinais já detectados por `delta-business-rules`; não invente limiares nem conclua que há vazamento confirmado.
 - Nunca exponha `user_id` como argumento livre do LLM; preserve o escopo de usuário aplicado ao construir as ferramentas.
-- Diferencie residência e organização nas consultas de previsão. Para organizações, respeite a seleção de unidade e os resultados ambíguos das ferramentas.
+- Diferencie residência e organização nas consultas de previsão e consumo. Para organizações, respeite a seleção de unidade autorizada e os resultados ambíguos das ferramentas.
+- Consumo descreve registros: não calcula tarifa, conta, previsão futura ou diagnóstico de vazamento. Declare recorte, granularidade e lacunas; não transforme ausência em zero nem invente cobertura contínua.
 - Separe configuração local, exemplos de `.env`, integração planejada e conexão realmente validada. Nunca versione chaves, senhas ou strings de conexão reais.
 - Não trate arquivos de bootstrap locais como fonte oficial do schema PostgreSQL.
 - Preserve contratos e comportamento já cobertos pelos testes. Ao alterar um módulo, leia também suas ferramentas, prompts e testes diretamente relacionados.
