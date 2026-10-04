@@ -151,3 +151,18 @@ Ao documentar, diferencie o que está implementado, planejado, exemplificado e v
 ## 9. Manutenção deste arquivo
 
 Revise a seção **Estrutura atual** periodicamente nesta conversa após commits oficiais que alterem arquivos ou responsabilidades do repositório. Antes de usar este guia, compare as informações com a árvore, o `README.md`, o `TASK.md` e os workflows atuais.
+
+## 10. Execução orquestrada das TASK-01 a TASK-05
+
+Durante esta execução, as orientações diretas da pessoa usuária prevalecem sobre o fluxo sequencial antigo do `TASK.md`:
+
+- Há um subagente independente por tarefa, todos em `gpt-6-luna` com esforço `xhigh`, cada um em worktree e branch exclusivos.
+- Antes de implementar, leia integralmente nesta ordem: `AGENTS.md` → `TASK.md` → `TASK-<número>.md`. Não altere o checkout ou arquivos de outro agente.
+- Dependência não mergeada não bloqueia implementação: use a branch/commit estável do pré-requisito como base, informado pelo orquestrador. Não modifique `main` nem faça merges no GitHub.
+- Cada tarefa terá de 5 a 15 commits próprios e coesos, contados após a base de dependência. Não use commits vazios nem conte commits herdados para preencher essa faixa.
+- Após revisão local, termine com `git push origin <branch>`. PRs serão abertas pela pessoa usuária; agentes não devem abrir PRs.
+- O orquestrador mantém este `AGENTS.md` conforme o código revisado avança. O `README.md` será atualizado somente depois da finalização das cinco implementações; subagentes entregam sugestões sem editá-lo.
+- Indisponibilidade de rede, bancos, credenciais ou ferramentas deve ser comunicada imediatamente, com continuidade do trabalho independente e registro dos testes reais pendentes.
+- Evite tentativas repetidas de recuperação de infraestrutura. Testes automatizados necessários continuam obrigatórios; valide cada alteração com os testes pertinentes e faça regressão completa quando o conjunto estiver pronto.
+
+A pasta agrupadora e os repositórios irmãos continuam fora do escopo de edição. Os worktrees não têm os mesmos caminhos relativos do checkout principal: consulte schemas oficiais usando o caminho confirmado da pasta agrupadora, sem criar cópias para simular schema ausente.
