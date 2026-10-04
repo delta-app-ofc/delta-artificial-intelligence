@@ -24,6 +24,8 @@ A stack declarada inclui Python, FastAPI/Uvicorn, Pydantic, LangChain/LangGraph,
 - `app/tools/forecast/tools.py` reúne ferramentas que consultam dados e chamam os cálculos. O usuário residencial usa PostgreSQL e MongoDB; o caminho organizacional consulta dados consolidados no PostgreSQL.
 - `app/tools/leak/tools.py` consulta anomalias e alertas já registrados no MongoDB. `app/tools/leak/analysis.py` resume esses sinais; não implementa o motor que detecta vazamentos.
 - `app/data/db_postgres.py` contém consultas PostgreSQL para os caminhos residencial e organizacional; `app/data/db_mongo.py` contém leituras de telemetria e dados da aplicação.
+- O conector PostgreSQL usa settings, preserva opções da URI e abre uma conexão por operação, sem pool. Aplica `connect_timeout` e `statement_timeout`, fecha cursor/conexão mesmo em falhas e distingue ausência de dados de erro de banco com mensagens públicas seguras.
+- `python -m scripts.check_postgres` valida PostgreSQL com `SELECT 1` sem depender de chaves LLM ou do schema do produto. `docs/postgres-connection.md` registra configuração e limites; a conexão real continua pendente neste ambiente sem serviço/credenciais.
 - `app/config.py` centraliza settings imutáveis em cache e valida cada componente antes do uso. Variáveis do processo prevalecem sobre `.env`; `APP_ENV=test` ignora qualquer arquivo `.env`. Defaults de bancos locais só existem em `development` e para variáveis ausentes, nunca explicitamente vazias.
 - `docs/settings.md` descreve ambientes, precedência, recarga e validação. `.env.example` usa somente valores descartáveis locais; `tests/.env.example` é explicativo e não é carregado pela suíte.
 - `app/services/prompts.py` mantém prompts dos sete agentes planejados. Ter prompt definido não significa que o agente correspondente esteja implementado.
@@ -66,6 +68,7 @@ delta-artificial-intelligence/
 │   ├── postgres-init/       # Cópias locais de bootstrap PostgreSQL, arquivos 01 a 09
 │   └── README.md
 ├── docs/                    # Configuração e guias técnicos das integrações
+├── scripts/                 # Verificações explícitas de conectividade, sem clientes LLM
 ├── tests/                   # Testes pytest; conftest isola ambiente e cache de settings
 ├── .env.example
 ├── AGENTS.md
