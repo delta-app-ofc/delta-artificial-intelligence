@@ -6,6 +6,7 @@ somente as variáveis de que precisa antes de abrir uma conexão ou criar um LLM
 
 from __future__ import annotations
 
+import ipaddress
 import math
 import os
 from dataclasses import dataclass, field
@@ -110,6 +111,65 @@ def _string_setting(values: Mapping[str, object], name: str, default: str) -> st
     return "" if value is None else str(value).strip()
 
 
+
+def _mongo_host_port_is_valid(value: str, *, allow_port: bool) -> bool:
+    """Confere host/porta da authority Mongo sem resolver DNS."""
+    if not value or any(character.isspace() for character in value):
+        return False
+
+    port_text: str | None = None
+    if value.startswith("["):
+        closing = value.find("]")
+        if closing <= 1:
+            return False
+        try:
+            address = ipaddress.ip_address(value[1:closing])
+        except ValueError:
+            return False
+        if not isinstance(address, ipaddress.IPv6Address):
+            return False
+        suffix = value[closing + 1 :]
+        if suffix:
+            if not allow_port or not suffix.startswith(":"):
+                return False
+            port_text = suffix[1:]
+    else:
+        if value.count(":") > 1:
+            return False
+        host, separator, possible_port = value.partition(":")
+        if not host or any(character in host for character in "/[]@"):
+            return False
+        if separator:
+            if not allow_port:
+                return False
+            port_text = possible_port
+
+    if port_text is None:
+        return True
+    if not port_text.isdigit():
+        return False
+    port = int(port_text)
+    return 1 <= port <= 65535
+
+
+def _is_valid_mongo_uri(uri: str) -> bool:
+    """Valida mongodb://, mongodb+srv:// e listas de hosts sem abrir rede."""
+    try:
+        parsed = urlsplit(uri)
+    except ValueError:
+        return False
+    if parsed.scheme not in {"mongodb", "mongodb+srv"}:
+        return False
+
+    authority = parsed.netloc.rsplit("@", 1)[-1]
+    host_ports = authority.split(",")
+    if not authority or (parsed.scheme == "mongodb+srv" and len(host_ports) != 1):
+        return False
+    return all(
+        _mongo_host_port_is_valid(host_port, allow_port=parsed.scheme == "mongodb")
+        for host_port in host_ports
+    )
+
 def _parse_int(
     values: Mapping[str, object], name: str, default: int, errors: dict[str, str]
 ) -> int:
@@ -172,7 +232,8 @@ def load_settings(
     """Carrega settings novos sem cache, útil para testes e recarga explícita.
 
     Um ambiente injetado é isolado por padrão. Sem ``environ``, o processo
-    prevalece sobre o .env local. ``APP_ENV=test`` nunca lê o arquivo padrão.
+    prevalece sobre o .env local. ``APP_ENV=test`` não lê nenhum arquivo .env,
+    mesmo quando passado explicitamente.
     """
     process_values = dict(os.environ if environ is None else environ)
     if env_file is _DEFAULT_ENV_FILE:
@@ -205,7 +266,7 @@ def load_settings(
     local_defaults = app_env == "development"
 
     database_url = _clean(values.get("DATABASE_URL"))
-    if database_url is None and local_defaults and not split_requested:
+    if "DATABASE_URL" not in values and local_defaults and not split_requested:
         database_url = "postgresql://postgres:postgres@localhost:5432/postgres"
 
     mongo_app_uri = _clean(values.get("MONGODB_APP_URI"))
@@ -252,6 +313,7 @@ def _cached_settings() -> Settings:
     return load_settings()
 
 
+# Constantes públicas mantidas para compatibilidade com imports existentes.
 def _sync_legacy_constants(settings: Settings) -> None:
     globals().update(
         {
@@ -418,20 +480,8 @@ def validate_mongo_config(
     problems = _problems_for_names(current, names)
     if not _has_text(uri):
         problems.append(f"{uri_name} ausente ou vazio")
-    else:
-        try:
-            parsed = urlsplit(uri or "")
-            port = parsed.port
-            valid = (
-                parsed.scheme in {"mongodb", "mongodb+srv"}
-                and bool(parsed.hostname)
-                and (port is None or 1 <= port <= 65535)
-                and not (parsed.scheme == "mongodb+srv" and port is not None)
-            )
-        except ValueError:
-            valid = False
-        if not valid:
-            problems.append(f"{uri_name} deve ser uma URI MongoDB válida")
+    elif not _is_valid_mongo_uri(uri):
+        problems.append(f"{uri_name} deve ser uma URI MongoDB válida")
     if not _has_text(database):
         problems.append(f"{database_name} vazio")
     if current.db_connect_timeout_seconds <= 0:
@@ -477,27 +527,6 @@ def validate_config() -> list[str]:
         except ConfigurationError as error:
             problems.append(str(error))
     return problems
-
-
-# Constantes públicas mantidas para compatibilidade com imports existentes.
-def _sync_legacy_constants(settings: Settings) -> None:
-    globals().update(
-        {
-            "APP_ENV": settings.app_env,
-            "GEMINI_API_KEY": settings.gemini_api_key or "",
-            "GROQ_API_KEY": settings.groq_api_key or "",
-            "DATABASE_URL": settings.database_url or "",
-            "HOST_DB": settings.host_db,
-            "PORT_DB": settings.port_db,
-            "USER_DB": settings.user_db,
-            "PASSWORD_DB": settings.password_db,
-            "NAME_DB": settings.name_db,
-            "MONGODB_APP_URI": settings.mongodb_app_uri or "",
-            "MONGODB_TELEMETRY_URI": settings.mongodb_telemetry_uri or "",
-            "MONGO_DB_APP": settings.mongo_db_app,
-            "MONGO_DB_TELEMETRY": settings.mongo_db_telemetry,
-        }
-    )
 
 
 _sync_legacy_constants(get_settings())
