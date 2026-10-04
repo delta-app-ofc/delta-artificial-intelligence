@@ -24,6 +24,8 @@ A stack declarada inclui Python, FastAPI/Uvicorn, Pydantic, LangChain/LangGraph,
 - `app/tools/forecast/tools.py` reúne ferramentas que consultam dados e chamam os cálculos. O usuário residencial usa PostgreSQL e MongoDB; o caminho organizacional consulta dados consolidados no PostgreSQL.
 - `app/tools/leak/tools.py` consulta anomalias e alertas já registrados no MongoDB. `app/tools/leak/analysis.py` resume esses sinais; não implementa o motor que detecta vazamentos.
 - `app/data/db_postgres.py` contém consultas PostgreSQL para os caminhos residencial e organizacional; `app/data/db_mongo.py` contém leituras de telemetria e dados da aplicação.
+- `app/config.py` centraliza settings imutáveis em cache e valida cada componente antes do uso. Variáveis do processo prevalecem sobre `.env`; `APP_ENV=test` ignora qualquer arquivo `.env`. Defaults de bancos locais só existem em `development` e para variáveis ausentes, nunca explicitamente vazias.
+- `docs/settings.md` descreve ambientes, precedência, recarga e validação. `.env.example` usa somente valores descartáveis locais; `tests/.env.example` é explicativo e não é carregado pela suíte.
 - `app/services/prompts.py` mantém prompts dos sete agentes planejados. Ter prompt definido não significa que o agente correspondente esteja implementado.
 - `app/services/llms.py` configura, sob demanda, Gemini como modelo especialista com fallback Groq e um modelo Groq rápido. As chaves vêm de variáveis de ambiente.
 - `tests/` contém testes com modelo falso e ferramentas substituídas; os testes não precisam de banco nem de chamadas reais a provedores de LLM.
@@ -62,7 +64,8 @@ delta-artificial-intelligence/
 ├── db/
 │   ├── postgres-init/       # Cópias locais de bootstrap PostgreSQL, arquivos 01 a 09
 │   └── README.md
-├── tests/                   # Testes pytest dos agentes e cálculos existentes
+├── docs/                    # Configuração e guias técnicos das integrações
+├── tests/                   # Testes pytest; conftest isola ambiente e cache de settings
 ├── .env.example
 ├── AGENTS.md
 ├── docker-compose.dev.yml   # PostgreSQL e MongoDB locais para desenvolvimento manual
