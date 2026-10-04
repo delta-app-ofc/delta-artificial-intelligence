@@ -86,4 +86,6 @@ pendentes. Os 26 testes de `db_mongo` substituem clientes, databases e
 coleções; outros 3 testes cobrem o CLI, incluindo a falha independente de um
 alvo e a limpeza exata da fixture. Esses testes verificam filtros, ordenações,
 conversão, erros e recusa de alvos não isolados, sem comprovar conectividade
-real.
+real. A suíte completa, executada com
+`python -m pytest -q -p no:cacheprovider`, terminou com 122 testes aprovados e
+uma advertência de depreciação da dependência `google.genai`.
