@@ -1,6 +1,7 @@
 """Mantém a suíte isolada do .env e das credenciais do processo local."""
 
 import os
+from collections.abc import Iterator
 
 _SETTING_NAMES = (
     "GEMINI_API_KEY",
@@ -35,7 +36,11 @@ from app.config import clear_settings_cache, get_settings
 
 
 @pytest.fixture(autouse=True)
-def clear_settings_cache_after_test():
-    yield
+def clear_settings_cache_after_test() -> Iterator[None]:
     clear_settings_cache()
     get_settings()
+    try:
+        yield
+    finally:
+        clear_settings_cache()
+        get_settings()

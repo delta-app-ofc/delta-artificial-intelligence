@@ -331,4 +331,3 @@ def test_settings_repr_hides_keys_and_connection_uris() -> None:
     assert secret not in repr(settings)
     assert "postgresql://" not in repr(settings)
     assert "mongodb://" not in repr(settings)
-
