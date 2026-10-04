@@ -38,6 +38,10 @@ class DatabaseQueryError(DatabaseAccessError):
         self.code = code
 
 
+class DatabaseDataError(DatabaseQueryError):
+    """Documento retornado pelo banco não corresponde ao contrato esperado."""
+
+
 class RegionRateNotFound(RuntimeError):
     """Não existe tarifa vigente para a região e a data consultadas."""
 

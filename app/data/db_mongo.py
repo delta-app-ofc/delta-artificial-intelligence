@@ -11,6 +11,7 @@ from app.config import ConfigurationError, get_settings, validate_mongo_config
 from app.tools.exceptions import (
     DatabaseAccessError,
     DatabaseConnectionError,
+    DatabaseDataError,
     DatabaseQueryError,
 )
 from app.tools.models import Alert, ConsumptionPoint
@@ -104,7 +105,7 @@ def _run_query(action: Callable[[], _T]) -> _T:
     except PyMongoError as exc:
         raise DatabaseQueryError("MongoDB", code=getattr(exc, "code", None)) from exc
     except (KeyError, TypeError, ValueError, OverflowError) as exc:
-        raise DatabaseQueryError("MongoDB") from exc
+        raise DatabaseDataError("MongoDB") from exc
 
 
 def _aware_datetime(document: dict, field: str) -> datetime:

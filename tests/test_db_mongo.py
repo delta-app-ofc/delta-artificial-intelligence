@@ -15,7 +15,11 @@ from pymongo.errors import (
 
 from app.config import ConfigurationError, load_settings
 from app.data import db_mongo
-from app.tools.exceptions import DatabaseConnectionError, DatabaseQueryError
+from app.tools.exceptions import (
+    DatabaseConnectionError,
+    DatabaseDataError,
+    DatabaseQueryError,
+)
 
 
 class FakeCursor:
@@ -319,6 +323,7 @@ def test_invalid_required_consumption_field_is_a_safe_data_error(
     with pytest.raises(DatabaseQueryError) as captured:
         db_mongo.get_consumption_history(42, 7)
 
+    assert isinstance(captured.value, DatabaseDataError)
     assert "MongoDB" in str(captured.value)
     assert "None" not in str(captured.value)
     assert collection.cursor is not None and collection.cursor.closed
@@ -332,7 +337,7 @@ def test_missing_required_device_id_is_a_safe_data_error(monkeypatch, use_mongo_
         lambda: FakeDatabase("delta_test_telemetry", {"consumption_summary": collection}),
     )
 
-    with pytest.raises(DatabaseQueryError):
+    with pytest.raises(DatabaseDataError):
         db_mongo.get_consumption_history(42, 7)
 
     assert collection.cursor is not None and collection.cursor.closed
@@ -346,7 +351,7 @@ def test_invalid_anomaly_flag_is_not_coerced_to_true(monkeypatch, use_mongo_sett
         lambda: FakeDatabase("delta_test_telemetry", {"consumption_summary": collection}),
     )
 
-    with pytest.raises(DatabaseQueryError):
+    with pytest.raises(DatabaseDataError):
         db_mongo.get_consumption_history(42, 7)
 
 
@@ -370,7 +375,7 @@ def test_alert_with_invalid_resolved_at_is_a_safe_data_error(
         lambda: FakeDatabase("delta_test_app", {"alerts_history": collection}),
     )
 
-    with pytest.raises(DatabaseQueryError):
+    with pytest.raises(DatabaseDataError):
         db_mongo.get_alerts_history(42, 30)
 
     assert collection.cursor is not None and collection.cursor.closed
