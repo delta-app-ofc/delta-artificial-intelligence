@@ -15,7 +15,12 @@ from pymongo.errors import (
 
 from app.config import ConfigurationError, load_settings
 from app.data import db_mongo
-from app.tools.exceptions import DatabaseConnectionError, DatabaseQueryError
+from app.tools.exceptions import (
+    DatabaseConnectionError,
+    DatabaseDataError,
+    DatabaseQueryError,
+)
+from scripts.check_mongo import _validate_fixture_target
 
 
 class FakeCursor:
@@ -319,6 +324,7 @@ def test_invalid_required_consumption_field_is_a_safe_data_error(
     with pytest.raises(DatabaseQueryError) as captured:
         db_mongo.get_consumption_history(42, 7)
 
+    assert isinstance(captured.value, DatabaseDataError)
     assert "MongoDB" in str(captured.value)
     assert "None" not in str(captured.value)
     assert collection.cursor is not None and collection.cursor.closed
@@ -332,10 +338,22 @@ def test_missing_required_device_id_is_a_safe_data_error(monkeypatch, use_mongo_
         lambda: FakeDatabase("delta_test_telemetry", {"consumption_summary": collection}),
     )
 
-    with pytest.raises(DatabaseQueryError):
+    with pytest.raises(DatabaseDataError):
         db_mongo.get_consumption_history(42, 7)
 
     assert collection.cursor is not None and collection.cursor.closed
+
+
+def test_invalid_anomaly_flag_is_not_coerced_to_true(monkeypatch, use_mongo_settings):
+    collection = FakeCollection(documents=[_point(anomaly_detected="false")])
+    monkeypatch.setattr(
+        db_mongo,
+        "_telemetry",
+        lambda: FakeDatabase("delta_test_telemetry", {"consumption_summary": collection}),
+    )
+
+    with pytest.raises(DatabaseDataError):
+        db_mongo.get_consumption_history(42, 7)
 
 
 def test_alert_with_invalid_resolved_at_is_a_safe_data_error(
@@ -358,7 +376,7 @@ def test_alert_with_invalid_resolved_at_is_a_safe_data_error(
         lambda: FakeDatabase("delta_test_app", {"alerts_history": collection}),
     )
 
-    with pytest.raises(DatabaseQueryError):
+    with pytest.raises(DatabaseDataError):
         db_mongo.get_alerts_history(42, 30)
 
     assert collection.cursor is not None and collection.cursor.closed
@@ -382,6 +400,49 @@ def test_invalid_query_timeout_stays_a_configuration_error(monkeypatch, mongo_se
 
     with pytest.raises(ConfigurationError):
         db_mongo.get_daily_liters_target(42)
+
+
+def test_fixture_mode_accepts_only_explicit_local_test_databases():
+    settings = load_settings(
+        environ={
+            "APP_ENV": "test",
+            "MONGODB_APP_URI": "mongodb://127.0.0.1:27018",
+            "MONGODB_TELEMETRY_URI": "mongodb://localhost:27018",
+            "MONGO_DB_APP": "delta_test_app",
+            "MONGO_DB_TELEMETRY": "delta_test_telemetry",
+        },
+        env_file=None,
+    )
+
+    _validate_fixture_target(settings)
+
+
+@pytest.mark.parametrize(
+    "override",
+    [
+        {"APP_ENV": "production"},
+        {"MONGODB_APP_URI": "mongodb+srv://cluster.example.invalid"},
+        {"MONGODB_APP_URI": "mongodb://localhost:27018,remote.example.invalid:27018"},
+        {"MONGODB_APP_URI": "mongodb://localhost"},
+        {"MONGO_DB_APP": "contest_production"},
+        {"MONGO_DB_TELEMETRY": "delta_test_app"},
+    ],
+)
+def test_fixture_mode_rejects_targets_that_are_not_proven_local_and_isolated(
+    mongo_settings, override
+):
+    values = {
+        "APP_ENV": "test",
+        "MONGODB_APP_URI": "mongodb://127.0.0.1:27018",
+        "MONGODB_TELEMETRY_URI": "mongodb://localhost:27018",
+        "MONGO_DB_APP": "delta_test_app",
+        "MONGO_DB_TELEMETRY": "delta_test_telemetry",
+    }
+    values.update(override)
+    settings = load_settings(environ=values, env_file=None)
+
+    with pytest.raises(ConfigurationError):
+        _validate_fixture_target(settings)
 
 
 @pytest.mark.parametrize(

@@ -8,12 +8,14 @@ from typing import Any
 
 import httpx
 from google.genai.errors import APIError as GoogleAPIError
+from google.genai.errors import ClientError as GoogleClientError
 from groq import (
     APIConnectionError as GroqAPIConnectionError,
     APIError as GroqAPIError,
 )
 from langchain_core.runnables import Runnable
 from langchain_google_genai import ChatGoogleGenerativeAI
+from langchain_google_genai.chat_models import ChatGoogleGenerativeAIError
 from langchain_groq import ChatGroq
 
 from app.config import get_settings, validate_llm_config
@@ -84,8 +86,19 @@ def _safe_provider_error(error: Exception) -> LLMProviderError:
     return LLMProviderError("O provedor de linguagem rejeitou a solicitação.")
 
 
+def _request_error_cause(error: Exception) -> Exception | None:
+    """Retorna a causa protocolar de um erro de provedor reconhecido."""
+    if isinstance(error, ChatGoogleGenerativeAIError):
+        cause = error.__cause__
+        if isinstance(cause, (GoogleAPIError, GoogleClientError)):
+            return cause
+        return None
+    return error
+
+
 _PROVIDER_REQUEST_ERRORS = (
     GoogleAPIError,
+    ChatGoogleGenerativeAIError,
     GroqAPIError,
     httpx.TimeoutException,
     httpx.ConnectError,
@@ -113,8 +126,11 @@ def _invoke_with_fallback(
     try:
         return _invoke_model(primary, messages, config, kwargs)
     except _PROVIDER_REQUEST_ERRORS as error:
-        if not _is_transient_provider_error(error):
-            raise _safe_provider_error(error) from None
+        request_error = _request_error_cause(error)
+        if request_error is None:
+            raise
+        if not _is_transient_provider_error(request_error):
+            raise _safe_provider_error(request_error) from None
         if fallback is None:
             raise LLMUnavailableError(_PUBLIC_UNAVAILABLE_MESSAGE) from None
 
@@ -122,8 +138,11 @@ def _invoke_with_fallback(
         # A mesma lista é enviada ao segundo provedor, inclusive ToolMessages anteriores.
         return _invoke_model(fallback, messages, config, kwargs)
     except _PROVIDER_REQUEST_ERRORS as error:
-        if not _is_transient_provider_error(error):
-            raise _safe_provider_error(error) from None
+        request_error = _request_error_cause(error)
+        if request_error is None:
+            raise
+        if not _is_transient_provider_error(request_error):
+            raise _safe_provider_error(request_error) from None
         raise LLMUnavailableError(_PUBLIC_UNAVAILABLE_MESSAGE) from None
 
 
