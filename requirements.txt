@@ -11,3 +11,6 @@ pymongo
 dnspython
 tzdata; sys_platform == "win32"
 redis
+httpx
+qdrant-client
+plotly
