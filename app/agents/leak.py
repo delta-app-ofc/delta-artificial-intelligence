@@ -42,6 +42,9 @@ def _build_leak_chart(tool_calls: list[ToolCall]) -> dict | None:
         margin={"l": 50, "r": 20, "t": 40, "b": 40},
     )
     return fig.to_dict()
+from app.agents._runtime import AgentResult, run_agent
+from app.services.prompts import vazamento_prompt_completo
+from app.tools.leak.tools import build_tools
 
 
 class LeakAgent:
@@ -56,6 +59,10 @@ class LeakAgent:
 
     def run(self, question: str) -> AgentResult:
         result = run_agent(
+        self.tools = build_tools(self.user_id)
+
+    def run(self, question: str) -> AgentResult:
+        return run_agent(
             llm=self.llm,
             system_prompt=vazamento_prompt_completo(),
             tools=self.tools,
