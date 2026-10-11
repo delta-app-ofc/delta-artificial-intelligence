@@ -39,9 +39,13 @@ Fatos do dataload usados pelos testes:
 O container `mongo` do `docker-compose.dev.yml` sobe vazio (não tem mais
 `mongo-init/`). Pra popular localmente, use
 [`delta-hardware-data-simulator`](https://github.com/delta-app-ofc/delta-hardware-data-simulator)
-(`python -m dataload.cli <coleção> <quantidade>`) — cobre as 7 coleções de
-telemetria/app (`pulses_raw`, `consumption_summary`, `device_status`,
+(`python -m dataload.cli <coleção> <quantidade>`) — possui geradores para as seis coleções atuais de
+telemetria/app (`consumption_summary`, `device_status`,
 `user_preferences`, `alerts_history`, `chat_sessions`, `chat_feedback`), que
 antes eram duplicadas manualmente no `seed.js` deste repositório. Os testes
 automatizados não dependem disso (ver README principal, seção "Testes") —
 tools de Mongo são stubadas nos testes.
+
+### Contrato MongoDB atualizado
+
+O hardware envia o consumo consolidado diretamente para `consumption_summary`, sem coleção intermediária de pulsos. `db_delta_app` também contém `weather_daily`, com `weather_date` e `wind_speed_mps`; consulte o schema oficial e a [documentação de clima](../../delta-nosql-database/collections/db_delta_app.md). O índice climático ainda usa `date`, divergência pendente nos scripts oficiais.
