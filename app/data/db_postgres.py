@@ -1,51 +1,122 @@
 from __future__ import annotations
 
+from contextlib import contextmanager
 from datetime import date, datetime, timedelta
 from decimal import Decimal
-from typing import Literal
+from typing import Iterator, Literal
 
 import psycopg2
+from psycopg2.extensions import parse_dsn
 
 from app.config import (
-    DATABASE_URL,
-    HOST_DB,
-    NAME_DB,
-    PASSWORD_DB,
-    PORT_DB,
-    USER_DB,
+    get_postgres_connection_args,
+    get_settings,
 )
-from app.tools.exceptions import RegionRateNotFound
+from app.tools.exceptions import (
+    DatabaseConnectionError,
+    DatabaseQueryError,
+    RegionRateNotFound,
+)
 from app.tools.models import ConsumptionPoint, LastWaterBill, OrganizationProperty
 
 
 def get_conn():
-    if all((HOST_DB, PORT_DB, USER_DB, PASSWORD_DB, NAME_DB)):
-        return psycopg2.connect(
-            host=HOST_DB,
-            port=PORT_DB,
-            user=USER_DB,
-            password=PASSWORD_DB,
-            dbname=NAME_DB,
+    settings = get_settings()
+    connection_args = get_postgres_connection_args(settings=settings)
+    query_timeout_ms = settings.db_query_timeout_seconds * 1000
+    statement_timeout_option = f"-c statement_timeout={query_timeout_ms}ms"
+
+    try:
+        existing_options = ""
+        if "dsn" in connection_args:
+            existing_options = parse_dsn(connection_args["dsn"]).get("options", "")
+        options = " ".join(
+            value for value in (existing_options, statement_timeout_option) if value
         )
-    return psycopg2.connect(DATABASE_URL)
+        connection_args["options"] = options
+    except psycopg2.Error as exc:
+        raise DatabaseConnectionError("PostgreSQL") from exc
+
+    try:
+        return psycopg2.connect(**connection_args)
+    except psycopg2.Error as exc:
+        raise DatabaseConnectionError("PostgreSQL") from exc
+
+
+def _query_error(exc: psycopg2.Error) -> DatabaseQueryError:
+    return DatabaseQueryError(
+        "PostgreSQL",
+        code=getattr(exc, "pgcode", None),
+    )
+
+
+def _cleanup_error(exc: Exception) -> DatabaseQueryError:
+    if isinstance(exc, psycopg2.Error):
+        return _query_error(exc)
+    return DatabaseQueryError("PostgreSQL")
+
+
+@contextmanager
+def _cursor() -> Iterator:
+    """Abre e fecha cursor/conexão, protegendo mensagens do driver."""
+    conn = get_conn()
+    cur = None
+    operation_failed = False
+    try:
+        try:
+            cur = conn.cursor()
+        except psycopg2.Error as exc:
+            operation_failed = True
+            raise _query_error(exc) from exc
+        except BaseException:
+            operation_failed = True
+            raise
+
+        try:
+            yield cur
+        except psycopg2.Error as exc:
+            operation_failed = True
+            raise _query_error(exc) from exc
+        except BaseException:
+            operation_failed = True
+            raise
+    finally:
+        cleanup_error = None
+        try:
+            if cur is not None:
+                cur.close()
+        except Exception as exc:
+            cleanup_error = exc
+        finally:
+            try:
+                conn.close()
+            except Exception as exc:
+                if cleanup_error is None:
+                    cleanup_error = exc
+
+        if cleanup_error is not None and not operation_failed:
+            raise _cleanup_error(cleanup_error) from cleanup_error
+
+
+def check_connection() -> None:
+    """Confirma acesso ao banco com uma consulta que não depende do schema."""
+    with _cursor() as cur:
+        cur.execute("SELECT 1;")
+        row = cur.fetchone()
+
+    if row != (1,):
+        raise DatabaseQueryError("PostgreSQL")
 
 
 def user_can_estimate(user_id: int) -> bool:
-    conn = get_conn()
-    cur = conn.cursor()
-    try:
+    with _cursor() as cur:
         cur.execute("SELECT fn_user_can_estimate(%s);", (user_id,))
         row = cur.fetchone()
-        return bool(row[0]) if row is not None else False
-    finally:
-        cur.close()
-        conn.close()
+    return bool(row[0]) if row is not None else False
 
 
 def get_user_region_id(user_id: int) -> int | None:
-    conn = get_conn()
-    cur = conn.cursor()
-    try:
+    with _cursor() as cur:
         cur.execute(
             """
             SELECT a.region_id
@@ -59,16 +130,11 @@ def get_user_region_id(user_id: int) -> int | None:
             (user_id,),
         )
         row = cur.fetchone()
-        return int(row[0]) if row is not None else None
-    finally:
-        cur.close()
-        conn.close()
+    return int(row[0]) if row is not None else None
 
 
 def get_user_property_classification_id(user_id: int) -> int | None:
-    conn = get_conn()
-    cur = conn.cursor()
-    try:
+    with _cursor() as cur:
         cur.execute(
             """
             SELECT p.classification_id
@@ -81,39 +147,32 @@ def get_user_property_classification_id(user_id: int) -> int | None:
             (user_id,),
         )
         row = cur.fetchone()
-        return int(row[0]) if row is not None else None
-    finally:
-        cur.close()
-        conn.close()
+    return int(row[0]) if row is not None else None
 
 
 def get_current_region_rate(region_id: int, classification_id: int, on_date: date) -> Decimal:
-    conn = get_conn()
-    cur = conn.cursor()
-    try:
-        cur.execute(
-            "SELECT fn_get_current_region_rate(%s, %s, %s);",
-            (region_id, classification_id, on_date),
-        )
+    missing_rate_message = (
+        f"Sem tarifa vigente para a região {region_id}, categoria "
+        f"{classification_id} em {on_date}."
+    )
+    with _cursor() as cur:
+        try:
+            cur.execute(
+                "SELECT fn_get_current_region_rate(%s, %s, %s);",
+                (region_id, classification_id, on_date),
+            )
+        except psycopg2.errors.RaiseException as exc:  # type: ignore[attr-defined]
+            raise RegionRateNotFound(
+                missing_rate_message
+            ) from exc
         row = cur.fetchone()
         if row is None or row[0] is None:
-            raise RegionRateNotFound(
-                f"Sem tarifa vigente para a região {region_id}, categoria {classification_id} em {on_date}."
-            )
+            raise RegionRateNotFound(missing_rate_message)
         return Decimal(str(row[0]))
-    except psycopg2.errors.RaiseException as exc:  # type: ignore[attr-defined]
-        raise RegionRateNotFound(
-            f"Sem tarifa vigente para a região {region_id}, categoria {classification_id} em {on_date}."
-        ) from exc
-    finally:
-        cur.close()
-        conn.close()
 
 
 def get_last_water_bill(user_id: int) -> LastWaterBill | None:
-    conn = get_conn()
-    cur = conn.cursor()
-    try:
+    with _cursor() as cur:
         cur.execute(
             """
             SELECT user_id, month, total_value, m3_value
@@ -125,17 +184,14 @@ def get_last_water_bill(user_id: int) -> LastWaterBill | None:
             (user_id,),
         )
         row = cur.fetchone()
-        if row is None:
-            return None
-        return LastWaterBill(
-            user_id=int(row[0]),
-            month=row[1],
-            total_value=Decimal(str(row[2])),
-            m3_value=Decimal(str(row[3])),
-        )
-    finally:
-        cur.close()
-        conn.close()
+    if row is None:
+        return None
+    return LastWaterBill(
+        user_id=int(row[0]),
+        month=row[1],
+        total_value=Decimal(str(row[2])),
+        m3_value=Decimal(str(row[3])),
+    )
 
 
 def get_user_access_kind(user_id: int) -> Literal["residential", "organizational", "none"]:
@@ -145,9 +201,7 @@ def get_user_access_kind(user_id: int) -> Literal["residential", "organizational
     como residencial (caminho antigo, inalterado). Só verifica
     tb_user_organization quando não há nenhuma propriedade residencial.
     """
-    conn = get_conn()
-    cur = conn.cursor()
-    try:
+    with _cursor() as cur:
         cur.execute("SELECT 1 FROM tb_user_property WHERE user_id = %s LIMIT 1;", (user_id,))
         if cur.fetchone() is not None:
             return "residential"
@@ -155,18 +209,13 @@ def get_user_access_kind(user_id: int) -> Literal["residential", "organizational
         if cur.fetchone() is not None:
             return "organizational"
         return "none"
-    finally:
-        cur.close()
-        conn.close()
 
 
 def get_user_organization_properties(user_id: int) -> list[OrganizationProperty]:
     """Todas as propriedades de todas as organizações vinculadas ao usuário
     (tb_user_organization é M:N; não há papel/hierarquia, então todas as
     organizações do usuário entram no mesmo conjunto agregável)."""
-    conn = get_conn()
-    cur = conn.cursor()
-    try:
+    with _cursor() as cur:
         cur.execute(
             """
             SELECT DISTINCT p.id, p.name, a.city, a.state
@@ -178,13 +227,11 @@ def get_user_organization_properties(user_id: int) -> list[OrganizationProperty]
             """,
             (user_id,),
         )
-        return [
-            OrganizationProperty(property_id=row[0], name=row[1], city=row[2], state=row[3])
-            for row in cur.fetchall()
-        ]
-    finally:
-        cur.close()
-        conn.close()
+        rows = cur.fetchall()
+    return [
+        OrganizationProperty(property_id=row[0], name=row[1], city=row[2], state=row[3])
+        for row in rows
+    ]
 
 
 def organization_can_estimate(property_ids: list[int]) -> bool:
@@ -200,9 +247,7 @@ def organization_can_estimate(property_ids: list[int]) -> bool:
     """
     if not property_ids:
         return False
-    conn = get_conn()
-    cur = conn.cursor()
-    try:
+    with _cursor() as cur:
         cur.execute(
             """
             SELECT EXISTS (
@@ -215,10 +260,7 @@ def organization_can_estimate(property_ids: list[int]) -> bool:
             (property_ids,),
         )
         row = cur.fetchone()
-        return bool(row[0]) if row is not None else False
-    finally:
-        cur.close()
-        conn.close()
+    return bool(row[0]) if row is not None else False
 
 
 def get_organization_consumption_history(
@@ -233,9 +275,7 @@ def get_organization_consumption_history(
     """
     if not property_ids:
         return []
-    conn = get_conn()
-    cur = conn.cursor()
-    try:
+    with _cursor() as cur:
         cur.execute(
             """
             SELECT full_date, SUM(total_liters)
@@ -247,23 +287,56 @@ def get_organization_consumption_history(
             """,
             (property_ids, today - timedelta(days=days), today),
         )
-        points = []
-        for full_date, total_liters in cur.fetchall():
-            start = datetime(full_date.year, full_date.month, full_date.day)
-            points.append(
-                ConsumptionPoint(
-                    user_id=0,
-                    window_started_at=start,
-                    window_finished_at=start + timedelta(days=1),
-                    consumption_liters=float(total_liters),
-                    anomaly_detected=False,
-                    device_id=None,
-                )
+        rows = cur.fetchall()
+    points = []
+    for full_date, total_liters in rows:
+        start = datetime(full_date.year, full_date.month, full_date.day)
+        points.append(
+            ConsumptionPoint(
+                user_id=0,
+                window_started_at=start,
+                window_finished_at=start + timedelta(days=1),
+                consumption_liters=float(total_liters),
+                anomaly_detected=False,
+                device_id=None,
             )
-        return points
-    finally:
-        cur.close()
-        conn.close()
+        )
+    return points
+
+
+def get_organization_consumption_daily(
+    property_ids: list[int], start_date: date, end_date: date
+) -> list[tuple[date, Decimal]]:
+    """Lê os registros diários das unidades autorizadas no intervalo de datas.
+
+    A view tem granularidade diária. Os limites são datas inclusivas locais;
+    a função não cria horários nem soma linhas antes de validar cada valor.
+    """
+    if not property_ids:
+        return []
+    if (
+        not isinstance(start_date, date)
+        or isinstance(start_date, datetime)
+        or not isinstance(end_date, date)
+        or isinstance(end_date, datetime)
+    ):
+        raise ValueError("O período diário precisa usar datas sem horário.")
+    if start_date > end_date:
+        raise ValueError("A data inicial é posterior à data final.")
+
+    with _cursor() as cur:
+        cur.execute(
+            """
+            SELECT full_date, total_liters
+              FROM dw.vw_ft_consumption_daily
+             WHERE property_id = ANY(%s)
+               AND full_date BETWEEN %s AND %s
+             ORDER BY full_date, property_id;
+            """,
+            (property_ids, start_date, end_date),
+        )
+        rows = cur.fetchall()
+    return [(row[0], row[1]) for row in rows]
 
 
 def get_organization_last_billed_period(
@@ -279,9 +352,7 @@ def get_organization_last_billed_period(
     """
     if not property_ids:
         return None
-    conn = get_conn()
-    cur = conn.cursor()
-    try:
+    with _cursor() as cur:
         month_end = today.replace(day=1) - timedelta(days=1)
         month_start = month_end.replace(day=1)
 
@@ -315,16 +386,12 @@ def get_organization_last_billed_period(
             liters, cost, reference_month = cur.fetchone()
             if liters is None:
                 return None
-
-        return LastWaterBill(
-            user_id=0,
-            month=reference_month,
-            total_value=Decimal(str(cost)).quantize(Decimal("0.01")),
-            m3_value=(Decimal(str(liters)) / Decimal(1000)).quantize(Decimal("0.01")),
-        )
-    finally:
-        cur.close()
-        conn.close()
+    return LastWaterBill(
+        user_id=0,
+        month=reference_month,
+        total_value=Decimal(str(cost)).quantize(Decimal("0.01")),
+        m3_value=(Decimal(str(liters)) / Decimal(1000)).quantize(Decimal("0.01")),
+    )
 
 
 def get_organization_effective_rate(
@@ -341,9 +408,7 @@ def get_organization_effective_rate(
     """
     if not property_ids:
         return None
-    conn = get_conn()
-    cur = conn.cursor()
-    try:
+    with _cursor() as cur:
         cur.execute(
             """
             SELECT SUM(total_liters), SUM(cost_value)
@@ -354,9 +419,6 @@ def get_organization_effective_rate(
             (property_ids, today - timedelta(days=window_days), today),
         )
         liters, cost = cur.fetchone()
-        if not liters:
-            return None
-        return (Decimal(str(cost)) / (Decimal(str(liters)) / Decimal(1000))).quantize(Decimal("0.01"))
-    finally:
-        cur.close()
-        conn.close()
+    if not liters:
+        return None
+    return (Decimal(str(cost)) / (Decimal(str(liters)) / Decimal(1000))).quantize(Decimal("0.01"))
