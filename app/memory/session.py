@@ -34,7 +34,14 @@ def load_history_validated(user_id: int, session_id: str) -> list[dict]:
 
 
 def append_turn(session_id: str, user_id: int, role: str, content: str) -> None:
-    """Anexa uma mensagem ao histórico da sessão, criando o documento se necessário."""
+    """Anexa uma mensagem ao histórico da sessão, criando o documento se necessário.
+
+    Rejeita sessões que já existam e pertençam a outro usuário, evitando que
+    uma colisão de session_id grave mensagens na sessão alheia.
+    """
+    existing = _col().find_one({"session_id": session_id}, {"user_id": 1})
+    if existing and existing.get("user_id") != user_id:
+        raise ValueError(f"session {session_id!r} pertence a outro usuário")
     _col().update_one(
         {"session_id": session_id},
         {

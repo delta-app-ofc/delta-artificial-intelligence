@@ -6,7 +6,6 @@ from typing import Any
 from app.agents._runtime import AgentResult, ToolCall, run_agent
 from app.services.prompts import previsao_prompt_completo
 from app.tools.forecast.tools import build_tools
-from app.integrations.mcp.weather import get_weather_tools
 
 
 def _build_forecast_chart(tool_calls: list[ToolCall]) -> dict | None:
@@ -85,7 +84,7 @@ class ForecastAgent:
 
             llm = llm_especialista
         self.llm = llm
-        self.tools = build_tools(self.user_id, self.today) + get_weather_tools()
+        self.tools = build_tools(self.user_id, self.today)
 
     def run(self, question: str) -> AgentResult:
         result = run_agent(

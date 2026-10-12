@@ -43,8 +43,10 @@ class RoutingDecision(BaseModel):
 
 
 def classify(question: str, context: dict) -> RoutingDecision:
-    from app.services.llms import llm_rapido
+    import app.services.llms as _llm_module
     from langchain_core.messages import HumanMessage, SystemMessage
+
+    llm_rapido = _llm_module.llm_rapido
 
     ctx_lines: list[str] = []
     recent = context.get("recent_messages", [])

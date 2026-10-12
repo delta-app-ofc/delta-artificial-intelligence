@@ -137,5 +137,5 @@ def run_workflow(user_id: int, session_id: str, question: str) -> GraphState:
     }
     return workflow.invoke(
         initial,
-        config={"configurable": {"thread_id": session_id}},
+        config={"configurable": {"thread_id": f"{user_id}:{session_id}"}},
     )
