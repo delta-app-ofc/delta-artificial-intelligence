@@ -24,34 +24,7 @@ parte.
 
 ## Ambiente local de desenvolvimento
 
-Os conectores PostgreSQL/MongoDB estão implementados, com configuração por
-ambiente, timeouts e tratamento de falhas. Sua validação com bancos reais
-depende de serviços acessíveis e credenciais. `docker-compose.dev.yml` sobe
-um Postgres e um Mongo **locais** para desenvolvimento manual; os testes
-automatizados não dependem desses serviços (ver "Testes").
-
-```bash
-docker compose -f docker-compose.dev.yml up -d
-docker compose -f docker-compose.dev.yml ps   # espera ficar "healthy"
-cp .env.example .env
-```
-
-- **Postgres** (porta 5432): schema e funções inicializados por
-  `db/postgres-init/`, cópias de bootstrap do repositório
-  `delta-app-ofc/delta-sql-database` — a fonte de verdade do schema continua lá
-  (detalhe de origem de cada arquivo em `db/README.md`).
-- **Mongo** (porta 27018 no host — 27017 já costuma estar ocupada por um
-  MongoDB local instalado fora do Docker, então usamos outra porta pra não
-  conflitar): sobe vazio — não tem mais seed próprio deste repositório.
-  Populado com
-  [`delta-hardware-data-simulator`](https://github.com/delta-app-ofc/delta-hardware-data-simulator)
-  (`python -m dataload.cli <coleção> <quantidade>`), que cobre as 7 coleções
-  de telemetria/app (antes duplicadas manualmente em `seed.js`).
-
-Em produção, `db_delta_app` e `db_delta_telemetry` vivem em **dois clusters
-Atlas separados**, não um só — por isso `MONGODB_APP_URI` e
-`MONGODB_TELEMETRY_URI` são duas variáveis distintas (localmente as duas
-apontam pro mesmo container, só o nome do banco muda).
+Consulte [DOCKER-HELP.md](DOCKER-HELP.md) para usar o ambiente Docker local.
 
 ## Settings e conexões
 
