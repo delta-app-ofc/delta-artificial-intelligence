@@ -42,6 +42,8 @@ _ALL_SETTING_NAMES = frozenset(
         "LLM_MAX_OUTPUT_TOKENS",
         "DB_CONNECT_TIMEOUT_SECONDS",
         "DB_QUERY_TIMEOUT_SECONDS",
+        "QDRANT_URL",
+        "QDRANT_API_KEY",
     }
 )
 
@@ -76,6 +78,8 @@ class Settings:
     llm_max_output_tokens: int
     db_connect_timeout_seconds: int
     db_query_timeout_seconds: int
+    qdrant_url: str | None = field(repr=False)
+    qdrant_api_key: str | None = field(repr=False)
     _provided_names: frozenset[str] = field(default_factory=frozenset, repr=False)
     _parse_errors: tuple[tuple[str, str], ...] = field(default_factory=tuple, repr=False)
     _app_env_error: bool = field(default=False, repr=False)
@@ -302,6 +306,8 @@ def load_settings(
         llm_max_output_tokens=_parse_int(values, "LLM_MAX_OUTPUT_TOKENS", 4096, errors),
         db_connect_timeout_seconds=_parse_int(values, "DB_CONNECT_TIMEOUT_SECONDS", 5, errors),
         db_query_timeout_seconds=_parse_int(values, "DB_QUERY_TIMEOUT_SECONDS", 30, errors),
+        qdrant_url=_clean(values.get("QDRANT_URL")),
+        qdrant_api_key=_clean(values.get("QDRANT_API_KEY")),
         _provided_names=provided_names,
         _parse_errors=tuple(errors.items()),
         _app_env_error=app_env_error,
@@ -330,6 +336,8 @@ def _sync_legacy_constants(settings: Settings) -> None:
             "MONGODB_TELEMETRY_URI": settings.mongodb_telemetry_uri or "",
             "MONGO_DB_APP": settings.mongo_db_app,
             "MONGO_DB_TELEMETRY": settings.mongo_db_telemetry,
+            "QDRANT_URL": settings.qdrant_url or "http://localhost:6333",
+            "QDRANT_API_KEY": settings.qdrant_api_key or "",
         }
     )
 
