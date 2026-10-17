@@ -268,13 +268,28 @@ def clear_llm_cache() -> None:
     _get_llm_gemini.cache_clear()
     _get_llm_groq_especialista.cache_clear()
     _get_llm_rapido.cache_clear()
+    # Remove instâncias cacheadas no __dict__ para que o próximo acesso construa
+    # novos clientes com os settings/substitutos vigentes.
+    import sys
+    mod = sys.modules[__name__]
+    for _n in ("llm_gemini", "llm_groq_especialista", "llm_especialista", "llm_rapido"):
+        mod.__dict__.pop(_n, None)
+
+
+def _safe_get_llm_rapido() -> Any:
+    """Constrói llm_rapido ou retorna None quando faltam credenciais."""
+    from app.config import ConfigurationError as _ConfigurationError
+    try:
+        return _get_llm_rapido()
+    except _ConfigurationError:
+        return None
 
 
 _LAZY = {
     "llm_gemini": _get_llm_gemini,
     "llm_groq_especialista": _get_llm_groq_especialista,
     "llm_especialista": _get_llm_especialista,
-    "llm_rapido": _get_llm_rapido,
+    "llm_rapido": _safe_get_llm_rapido,
 }
 
 
