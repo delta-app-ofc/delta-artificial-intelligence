@@ -394,6 +394,50 @@ def get_organization_last_billed_period(
     )
 
 
+def get_user_habits(user_id: int) -> list[dict]:
+    """Retorna os hábitos de consumo de água do usuário.
+
+    Cada item tem: name (str), frequency (int — vezes por semana),
+    days (list[str] — dias da semana em maiúsculas, ex.: SEGUNDA).
+    """
+    with _cursor() as cur:
+        cur.execute(
+            """
+            SELECT h.name, h.weekly_frequency, array_agg(hd.day_of_week ORDER BY hd.day_of_week)
+              FROM habits h
+              JOIN habit_days hd ON hd.habit_id = h.id
+             WHERE h.user_id = %s
+             GROUP BY h.id, h.name, h.weekly_frequency
+             ORDER BY h.name;
+            """,
+            (user_id,),
+        )
+        rows = cur.fetchall()
+    return [{"name": name, "frequency": freq, "days": list(days)} for name, freq, days in rows]
+
+
+def get_habits_by_weekday(user_id: int, day: str) -> list[dict]:
+    """Retorna os hábitos do usuário que ocorrem no dia da semana informado.
+
+    `day` deve estar em maiúsculas (ex.: SEGUNDA, SABADO).
+    Cada item retornado tem: name (str) e frequency (int).
+    """
+    with _cursor() as cur:
+        cur.execute(
+            """
+            SELECT h.name, h.weekly_frequency
+              FROM habits h
+              JOIN habit_days hd ON hd.habit_id = h.id
+             WHERE h.user_id = %s
+               AND hd.day_of_week = %s
+             ORDER BY h.name;
+            """,
+            (user_id, day),
+        )
+        rows = cur.fetchall()
+    return [{"name": name, "frequency": freq} for name, freq in rows]
+
+
 def get_organization_effective_rate(
     property_ids: list[int], today: date, window_days: int = 30
 ) -> Decimal | None:
