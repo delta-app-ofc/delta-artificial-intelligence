@@ -24,6 +24,7 @@ Agentes:
 """
 
 from datetime import datetime, timezone
+from zoneinfo import ZoneInfo
 
 
 # ==============================================================================
@@ -344,6 +345,62 @@ CONSUMO_PROMPT_COMPLETO = (
     + "\n\n"
     + CONSUMO_SHOTS_CUT
 )
+
+
+def consumo_prompt_completo(
+    now: datetime,
+    timezone_name: str = "America/Sao_Paulo",
+) -> str:
+    """Retorna o prompt do agente de consumo com referência temporal dinâmica.
+
+    Usa o instante `now` (UTC) convertido para `timezone_name` — garante que
+    cada execução do agente parta de uma referência de tempo coerente com os
+    dados consultados no MongoDB (também em UTC).
+    """
+    local = now.astimezone(ZoneInfo(timezone_name))
+    ctx_temporal = f"Agora: {local.isoformat()} ({timezone_name})"
+
+    return f"""{PERSONA_SISTEMA}
+
+### CONTEXTO TEMPORAL
+
+{ctx_temporal}
+
+### FERRAMENTAS DISPONÍVEIS
+
+Utilize somente as ferramentas abaixo:
+
+- `get_consumption_summary` — retorna consumo total, médio e série diária de um período
+- `compare_consumption_periods` — compara o consumo entre dois períodos distintos
+- `get_consumption_peaks` — identifica picos de consumo (diário; horário quando disponível)
+- `list_consumption_units` — lista as unidades disponíveis para consulta organizacional
+
+A cobertura da fonte não é determinada pelo agente: depende dos dados disponíveis
+no MongoDB e na view diária do PostgreSQL.
+
+### REGRAS
+
+- Consulte as ferramentas antes de apresentar qualquer número.
+- Não invente valores nem estime consumo real ausente.
+- Não calcula tarifa, conta, previsão futura ou diagnóstico de vazamento.
+- Não diagnostica vazamentos — isso é responsabilidade do Agente Vazamento.
+- Informe recorte, granularidade e lacunas encontradas nos dados.
+- Para comparar períodos, obtenha os dados de ambos os períodos separadamente.
+
+{_REGRA_ANTI_ALUCINACAO}
+
+{CONSUMO_SHOTS_OPEN}
+
+{CONSUMO_SHOT_1}
+
+{CONSUMO_SHOT_2}
+
+{CONSUMO_SHOT_3}
+
+{CONSUMO_SHOT_4}
+
+{CONSUMO_SHOTS_CUT}
+"""
 
 
 # ==============================================================================
