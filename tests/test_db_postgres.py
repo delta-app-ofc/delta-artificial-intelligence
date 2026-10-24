@@ -89,7 +89,8 @@ def test_get_conn_preserves_url_tls_options_and_applies_timeouts(monkeypatch):
     captured: dict = {}
     _install_url_connection(monkeypatch, connection)
 
-    def connect(**kwargs):
+    def connect(dsn, **kwargs):
+        captured["dsn"] = dsn
         captured.update(kwargs)
         return connection
 
@@ -100,38 +101,6 @@ def test_get_conn_preserves_url_tls_options_and_applies_timeouts(monkeypatch):
     assert captured["connect_timeout"] == 3
     assert captured["options"] == "-c search_path=gold -c statement_timeout=7000ms"
     assert psycopg2.extensions.parse_dsn(captured["dsn"])["sslmode"] == "verify-full"
-
-
-def test_get_conn_passes_separate_variables_from_settings_helper(monkeypatch):
-    connection = FakeConnection()
-    captured: dict = {}
-    settings = load_settings(
-        {
-            "APP_ENV": "test",
-            "DATABASE_URL": TEST_DSN,
-            "HOST_DB": "localhost",
-            "PORT_DB": "5432",
-            "USER_DB": "delta_test",
-            "PASSWORD_DB": SYNTHETIC_SECRET,
-            "NAME_DB": "delta_test",
-            "DB_CONNECT_TIMEOUT_SECONDS": "4",
-            "DB_QUERY_TIMEOUT_SECONDS": "2",
-        },
-        env_file=None,
-    )
-    monkeypatch.setattr(db_postgres, "get_settings", lambda: settings)
-    monkeypatch.setattr(
-        db_postgres.psycopg2,
-        "connect",
-        lambda **kwargs: captured.update(kwargs) or connection,
-    )
-
-    assert db_postgres.get_conn() is connection
-    assert captured["host"] == "localhost"
-    assert captured["port"] == 5432
-    assert captured["password"] == SYNTHETIC_SECRET
-    assert captured["connect_timeout"] == 4
-    assert captured["options"] == "-c statement_timeout=2000ms"
 
 
 def test_database_error_messages_use_only_known_database_names():
@@ -151,20 +120,18 @@ def test_database_error_messages_use_only_known_database_names():
 @pytest.mark.parametrize(
     ("environment", "message"),
     [
-        ({"APP_ENV": "test", "HOST_DB": "localhost"}, "incompleta"),
+        ({"APP_ENV": "test"}, "DATABASE_URL"),
+        ({"APP_ENV": "test", "DATABASE_URL": "https://db.example/app"}, "DATABASE_URL"),
         (
             {
                 "APP_ENV": "test",
-                "HOST_DB": "localhost",
-                "PORT_DB": "70000",
-                "USER_DB": "delta_test",
-                "PASSWORD_DB": SYNTHETIC_SECRET,
-                "NAME_DB": "delta_test",
+                "DATABASE_URL": TEST_DSN,
+                "DB_CONNECT_TIMEOUT_SECONDS": "0",
             },
-            "PORT_DB",
+            "DB_CONNECT_TIMEOUT_SECONDS",
         ),
     ],
-    ids=["partial-split", "invalid-port"],
+    ids=["missing-url", "invalid-url", "invalid-timeout"],
 )
 def test_invalid_postgres_settings_fail_before_driver(monkeypatch, environment, message):
     settings = load_settings(environment, env_file=None)
@@ -172,7 +139,7 @@ def test_invalid_postgres_settings_fail_before_driver(monkeypatch, environment, 
     monkeypatch.setattr(
         db_postgres.psycopg2,
         "connect",
-        lambda **kwargs: pytest.fail("driver chamado"),
+        lambda *args, **kwargs: pytest.fail("driver chamado"),
     )
     with pytest.raises(ConfigurationError, match=message):
         db_postgres.get_conn()
@@ -182,7 +149,7 @@ def test_check_connection_executes_select_one_and_closes_resources(monkeypatch):
     cursor = FakeCursor(row=(1,))
     connection = FakeConnection(cursor)
     _install_url_connection(monkeypatch, connection)
-    monkeypatch.setattr(db_postgres.psycopg2, "connect", lambda **kwargs: connection)
+    monkeypatch.setattr(db_postgres.psycopg2, "connect", lambda *args, **kwargs: connection)
 
     db_postgres.check_connection()
 
@@ -195,7 +162,7 @@ def test_check_connection_rejects_unexpected_result_and_closes_resources(monkeyp
     cursor = FakeCursor(row=None)
     connection = FakeConnection(cursor)
     _install_url_connection(monkeypatch, connection)
-    monkeypatch.setattr(db_postgres.psycopg2, "connect", lambda **kwargs: connection)
+    monkeypatch.setattr(db_postgres.psycopg2, "connect", lambda *args, **kwargs: connection)
 
     with pytest.raises(DatabaseQueryError, match="PostgreSQL"):
         db_postgres.check_connection()
@@ -207,7 +174,7 @@ def test_check_connection_rejects_unexpected_result_and_closes_resources(monkeyp
 def test_connection_failure_has_safe_public_message(monkeypatch):
     _install_url_connection(monkeypatch, FakeConnection())
 
-    def fail_connect(**kwargs):
+    def fail_connect(*args, **kwargs):
         raise psycopg2.OperationalError(f"password={SYNTHETIC_SECRET}; dsn={TEST_DSN}")
 
     monkeypatch.setattr(db_postgres.psycopg2, "connect", fail_connect)
@@ -225,7 +192,7 @@ def test_cursor_failure_closes_connection_and_is_safe(monkeypatch):
         cursor_error=psycopg2.InterfaceError(f"password={SYNTHETIC_SECRET}")
     )
     _install_url_connection(monkeypatch, connection)
-    monkeypatch.setattr(db_postgres.psycopg2, "connect", lambda **kwargs: connection)
+    monkeypatch.setattr(db_postgres.psycopg2, "connect", lambda *args, **kwargs: connection)
 
     with pytest.raises(DatabaseQueryError) as captured:
         db_postgres.check_connection()
@@ -240,7 +207,7 @@ def test_query_error_is_distinct_from_no_rows_and_closes_resources(monkeypatch):
     )
     connection = FakeConnection(cursor)
     _install_url_connection(monkeypatch, connection)
-    monkeypatch.setattr(db_postgres.psycopg2, "connect", lambda **kwargs: connection)
+    monkeypatch.setattr(db_postgres.psycopg2, "connect", lambda *args, **kwargs: connection)
 
     with pytest.raises(DatabaseQueryError) as captured:
         db_postgres.get_user_region_id(42)
@@ -255,7 +222,7 @@ def test_existing_query_keeps_parameters_types_and_empty_result(monkeypatch):
     cursor = FakeCursor(row=(17,))
     connection = FakeConnection(cursor)
     _install_url_connection(monkeypatch, connection)
-    monkeypatch.setattr(db_postgres.psycopg2, "connect", lambda **kwargs: connection)
+    monkeypatch.setattr(db_postgres.psycopg2, "connect", lambda *args, **kwargs: connection)
 
     assert db_postgres.get_user_region_id(42) == 17
     query, parameters = cursor.executions[0]
@@ -266,7 +233,7 @@ def test_existing_query_keeps_parameters_types_and_empty_result(monkeypatch):
     empty_cursor = FakeCursor(row=None)
     empty_connection = FakeConnection(empty_cursor)
     _install_url_connection(monkeypatch, empty_connection)
-    monkeypatch.setattr(db_postgres.psycopg2, "connect", lambda **kwargs: empty_connection)
+    monkeypatch.setattr(db_postgres.psycopg2, "connect", lambda *args, **kwargs: empty_connection)
     assert db_postgres.get_user_region_id(999) is None
     assert empty_cursor.closed is True
     assert empty_connection.closed is True
@@ -276,7 +243,7 @@ def test_existing_bill_query_keeps_dataclass_and_decimal_values(monkeypatch):
     cursor = FakeCursor(row=(9, date(2026, 8, 1), Decimal("45.70"), Decimal("8.00")))
     connection = FakeConnection(cursor)
     _install_url_connection(monkeypatch, connection)
-    monkeypatch.setattr(db_postgres.psycopg2, "connect", lambda **kwargs: connection)
+    monkeypatch.setattr(db_postgres.psycopg2, "connect", lambda *args, **kwargs: connection)
 
     bill = db_postgres.get_last_water_bill(9)
 
@@ -295,7 +262,7 @@ def test_region_rate_domain_error_remains_distinct(monkeypatch):
     )
     connection = FakeConnection(cursor)
     _install_url_connection(monkeypatch, connection)
-    monkeypatch.setattr(db_postgres.psycopg2, "connect", lambda **kwargs: connection)
+    monkeypatch.setattr(db_postgres.psycopg2, "connect", lambda *args, **kwargs: connection)
 
     with pytest.raises(RegionRateNotFound) as captured:
         db_postgres.get_current_region_rate(1, 2, date(2026, 10, 3))
@@ -309,7 +276,7 @@ def test_cursor_close_failure_still_closes_connection(monkeypatch):
     cursor = FakeCursor(row=(1,), close_error=psycopg2.InterfaceError("close failed"))
     connection = FakeConnection(cursor)
     _install_url_connection(monkeypatch, connection)
-    monkeypatch.setattr(db_postgres.psycopg2, "connect", lambda **kwargs: connection)
+    monkeypatch.setattr(db_postgres.psycopg2, "connect", lambda *args, **kwargs: connection)
 
     with pytest.raises(DatabaseQueryError):
         db_postgres.check_connection()
