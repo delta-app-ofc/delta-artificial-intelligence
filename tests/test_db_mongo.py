@@ -110,6 +110,24 @@ def use_mongo_settings(monkeypatch, mongo_settings):
     db_mongo.close_clients()
 
 
+def _install_fake_clients(monkeypatch, settings, *, app=None, telemetry=None):
+    clients = {
+        settings.mongodb_app_uri: FakeClient(settings.mongodb_app_uri),
+        settings.mongodb_telemetry_uri: FakeClient(settings.mongodb_telemetry_uri),
+    }
+    if app is not None:
+        clients[settings.mongodb_app_uri].databases[app.name] = app
+    if telemetry is not None:
+        clients[settings.mongodb_telemetry_uri].databases[telemetry.name] = telemetry
+
+    monkeypatch.setattr(
+        db_mongo,
+        "MongoClient",
+        lambda uri, **options: clients[uri],
+    )
+    return clients
+
+
 def _point(**changes) -> dict:
     document = {
         "user_id": 42,
@@ -136,8 +154,8 @@ def test_clients_use_independent_uris_databases_and_timeouts(
 
     monkeypatch.setattr(db_mongo, "MongoClient", make_client)
 
-    app_database = db_mongo._app()
-    telemetry_database = db_mongo._telemetry()
+    app_database = db_mongo.get_app_client()["delta_test_app"]
+    telemetry_database = db_mongo.get_telemetry_client()["delta_test_telemetry"]
 
     assert app_database.name == "delta_test_app"
     assert telemetry_database.name == "delta_test_telemetry"
@@ -247,7 +265,7 @@ def test_history_preserves_user_filter_order_and_converts_aware_dates(
 ):
     collection = FakeCollection(documents=[_point()])
     database = FakeDatabase("delta_test_telemetry", {"consumption_summary": collection})
-    monkeypatch.setattr(db_mongo, "_telemetry", lambda: database)
+    _install_fake_clients(monkeypatch, use_mongo_settings, telemetry=database)
 
     result = db_mongo.get_consumption_history(42, 7)
 
@@ -278,7 +296,7 @@ def test_alerts_keep_user_filter_active_filter_and_descending_order(
     }
     collection = FakeCollection(documents=[alert])
     database = FakeDatabase("delta_test_app", {"alerts_history": collection})
-    monkeypatch.setattr(db_mongo, "_app", lambda: database)
+    _install_fake_clients(monkeypatch, use_mongo_settings, app=database)
 
     result = db_mongo.get_alerts_history(42, 30, only_active=True)
 
@@ -300,8 +318,7 @@ def test_empty_collection_and_missing_preference_remain_legitimate_absence(
         "delta_test_telemetry", {"consumption_summary": FakeCollection()}
     )
     app = FakeDatabase("delta_test_app", {"user_preferences": FakeCollection(one=None)})
-    monkeypatch.setattr(db_mongo, "_telemetry", lambda: telemetry)
-    monkeypatch.setattr(db_mongo, "_app", lambda: app)
+    _install_fake_clients(monkeypatch, use_mongo_settings, app=app, telemetry=telemetry)
 
     assert db_mongo.get_consumption_history(42, 7) == []
     assert db_mongo.get_daily_liters_target(42) is None
@@ -315,10 +332,13 @@ def test_invalid_required_consumption_field_is_a_safe_data_error(
     monkeypatch, use_mongo_settings
 ):
     collection = FakeCollection(documents=[_point(consumption_liters=None)])
-    monkeypatch.setattr(
-        db_mongo,
-        "_telemetry",
-        lambda: FakeDatabase("delta_test_telemetry", {"consumption_summary": collection}),
+    _install_fake_clients(
+        monkeypatch,
+        use_mongo_settings,
+        telemetry=FakeDatabase(
+            "delta_test_telemetry",
+            {"consumption_summary": collection},
+        ),
     )
 
     with pytest.raises(DatabaseQueryError) as captured:
@@ -332,10 +352,13 @@ def test_invalid_required_consumption_field_is_a_safe_data_error(
 
 def test_missing_required_device_id_is_a_safe_data_error(monkeypatch, use_mongo_settings):
     collection = FakeCollection(documents=[_point(device_id=None)])
-    monkeypatch.setattr(
-        db_mongo,
-        "_telemetry",
-        lambda: FakeDatabase("delta_test_telemetry", {"consumption_summary": collection}),
+    _install_fake_clients(
+        monkeypatch,
+        use_mongo_settings,
+        telemetry=FakeDatabase(
+            "delta_test_telemetry",
+            {"consumption_summary": collection},
+        ),
     )
 
     with pytest.raises(DatabaseDataError):
@@ -346,10 +369,13 @@ def test_missing_required_device_id_is_a_safe_data_error(monkeypatch, use_mongo_
 
 def test_invalid_anomaly_flag_is_not_coerced_to_true(monkeypatch, use_mongo_settings):
     collection = FakeCollection(documents=[_point(anomaly_detected="false")])
-    monkeypatch.setattr(
-        db_mongo,
-        "_telemetry",
-        lambda: FakeDatabase("delta_test_telemetry", {"consumption_summary": collection}),
+    _install_fake_clients(
+        monkeypatch,
+        use_mongo_settings,
+        telemetry=FakeDatabase(
+            "delta_test_telemetry",
+            {"consumption_summary": collection},
+        ),
     )
 
     with pytest.raises(DatabaseDataError):
@@ -370,10 +396,10 @@ def test_alert_with_invalid_resolved_at_is_a_safe_data_error(
             }
         ]
     )
-    monkeypatch.setattr(
-        db_mongo,
-        "_app",
-        lambda: FakeDatabase("delta_test_app", {"alerts_history": collection}),
+    _install_fake_clients(
+        monkeypatch,
+        use_mongo_settings,
+        app=FakeDatabase("delta_test_app", {"alerts_history": collection}),
     )
 
     with pytest.raises(DatabaseDataError):
@@ -396,7 +422,6 @@ def test_invalid_query_timeout_stays_a_configuration_error(monkeypatch, mongo_se
         env_file=None,
     )
     monkeypatch.setattr(db_mongo, "get_settings", lambda: settings)
-    monkeypatch.setattr(db_mongo, "_app", lambda: FakeDatabase("delta_test_app"))
 
     with pytest.raises(ConfigurationError):
         db_mongo.get_daily_liters_target(42)
@@ -465,10 +490,13 @@ def test_driver_errors_are_safe_and_never_look_like_empty_results(
 ):
     collection = FakeCollection()
     collection.error = driver_error
-    monkeypatch.setattr(
-        db_mongo,
-        "_telemetry",
-        lambda: FakeDatabase("delta_test_telemetry", {"consumption_summary": collection}),
+    _install_fake_clients(
+        monkeypatch,
+        use_mongo_settings,
+        telemetry=FakeDatabase(
+            "delta_test_telemetry",
+            {"consumption_summary": collection},
+        ),
     )
 
     with pytest.raises(expected_error) as captured:
