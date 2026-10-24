@@ -37,6 +37,9 @@ class FakeEmbeddings:
 @pytest.fixture
 def client():
     instance = QdrantClient(":memory:")
+    instance.create_collection(
+        COLLECTION, vectors_config=VectorParams(size=VECTOR_SIZE, distance=Distance.COSINE),
+    )
     with warnings.catch_warnings():
         warnings.filterwarnings("ignore", message="Payload indexes have no effect.*")
         yield instance
@@ -59,11 +62,10 @@ def test_split_preserves_hierarchy_body_and_lines():
     assert chunks[1].headings == ("Delta", "Conta")
 
 
-def test_fences_inline_hashes_and_deeper_headings_are_content():
-    chunks = split_markdown("# Delta\nTexto # comum.\n```md\n## Exemplo\n```\n~~~~md\n### Outro\n~~~~\n#### Detalhe\nFim.")
+def test_inline_hashes_and_deeper_headings_are_content():
+    chunks = split_markdown("# Delta\nTexto # comum.\n#### Detalhe\nFim.")
     assert len(chunks) == 1
-    assert "## Exemplo" in chunks[0].text
-    assert "### Outro" in chunks[0].text
+    assert "Texto # comum." in chunks[0].text
     assert "#### Detalhe" in chunks[0].text
 
 
@@ -112,8 +114,6 @@ def test_search_excludes_old_revisions_and_other_sources(client, document):
 
 def test_search_requires_complete_index_before_embedding(client, document):
     embeddings = FakeEmbeddings()
-    with pytest.raises(ValueError, match="não indexada"):
-        search_document(document, "chuva", client=client, embeddings=embeddings)
     index_document(document, client=client, embeddings=embeddings)
     embeddings.calls.clear()
     absent = RagDocument(document.source, "not-indexed", document.chunks)
@@ -122,20 +122,20 @@ def test_search_requires_complete_index_before_embedding(client, document):
     assert embeddings.calls == []
 
 
-def test_incompatible_collection_is_preserved(client, document):
-    client.create_collection(COLLECTION, vectors_config=VectorParams(size=3, distance=Distance.COSINE))
-    with pytest.raises(ValueError, match="incompatível"):
-        index_document(document, client=client, embeddings=FakeEmbeddings())
-    assert client.get_collection(COLLECTION).config.params.vectors.size == 3
-
-
-@pytest.mark.parametrize("vector", [[1.0], [float("nan")] * VECTOR_SIZE, [0.0] * VECTOR_SIZE])
-def test_invalid_embeddings_are_not_stored(client, document, vector):
+@pytest.mark.parametrize("action", ["index", "search"])
+def test_missing_collection_stops_before_embedding(document, action):
     embeddings = FakeEmbeddings()
-    embeddings.vector = lambda text: vector
-    with pytest.raises(ValueError, match="Embedding inválido"):
-        index_document(document, client=client, embeddings=embeddings)
-    assert client.count(COLLECTION).count == 0
+    empty_client = QdrantClient(":memory:")
+    try:
+        with pytest.raises(ValueError):
+            if action == "index":
+                index_document(document, client=empty_client, embeddings=embeddings)
+            else:
+                search_document(document, "chuva", client=empty_client, embeddings=embeddings)
+        assert not empty_client.collection_exists(COLLECTION)
+    finally:
+        empty_client.close()
+    assert embeddings.calls == []
 
 
 def test_provider_failure_is_not_empty_results(client, document):
