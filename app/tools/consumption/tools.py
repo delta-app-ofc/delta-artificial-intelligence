@@ -61,10 +61,6 @@ def _scope_data(scope: _Scope) -> dict[str, object]:
     }
 
 
-def _period_is_midnight(value: datetime) -> bool:
-    return value.time().replace(tzinfo=None) == time.min
-
-
 def _read_period(
     *,
     user_id: int,
@@ -153,7 +149,9 @@ def _read_period(
         else []
     )
     aggregate = analysis.aggregate_daily_records(records, period=period)
-    if not _period_is_midnight(period.start) or not _period_is_midnight(period.end):
+    has_partial_day = period.start.time() != time.min or period.end.time() != time.min
+
+    if has_partial_day:
         notes.append(
             "A fonte SQL contém dias completos; nas bordas do recorte móvel, "
             "o filtro inclui as datas inteiras e não distribui volumes por horário."
@@ -179,13 +177,7 @@ def _read_period(
         source="PostgreSQL dw.vw_ft_consumption_daily",
         granularity="consolidado diário por unidade",
         notes=tuple(notes),
-        partial_data=(
-            True
-            if not _period_is_midnight(period.start)
-            or not _period_is_midnight(period.end)
-            or includes_today
-            else None
-        ),
+        partial_data=True if has_partial_day or includes_today else None,
     )
 
 
