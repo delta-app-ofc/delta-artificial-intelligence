@@ -419,6 +419,53 @@ def get_habits_by_weekday(user_id: int, day: str) -> list[dict]:
     return [{"name": name, "frequency": freq} for name, freq in rows]
 
 
+def get_user_location(user_id: int) -> dict | None:
+    """Retorna cidade, estado e país do primeiro imóvel vinculado ao usuário.
+
+    Retorna None quando o usuário não tem imóvel cadastrado.
+    """
+    with _cursor() as cur:
+        cur.execute(
+            """
+            SELECT a.city, a.state
+              FROM tb_user_property up
+              JOIN tb_property p ON p.id = up.property_id
+              JOIN tb_address  a ON a.id = p.address_id
+             WHERE up.user_id = %s
+             ORDER BY up.id
+             LIMIT 1;
+            """,
+            (user_id,),
+        )
+        row = cur.fetchone()
+    if row is None:
+        return None
+    return {"city": row[0], "state": row[1], "country": "BR"}
+
+
+def create_habit(user_id: int, name: str, frequency: int, days: list[str]) -> dict:
+    """Cadastra um hábito e vincula os dias da semana.
+
+    Retorna confirmação com name, frequency e days.
+    Levanta ValueError se o hábito já existir ou os dados forem inválidos.
+    """
+    with _cursor() as cur:
+        cur.execute(
+            "INSERT INTO habits (user_id, name, weekly_frequency) VALUES (%s, %s, %s) RETURNING id;",
+            (user_id, name, frequency),
+        )
+        row = cur.fetchone()
+        if row is None:
+            raise ValueError("Não foi possível cadastrar o hábito.")
+        habit_id = row[0]
+        for day in days:
+            cur.execute(
+                "INSERT INTO habit_days (habit_id, day_of_week) VALUES (%s, %s);",
+                (habit_id, day),
+            )
+    return {"name": name, "frequency": frequency, "days": days}
+
+
 def get_organization_effective_rate(
     property_ids: list[int], today: date, window_days: int = 30
 ) -> Decimal | None:
