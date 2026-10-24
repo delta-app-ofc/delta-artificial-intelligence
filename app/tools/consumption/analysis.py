@@ -149,10 +149,6 @@ def _record_aware_utc(value: datetime, field_name: str) -> datetime:
         ) from exc
 
 
-def _local_midnight(day: date, zone: ZoneInfo) -> datetime:
-    return datetime.combine(day, time.min, tzinfo=zone)
-
-
 def _date_value(value: str | date | None, field_name: str) -> date:
     if isinstance(value, datetime):
         raise InvalidConsumptionInput(f"{field_name} deve usar o formato AAAA-MM-DD.")
@@ -213,8 +209,8 @@ def resolve_period(
         if (last_day - first_day).days + 1 > MAX_PERIOD_DAYS:
             raise InvalidConsumptionInput("O período máximo permitido é de 366 dias.")
 
-        start = _local_midnight(first_day, zone)
-        end = _local_midnight(last_day + timedelta(days=1), zone)
+        start = datetime.combine(first_day, time.min, tzinfo=zone)
+        end = datetime.combine(last_day + timedelta(days=1), time.min, tzinfo=zone)
         notes: tuple[str, ...] = ()
         if last_day == local_now.date():
             end = local_now
@@ -234,7 +230,7 @@ def resolve_period(
 
     local_day = local_now.date()
     if period == "today":
-        start = _local_midnight(local_day, zone)
+        start = datetime.combine(local_day, time.min, tzinfo=zone)
         return ConsumptionPeriod(
             start,
             local_now,
@@ -243,12 +239,12 @@ def resolve_period(
             ("O período de hoje termina no instante da consulta.",),
         )
     if period == "yesterday":
-        start = _local_midnight(local_day - timedelta(days=1), zone)
-        end = _local_midnight(local_day, zone)
+        start = datetime.combine(local_day - timedelta(days=1), time.min, tzinfo=zone)
+        end = datetime.combine(local_day, time.min, tzinfo=zone)
         return ConsumptionPeriod(start, end, timezone_name, "ontem")
     if period == "this_week":
         monday = local_day - timedelta(days=local_day.weekday())
-        start = _local_midnight(monday, zone)
+        start = datetime.combine(monday, time.min, tzinfo=zone)
         return ConsumptionPeriod(
             start,
             local_now,
@@ -257,7 +253,7 @@ def resolve_period(
             ("O dia atual é parcial até o instante da consulta.",),
         )
     if period == "this_month":
-        start = _local_midnight(local_day.replace(day=1), zone)
+        start = datetime.combine(local_day.replace(day=1), time.min, tzinfo=zone)
         return ConsumptionPeriod(
             start,
             local_now,
@@ -298,8 +294,8 @@ def resolve_period(
         )[1])
         previous_end_day = previous_start_day + timedelta(days=previous_days)
         return ConsumptionPeriod(
-            _local_midnight(previous_start_day, zone),
-            _local_midnight(previous_end_day, zone),
+            datetime.combine(previous_start_day, time.min, tzinfo=zone),
+            datetime.combine(previous_end_day, time.min, tzinfo=zone),
             timezone_name,
             "mês passado até o mesmo número de dias do mês atual",
         )
