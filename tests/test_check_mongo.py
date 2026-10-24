@@ -116,13 +116,8 @@ def test_cli_checks_both_targets_when_one_ping_fails(monkeypatch, capfd):
         _Database({"consumption_summary": _Collection("consumption_summary")})
     )
     monkeypatch.setattr(check_mongo, "get_settings", lambda: settings)
-    monkeypatch.setattr(
-        check_mongo,
-        "_client_and_database",
-        lambda component: (app, settings.mongo_db_app)
-        if component == "app"
-        else (telemetry, settings.mongo_db_telemetry),
-    )
+    monkeypatch.setattr(db_mongo, "get_app_client", lambda: app)
+    monkeypatch.setattr(db_mongo, "get_telemetry_client", lambda: telemetry)
     monkeypatch.setattr(db_mongo, "close_clients", lambda: None)
 
     status = check_mongo.main([])
@@ -168,16 +163,9 @@ def test_fixture_reads_converts_and_cleans_only_its_ids(
     telemetry_client = _Client(telemetry_database)
 
     monkeypatch.setattr(check_mongo, "get_settings", lambda: settings)
-    monkeypatch.setattr(
-        check_mongo,
-        "_client_and_database",
-        lambda component: (app_client, settings.mongo_db_app)
-        if component == "app"
-        else (telemetry_client, settings.mongo_db_telemetry),
-    )
+    monkeypatch.setattr(db_mongo, "get_app_client", lambda: app_client)
+    monkeypatch.setattr(db_mongo, "get_telemetry_client", lambda: telemetry_client)
     monkeypatch.setattr(db_mongo, "get_settings", lambda: settings)
-    monkeypatch.setattr(db_mongo, "_app", lambda: app_database)
-    monkeypatch.setattr(db_mongo, "_telemetry", lambda: telemetry_database)
 
     if fail_second_insert:
         with pytest.raises(RuntimeError, match="synthetic insert failure"):
