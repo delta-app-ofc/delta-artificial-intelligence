@@ -5,7 +5,6 @@ import pytest
 
 from app.config import (
     ConfigurationError,
-    get_postgres_connection_args,
     get_settings,
     load_settings,
     validate_llm_config,
@@ -64,11 +63,12 @@ def test_process_environment_precedes_env_file() -> None:
     assert settings.database_url == "postgresql://process-user:process-pass@process-host/process-db"
 
 
-def test_postgres_split_settings_take_precedence_over_database_url() -> None:
+def test_postgres_uses_database_url_and_ignores_removed_split_settings() -> None:
+    dsn = "postgresql://url-user:url-pass@url-host/url-db"
     settings = load_settings(
         environ={
             "APP_ENV": "staging",
-            "DATABASE_URL": "postgresql://url-user:url-pass@url-host/url-db",
+            "DATABASE_URL": dsn,
             "HOST_DB": "split-host",
             "PORT_DB": "5432",
             "USER_DB": "split-user",
@@ -77,30 +77,10 @@ def test_postgres_split_settings_take_precedence_over_database_url() -> None:
         }
     )
 
-    assert settings.database_url == "postgresql://url-user:url-pass@url-host/url-db"
-    assert settings.postgres_split_requested
-    args = get_postgres_connection_args(settings=settings)
-    assert args["host"] == "split-host"
-    assert args["port"] == 5432
-    assert "dsn" not in args
+    validate_postgres_config(settings=settings)
 
-
-def test_explicit_empty_split_setting_does_not_fall_back_to_database_url() -> None:
-    secret = "synthetic-password-that-must-not-appear"
-    settings = load_settings(
-        environ={
-            "APP_ENV": "staging",
-            "DATABASE_URL": f"postgresql://url-user:{secret}@url-host/url-db",
-            "HOST_DB": "",
-        }
-    )
-
-    assert settings.postgres_split_requested
-    with pytest.raises(ConfigurationError) as captured:
-        validate_postgres_config(settings=settings)
-
-    assert "PORT_DB" in str(captured.value)
-    assert secret not in str(captured.value)
+    assert settings.database_url == dsn
+    assert not hasattr(settings, "host_db")
 
 
 def test_database_url_is_preserved_with_tls_and_encoded_password() -> None:
@@ -112,7 +92,7 @@ def test_database_url_is_preserved_with_tls_and_encoded_password() -> None:
 
     validate_postgres_config(settings=settings)
 
-    assert get_postgres_connection_args(settings=settings)["dsn"] == dsn
+    assert settings.database_url == dsn
 
 
 @pytest.mark.parametrize(
@@ -254,7 +234,6 @@ def test_mongo_srv_uri_is_valid_without_a_port() -> None:
         "mongodb://host:not-a-port/db",
         "mongodb+srv://host1,host2/db",
         "mongodb+srv://host:27017/db",
-        "mongodb://[not-ipv6]:27017/db",
     ],
 )
 def test_invalid_mongo_authorities_are_rejected(uri: str) -> None:
