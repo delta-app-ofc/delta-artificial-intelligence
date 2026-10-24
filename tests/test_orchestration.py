@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from unittest.mock import MagicMock
+
 import pytest
 
 from app.graph.state import AgentOutput
@@ -220,30 +222,35 @@ def test_respond_all_errors_returns_error_message():
 # Isolamento de sessão
 # ---------------------------------------------------------------------------
 
-def test_history_owner_can_access(monkeypatch):
+@pytest.fixture
+def conversation_collection(monkeypatch):
+    from app.config import get_settings
+
+    collection = MagicMock()
+    client = {get_settings().mongo_db_app: {"conversations": collection}}
+    monkeypatch.setattr("app.memory.session.get_app_client", lambda: client)
+
+    return collection
+
+
+def test_history_owner_can_access(conversation_collection):
     doc = {"user_id": 42, "messages": [{"role": "human", "content": "oi"}]}
-    monkeypatch.setattr(
-        "app.memory.session._col",
-        lambda: type("C", (), {"find_one": lambda self, q, proj=None: doc})(),
-    )
+    conversation_collection.find_one.return_value = doc
+
     msgs = load_history_validated(user_id=42, session_id="any")
     assert len(msgs) == 1
 
 
-def test_other_user_cannot_access_session(monkeypatch):
+def test_other_user_cannot_access_session(conversation_collection):
     doc = {"user_id": 42, "messages": [{"role": "human", "content": "privado"}]}
-    monkeypatch.setattr(
-        "app.memory.session._col",
-        lambda: type("C", (), {"find_one": lambda self, q, proj=None: doc})(),
-    )
+    conversation_collection.find_one.return_value = doc
+
     msgs = load_history_validated(user_id=99, session_id="any")
     assert msgs == []
 
 
-def test_nonexistent_session_returns_empty(monkeypatch):
-    monkeypatch.setattr(
-        "app.memory.session._col",
-        lambda: type("C", (), {"find_one": lambda self, q, proj=None: None})(),
-    )
+def test_nonexistent_session_returns_empty(conversation_collection):
+    conversation_collection.find_one.return_value = None
+
     msgs = load_history_validated(user_id=1, session_id="inexistente")
     assert msgs == []
