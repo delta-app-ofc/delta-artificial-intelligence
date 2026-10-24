@@ -91,6 +91,17 @@ def test_agent_registry_contains_known_agents():
     assert "forecast" in AGENT_REGISTRY
     assert "leak" in AGENT_REGISTRY
     assert "habits" in AGENT_REGISTRY
+    assert "consumption" in AGENT_REGISTRY
+
+
+def test_registry_path_resolves_to_consumption_agent():
+    import importlib
+
+    from app.agents.consumption import ConsumptionAgent
+
+    module_path, class_name = AGENT_REGISTRY["consumption"].rsplit(".", 1)
+
+    assert getattr(importlib.import_module(module_path), class_name) is ConsumptionAgent
 
 
 def test_classify_uses_context_history(monkeypatch):

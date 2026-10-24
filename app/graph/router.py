@@ -6,6 +6,7 @@ from typing import Literal
 from pydantic import BaseModel
 
 AGENT_REGISTRY: dict[str, str] = {
+    "consumption": "app.agents.consumption.ConsumptionAgent",
     "forecast": "app.agents.forecast.ForecastAgent",
     "leak": "app.agents.leak.LeakAgent",
     "habits": "app.agents.habits.HabitsAgent",
@@ -15,6 +16,7 @@ _ROUTER_PROMPT = """Você é o roteador do Delta AI, assistente de monitoramento
 Classifique a pergunta e decida quais agentes devem responder.
 
 Agentes disponíveis:
+- consumption: consumo já registrado (hoje, semana, mês, picos, comparação entre períodos), sem previsão nem diagnóstico
 - forecast: previsão de consumo, estimativa da próxima conta, tendência, risco de meta
 - leak: possíveis vazamentos, consumo anormal, alertas de comportamento atípico
 - habits: hábitos cadastrados, frequência, dias da semana, impacto hídrico, clima para hábitos ao ar livre
@@ -33,6 +35,7 @@ Retorne JSON exatamente neste formato (sem markdown, sem texto antes ou depois):
 {"intent": "<string>", "complexity": "<simple|medium|complex>", "agents": ["<nome>", ...]}
 
 Exemplos:
+- "Quanto consumi esta semana?" → {"intent": "consumption_history", "complexity": "simple", "agents": ["consumption"]}
 - "Quanto vou gastar este mês?" → {"intent": "consumption_forecast", "complexity": "simple", "agents": ["forecast"]}
 - "Meus hábitos afetam minha conta?" → {"intent": "habits_impact", "complexity": "medium", "agents": ["habits", "forecast"]}
 - "Tenho vazamento e minha conta está alta?" → {"intent": "leak_and_forecast", "complexity": "medium", "agents": ["leak", "forecast"]}
