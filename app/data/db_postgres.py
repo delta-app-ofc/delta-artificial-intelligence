@@ -378,45 +378,78 @@ def get_organization_last_billed_period(
 def get_user_habits(user_id: int) -> list[dict]:
     """Retorna os hábitos de consumo de água do usuário.
 
-    Cada item tem: name (str), frequency (int — vezes por semana),
-    days (list[str] — dias da semana em maiúsculas, ex.: SEGUNDA).
+    Cada item tem: name (str), category (str), frequency (int — vezes por
+    semana), days (list[str] — dias em maiúsculas, ex.: SEGUNDA), start_time e
+    end_time (str HH:MM ou None) e estimated_liters (float ou None).
     """
     with _cursor() as cur:
         cur.execute(
             """
-            SELECT h.name, h.weekly_frequency, array_agg(hd.day_of_week ORDER BY hd.day_of_week)
-              FROM habits h
-              JOIN habit_days hd ON hd.habit_id = h.id
-             WHERE h.user_id = %s
-             GROUP BY h.id, h.name, h.weekly_frequency
+            SELECT h.name, h.category, uh.frequency,
+                   COALESCE(array_agg(d.name ORDER BY d.id) FILTER (WHERE d.id IS NOT NULL), '{}'),
+                   to_char(uh.start_time, 'HH24:MI'),
+                   to_char(uh.end_time, 'HH24:MI'),
+                   uh.estimated_liters
+              FROM tb_user_habit uh
+              JOIN tb_habit h ON h.id = uh.habit_id
+              LEFT JOIN tb_user_habit_day uhd ON uhd.user_habit_id = uh.id
+              LEFT JOIN tb_day_of_week d ON d.id = uhd.day_of_week_id
+             WHERE uh.user_id = %s
+             GROUP BY uh.id, h.name, h.category
              ORDER BY h.name;
             """,
             (user_id,),
         )
         rows = cur.fetchall()
-    return [{"name": name, "frequency": freq, "days": list(days)} for name, freq, days in rows]
+    return [
+        {
+            "name": name,
+            "category": category,
+            "frequency": freq,
+            "days": list(days),
+            "start_time": start,
+            "end_time": end,
+            "estimated_liters": float(liters) if liters is not None else None,
+        }
+        for name, category, freq, days, start, end, liters in rows
+    ]
 
 
 def get_habits_by_weekday(user_id: int, day: str) -> list[dict]:
     """Retorna os hábitos do usuário que ocorrem no dia da semana informado.
 
     `day` deve estar em maiúsculas (ex.: SEGUNDA, SABADO).
-    Cada item retornado tem: name (str) e frequency (int).
+    Cada item retornado tem: name, frequency, start_time, end_time (HH:MM ou
+    None) e estimated_liters (float ou None).
     """
     with _cursor() as cur:
         cur.execute(
             """
-            SELECT h.name, h.weekly_frequency
-              FROM habits h
-              JOIN habit_days hd ON hd.habit_id = h.id
-             WHERE h.user_id = %s
-               AND hd.day_of_week = %s
-             ORDER BY h.name;
+            SELECT h.name, uh.frequency,
+                   to_char(uh.start_time, 'HH24:MI'),
+                   to_char(uh.end_time, 'HH24:MI'),
+                   uh.estimated_liters
+              FROM tb_user_habit uh
+              JOIN tb_habit h ON h.id = uh.habit_id
+              JOIN tb_user_habit_day uhd ON uhd.user_habit_id = uh.id
+              JOIN tb_day_of_week d ON d.id = uhd.day_of_week_id
+             WHERE uh.user_id = %s
+               AND d.name = %s
+             ORDER BY uh.start_time NULLS LAST, h.name;
             """,
             (user_id, day),
         )
         rows = cur.fetchall()
-    return [{"name": name, "frequency": freq} for name, freq in rows]
+    return [
+        {
+            "name": name,
+            "frequency": freq,
+            "start_time": start,
+            "end_time": end,
+            "estimated_liters": float(liters) if liters is not None else None,
+        }
+        for name, freq, start, end, liters in rows
+    ]
 
 
 def get_user_location(user_id: int) -> dict | None:
@@ -450,18 +483,29 @@ def create_habit(user_id: int, name: str, frequency: int, days: list[str]) -> di
     Levanta ValueError se o hábito já existir ou os dados forem inválidos.
     """
     with _cursor() as cur:
+        cur.execute("SELECT id FROM tb_habit WHERE name = %s;", (name,))
+        habit_row = cur.fetchone()
+        if habit_row is None:
+            raise ValueError("Hábito fora do catálogo.")
         cur.execute(
-            "INSERT INTO habits (user_id, name, weekly_frequency) VALUES (%s, %s, %s) RETURNING id;",
-            (user_id, name, frequency),
+            """
+            INSERT INTO tb_user_habit (user_id, habit_id, frequency)
+            VALUES (%s, %s, %s)
+            ON CONFLICT (user_id, habit_id) DO NOTHING
+            RETURNING id;
+            """,
+            (user_id, habit_row[0], frequency),
         )
         row = cur.fetchone()
         if row is None:
-            raise ValueError("Não foi possível cadastrar o hábito.")
-        habit_id = row[0]
+            raise ValueError("Você já tem esse hábito cadastrado.")
         for day in days:
             cur.execute(
-                "INSERT INTO habit_days (habit_id, day_of_week) VALUES (%s, %s);",
-                (habit_id, day),
+                """
+                INSERT INTO tb_user_habit_day (user_habit_id, day_of_week_id)
+                SELECT %s, id FROM tb_day_of_week WHERE name = %s;
+                """,
+                (row[0], day),
             )
     return {"name": name, "frequency": frequency, "days": days}
 
