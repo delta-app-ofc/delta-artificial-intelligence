@@ -98,37 +98,18 @@ def user_can_estimate(user_id: int) -> bool:
 
 def get_user_region_id(user_id: int) -> int | None:
     with _cursor() as cur:
-        cur.execute(
-            """
-            SELECT a.region_id
-              FROM tb_user_property up
-              JOIN tb_property p ON p.id = up.property_id
-              JOIN tb_address  a ON a.id = p.address_id
-             WHERE up.user_id = %s
-             ORDER BY up.id
-             LIMIT 1;
-            """,
-            (user_id,),
-        )
+        cur.execute("SELECT region_id FROM fn_get_user_property_context(%s);", (user_id,))
         row = cur.fetchone()
-    return int(row[0]) if row is not None else None
+    return int(row[0]) if row is not None and row[0] is not None else None
 
 
 def get_user_property_classification_id(user_id: int) -> int | None:
     with _cursor() as cur:
         cur.execute(
-            """
-            SELECT p.classification_id
-              FROM tb_user_property up
-              JOIN tb_property p ON p.id = up.property_id
-             WHERE up.user_id = %s
-             ORDER BY up.id
-             LIMIT 1;
-            """,
-            (user_id,),
+            "SELECT classification_id FROM fn_get_user_property_context(%s);", (user_id,)
         )
         row = cur.fetchone()
-    return int(row[0]) if row is not None else None
+    return int(row[0]) if row is not None and row[0] is not None else None
 
 
 def get_current_region_rate(region_id: int, classification_id: int, on_date: date) -> Decimal:
@@ -178,18 +159,15 @@ def get_last_water_bill(user_id: int) -> LastWaterBill | None:
 def get_user_access_kind(user_id: int) -> Literal["residential", "organizational", "none"]:
     """Resolve como o usuário se relaciona com propriedades.
 
-    Prioridade: se o usuário tem qualquer linha em tb_user_property, é tratado
-    como residencial (caminho antigo, inalterado). Só verifica
-    tb_user_organization quando não há nenhuma propriedade residencial.
+    Usa fn_user_access_kind do banco: vínculo residencial tem prioridade sobre
+    o organizacional.
     """
     with _cursor() as cur:
-        cur.execute("SELECT 1 FROM tb_user_property WHERE user_id = %s LIMIT 1;", (user_id,))
-        if cur.fetchone() is not None:
-            return "residential"
-        cur.execute("SELECT 1 FROM tb_user_organization WHERE user_id = %s LIMIT 1;", (user_id,))
-        if cur.fetchone() is not None:
-            return "organizational"
+        cur.execute("SELECT fn_user_access_kind(%s);", (user_id,))
+        row = cur.fetchone()
+    if row is None or row[0] not in ("residential", "organizational"):
         return "none"
+    return row[0]
 
 
 def get_user_organization_properties(user_id: int) -> list[OrganizationProperty]:
@@ -199,12 +177,9 @@ def get_user_organization_properties(user_id: int) -> list[OrganizationProperty]
     with _cursor() as cur:
         cur.execute(
             """
-            SELECT DISTINCT p.id, p.name, a.city, a.state
-              FROM tb_user_organization uo
-              JOIN tb_property p ON p.organization_id = uo.organization_id
-              JOIN tb_address  a ON a.id = p.address_id
-             WHERE uo.user_id = %s
-             ORDER BY p.id;
+            SELECT property_id, name, city, state
+              FROM fn_user_organization_properties(%s)
+             ORDER BY property_id;
             """,
             (user_id,),
         )
@@ -219,27 +194,13 @@ def organization_can_estimate(property_ids: list[int]) -> bool:
     """Elegibilidade organizacional: existe telemetria real (com tarifa já
     calculada) para pelo menos uma das propriedades.
 
-    Substitui fn_user_can_estimate para este caminho sem alterar a função do
-    banco (fora de escopo mudar schema do delta-database): cost_value só é
-    gravado em gold.ft_consumption_daily quando o ETL já calculou uma tarifa
-    válida via fn_get_current_region_rate, então a mera existência da linha já
-    implica telemetria + tarifa válidas — o mesmo papel que tb_device.is_active
-    + tb_region_rate cumprem no caminho residencial.
+    Usa fn_organization_can_estimate do banco, equivalente organizacional de
+    fn_user_can_estimate.
     """
     if not property_ids:
         return False
     with _cursor() as cur:
-        cur.execute(
-            """
-            SELECT EXISTS (
-                SELECT 1
-                  FROM gold.ft_consumption_daily f
-                  JOIN gold.dm_property dp ON dp.property_key = f.property_key
-                 WHERE dp.property_id = ANY(%s)
-            );
-            """,
-            (property_ids,),
-        )
+        cur.execute("SELECT fn_organization_can_estimate(%s);", (property_ids,))
         row = cur.fetchone()
     return bool(row[0]) if row is not None else False
 
@@ -248,7 +209,8 @@ def get_organization_consumption_history(
     property_ids: list[int], days: int, today: date
 ) -> list[ConsumptionPoint]:
     """Histórico diário (litros) somado por dia entre as propriedades
-    informadas, lido de dw.vw_ft_consumption_daily. Cada dia vira um
+    informadas, via fn_organization_consumption_history (janela de `days`
+    dias terminando em `today`). Cada dia vira um
     ConsumptionPoint sintético (janela de meia-noite a meia-noite) — formato
     aceito sem nenhuma mudança por app/tools/forecast/calculations.py, que só
     usa window_started_at e consumption_liters. user_id fica como placeholder
@@ -258,15 +220,8 @@ def get_organization_consumption_history(
         return []
     with _cursor() as cur:
         cur.execute(
-            """
-            SELECT full_date, SUM(total_liters)
-              FROM dw.vw_ft_consumption_daily
-             WHERE property_id = ANY(%s)
-               AND full_date BETWEEN %s AND %s
-             GROUP BY full_date
-             ORDER BY full_date;
-            """,
-            (property_ids, today - timedelta(days=days), today),
+            "SELECT full_date, total_liters FROM fn_organization_consumption_history(%s, %s, %s);",
+            (property_ids, days, today),
         )
         rows = cur.fetchall()
     points = []
@@ -324,49 +279,24 @@ def get_organization_last_billed_period(
     property_ids: list[int], today: date
 ) -> LastWaterBill | None:
     """Equivalente organizacional de tb_last_water_bill (que não existe para
-    organização): soma total_liters/cost_value do último mês calendário
-    fechado. Como hoje só um punhado de propriedades têm telemetria real e
-    podem não ter um mês inteiro fechado, cai no fallback de somar só o mês
-    calendário da leitura mais recente disponível — evita retornar None
-    sempre que o dado real ainda for escasso, sem misturar meses diferentes
-    numa única "conta".
+    organização) via fn_organization_last_billed_period: soma do último mês
+    fechado, com fallback para o mês da leitura mais recente quando não há
+    mês fechado com dados.
     """
     if not property_ids:
         return None
     with _cursor() as cur:
-        month_end = today.replace(day=1) - timedelta(days=1)
-        month_start = month_end.replace(day=1)
-
         cur.execute(
             """
-            SELECT SUM(total_liters), SUM(cost_value)
-              FROM dw.vw_ft_consumption_daily
-             WHERE property_id = ANY(%s)
-               AND full_date BETWEEN %s AND %s;
+            SELECT reference_month, total_liters, total_cost
+              FROM fn_organization_last_billed_period(%s, %s);
             """,
-            (property_ids, month_start, month_end),
+            (property_ids, today),
         )
-        liters, cost = cur.fetchone()
-        reference_month = month_start
-
-        if liters is None:
-            cur.execute(
-                """
-                WITH last_month AS (
-                    SELECT DATE_TRUNC('month', MAX(full_date))::DATE AS m
-                      FROM dw.vw_ft_consumption_daily
-                     WHERE property_id = ANY(%s)
-                )
-                SELECT SUM(v.total_liters), SUM(v.cost_value), MAX(lm.m)
-                  FROM dw.vw_ft_consumption_daily v
-                  JOIN last_month lm ON DATE_TRUNC('month', v.full_date)::DATE = lm.m
-                 WHERE v.property_id = ANY(%s);
-                """,
-                (property_ids, property_ids),
-            )
-            liters, cost, reference_month = cur.fetchone()
-            if liters is None:
-                return None
+        row = cur.fetchone()
+    if row is None or row[1] is None:
+        return None
+    reference_month, liters, cost = row
     return LastWaterBill(
         user_id=0,
         month=reference_month,
@@ -513,28 +443,21 @@ def create_habit(user_id: int, name: str, frequency: int, days: list[str]) -> di
 def get_organization_effective_rate(
     property_ids: list[int], today: date, window_days: int = 30
 ) -> Decimal | None:
-    """Tarifa efetiva (R$/m³) observada nos últimos window_days dias:
-    SUM(cost_value) / (SUM(total_liters)/1000).
+    """Tarifa efetiva (R$/m³) observada nos últimos window_days dias, via
+    fn_organization_effective_rate. Retorna None sem consumo na janela.
 
     Substitui fn_get_current_region_rate no caminho organizacional: as
-    propriedades de uma organização podem estar em regiões/categorias
-    diferentes, então não há um único region_id/classification_id válido para
-    o conjunto — a razão custo/consumo já registrada pelo ETL evita duplicar
-    essa lógica de tarifa por região aqui.
+    propriedades podem estar em regiões/categorias diferentes, então usa-se a
+    razão custo/consumo já registrada pelo ETL.
     """
     if not property_ids:
         return None
     with _cursor() as cur:
         cur.execute(
-            """
-            SELECT SUM(total_liters), SUM(cost_value)
-              FROM dw.vw_ft_consumption_daily
-             WHERE property_id = ANY(%s)
-               AND full_date BETWEEN %s AND %s;
-            """,
-            (property_ids, today - timedelta(days=window_days), today),
+            "SELECT fn_organization_effective_rate(%s, %s, %s);",
+            (property_ids, today, window_days),
         )
-        liters, cost = cur.fetchone()
-    if not liters:
+        row = cur.fetchone()
+    if row is None or row[0] is None:
         return None
-    return (Decimal(str(cost)) / (Decimal(str(liters)) / Decimal(1000))).quantize(Decimal("0.01"))
+    return Decimal(str(row[0])).quantize(Decimal("0.01"))
