@@ -169,3 +169,24 @@ def test_organizational_user_cannot_get_habits_by_day(monkeypatch):
 
     output = result.tool_calls[0].output
     assert output["status"] == "not_applicable"
+
+
+def test_habits_prompt_uses_current_time(monkeypatch):
+    from app.services import prompts
+
+    monkeypatch.setattr(prompts, "_contexto_temporal_atual", lambda: "HORA-ATUAL-TESTE")
+
+    assert "HORA-ATUAL-TESTE" in prompts.habitos_prompt_completo()
+
+
+def test_tool_error_does_not_leak_exception_text():
+    from app.agents._runtime import _run_tool
+
+    class _Boom:
+        def invoke(self, args):
+            raise RuntimeError("senha=segredo host=interno")
+
+    out = _run_tool(_Boom(), "boom", {})
+
+    assert out["status"] == "error"
+    assert "segredo" not in out["message"]
