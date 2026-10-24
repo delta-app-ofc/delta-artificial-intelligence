@@ -24,6 +24,11 @@ Complexidade:
 - medium: 2 agentes, análise cruzada
 - complex: 3 agentes ou cruzamento profundo
 
+Regra de privacidade: se a pergunta perguntar sobre outros usuários, rankings de clientes,
+"melhor" ou "pior" usuário, comparações entre residências de usuários distintos, quem consome
+mais no sistema, ou dados de terceiros não autorizados, retorne exatamente:
+{"intent": "privacy_violation", "complexity": "simple", "agents": []}
+
 Retorne JSON exatamente neste formato (sem markdown, sem texto antes ou depois):
 {"intent": "<string>", "complexity": "<simple|medium|complex>", "agents": ["<nome>", ...]}
 
@@ -33,6 +38,8 @@ Exemplos:
 - "Tenho vazamento e minha conta está alta?" → {"intent": "leak_and_forecast", "complexity": "medium", "agents": ["leak", "forecast"]}
 - "Analise tudo: consumo, hábitos e vazamento." → {"intent": "full_analysis", "complexity": "complex", "agents": ["forecast", "leak", "habits"]}
 - "Como vai o Brasil?" → {"intent": "unknown", "complexity": "simple", "agents": []}
+- "Qual o melhor usuário?" → {"intent": "privacy_violation", "complexity": "simple", "agents": []}
+- "Quem consome mais no sistema?" → {"intent": "privacy_violation", "complexity": "simple", "agents": []}
 """
 
 

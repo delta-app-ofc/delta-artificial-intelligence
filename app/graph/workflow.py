@@ -7,6 +7,43 @@ from app.graph.state import AgentOutput, GraphState
 from app.graph.context import build_context
 from app.graph.router import AGENT_REGISTRY, RoutingDecision, classify, load_agent
 
+_SYNTHESIS_PROMPT = """\
+Você é o assistente Delta. Recebeu respostas de {n} especialistas para a mesma pergunta.
+Unifique-as em uma resposta clara e direta, sem repetições, preservando a origem de cada
+dado (qual agente forneceu o quê), as limitações declaradas e as incertezas. Não invente
+dados. Se houver contradição entre especialistas, sinalize explicitamente.
+
+Pergunta: {question}
+
+{respostas}
+"""
+
+
+def _guardrail_input_node(state: GraphState) -> GraphState:
+    """Valida a entrada antes de qualquer processamento (defesa em profundidade)."""
+    if state.get("skip_guardrail_input"):
+        return {**state, "pii_map": state.get("pii_map") or {}, "_blocked": False}
+
+    from app.guardrails.input import validate_input
+    result = validate_input(state["user_id"], state["question"])
+    if not result["ok"]:
+        return {
+            **state,
+            "response": result.get("reason", "Mensagem bloqueada."),
+            "pii_map": {},
+            "_blocked": True,
+        }
+    return {
+        **state,
+        "question": result["message"],
+        "pii_map": result.get("pii_map") or {},
+        "_blocked": False,
+    }
+
+
+def _after_guardrail_input(state: GraphState) -> str:
+    return "END" if state.get("_blocked") else "context"
+
 
 def _context_node(state: GraphState) -> GraphState:
     ctx = build_context(state["user_id"], state["session_id"], state["question"])
@@ -40,13 +77,25 @@ def _execute_node(state: GraphState) -> GraphState:
     results: list[dict] = []
     warnings: list[str] = list(state.get("warnings", []))
 
-    for name in selected:
+    for i, name in enumerate(selected):
         if name not in AGENT_REGISTRY:
             warnings.append(f"Agente desconhecido ignorado: {name}")
             continue
         try:
             agent = load_agent(name, user_id)
-            internal = agent.run(question)
+            if i == 0:
+                agent_question = question
+            else:
+                prior = "\n".join(
+                    f"- {r['agent']}: {r['answer'][:300]}"
+                    for r in results
+                    if r.get("status") == "success" and r.get("answer")
+                )
+                agent_question = (
+                    f"{question}\n\nContexto dos agentes anteriores:\n{prior}"
+                    if prior else question
+                )
+            internal = agent.run(agent_question)
             output = AgentOutput(
                 agent=name,
                 status="success",
@@ -58,15 +107,68 @@ def _execute_node(state: GraphState) -> GraphState:
                 agent=name,
                 status="error",
                 answer="",
-                warnings=[str(exc)],
+                warnings=[type(exc).__name__],
             )
-            warnings.append(f"Erro no agente {name}: {exc}")
+            warnings.append(f"Erro no agente {name}: {type(exc).__name__}")
         results.append(output.model_dump())
 
     return {**state, "agent_results": results, "warnings": warnings}
 
 
+def _synthesize_node(state: GraphState) -> GraphState:
+    """Une respostas de múltiplos agentes num texto coeso via LLM rápido."""
+    results = state.get("agent_results", [])
+    successes = [r for r in results if r.get("status") == "success" and r.get("answer")]
+
+    if len(successes) < 2:
+        return state
+
+    import app.services.llms as _llm_module
+    from langchain_core.messages import HumanMessage, SystemMessage
+
+    llm_rapido = _llm_module.llm_rapido
+    if llm_rapido is None:
+        return state
+
+    respostas_texto = "\n\n".join(
+        f"[{r['agent'].upper()}]\n{r['answer']}" for r in successes
+    )
+    prompt = _SYNTHESIS_PROMPT.format(
+        n=len(successes),
+        question=state["question"],
+        respostas=respostas_texto,
+    )
+
+    try:
+        response = llm_rapido.invoke(
+            [SystemMessage(content=prompt), HumanMessage(content="Unifique as respostas.")]
+        )
+        unified = response.content if hasattr(response, "content") else str(response)
+        if unified.strip():
+            chart_data = next(
+                (r["chart_data"] for r in successes if r.get("chart_data")), None
+            )
+            return {**state, "response": unified.strip(), "chart_data": chart_data}
+    except Exception:
+        pass
+
+    return state
+
+
 def _respond_node(state: GraphState) -> GraphState:
+    if state.get("intent") == "privacy_violation":
+        return {
+            **state,
+            "response": (
+                "Não tenho acesso a dados de outros usuários. "
+                "Posso ajudar apenas com informações da sua conta."
+            ),
+            "chart_data": None,
+        }
+
+    if state.get("response"):
+        return state
+
     results = state.get("agent_results", [])
     selected = state.get("selected_agents", [])
 
@@ -102,24 +204,59 @@ def _respond_node(state: GraphState) -> GraphState:
     }
 
 
+def _guardrail_output_node(state: GraphState) -> GraphState:
+    """Sanitiza a resposta e persiste o histórico de sessão."""
+    from app.guardrails.output import validate_output
+    from app.memory.session import append_turn
+
+    response = state.get("response") or ""
+    result = validate_output(response, state.get("pii_map") or {})
+    safe = result["response"] if result.get("ok") else "Não foi possível processar a resposta."
+
+    try:
+        append_turn(state["session_id"], state["user_id"], "human", state["question"])
+        append_turn(state["session_id"], state["user_id"], "assistant", safe)
+    except Exception:
+        pass
+
+    return {**state, "response": safe}
+
+
 _graph = StateGraph(GraphState)
 
+_graph.add_node("guardrail_input", _guardrail_input_node)
 _graph.add_node("context", _context_node)
 _graph.add_node("route", _route_node)
 _graph.add_node("execute", _execute_node)
+_graph.add_node("synthesize", _synthesize_node)
 _graph.add_node("respond", _respond_node)
+_graph.add_node("guardrail_output", _guardrail_output_node)
 
-_graph.set_entry_point("context")
+_graph.set_entry_point("guardrail_input")
+_graph.add_conditional_edges(
+    "guardrail_input",
+    _after_guardrail_input,
+    {"END": END, "context": "context"},
+)
 _graph.add_edge("context", "route")
 _graph.add_edge("route", "execute")
-_graph.add_edge("execute", "respond")
-_graph.add_edge("respond", END)
+_graph.add_edge("execute", "synthesize")
+_graph.add_edge("synthesize", "respond")
+_graph.add_edge("respond", "guardrail_output")
+_graph.add_edge("guardrail_output", END)
 
 _memory = MemorySaver()
 workflow = _graph.compile(checkpointer=_memory)
 
 
-def run_workflow(user_id: int, session_id: str, question: str) -> GraphState:
+def run_workflow(
+    user_id: int,
+    session_id: str,
+    question: str,
+    *,
+    skip_guardrail_input: bool = False,
+    pii_map: dict | None = None,
+) -> GraphState:
     initial: GraphState = {
         "user_id": user_id,
         "session_id": session_id,
@@ -134,6 +271,9 @@ def run_workflow(user_id: int, session_id: str, question: str) -> GraphState:
         "intent": "",
         "complexity": "",
         "selected_agents": [],
+        "pii_map": pii_map or {},
+        "_blocked": False,
+        "skip_guardrail_input": skip_guardrail_input,
     }
     return workflow.invoke(
         initial,
