@@ -8,10 +8,7 @@ from typing import Iterator, Literal
 import psycopg2
 from psycopg2.extensions import parse_dsn
 
-from app.config import (
-    get_postgres_connection_args,
-    get_settings,
-)
+from app.config import get_settings, validate_postgres_config
 from app.tools.exceptions import (
     DatabaseConnectionError,
     DatabaseQueryError,
@@ -22,23 +19,21 @@ from app.tools.models import ConsumptionPoint, LastWaterBill, OrganizationProper
 
 def get_conn():
     settings = get_settings()
-    connection_args = get_postgres_connection_args(settings=settings)
+    validate_postgres_config(settings=settings)
+    database_url = settings.database_url or ""
     query_timeout_ms = settings.db_query_timeout_seconds * 1000
     statement_timeout_option = f"-c statement_timeout={query_timeout_ms}ms"
 
     try:
-        existing_options = ""
-        if "dsn" in connection_args:
-            existing_options = parse_dsn(connection_args["dsn"]).get("options", "")
+        existing_options = parse_dsn(database_url).get("options", "")
         options = " ".join(
             value for value in (existing_options, statement_timeout_option) if value
         )
-        connection_args["options"] = options
-    except psycopg2.Error as exc:
-        raise DatabaseConnectionError("PostgreSQL") from exc
-
-    try:
-        return psycopg2.connect(**connection_args)
+        return psycopg2.connect(
+            database_url,
+            connect_timeout=settings.db_connect_timeout_seconds,
+            options=options,
+        )
     except psycopg2.Error as exc:
         raise DatabaseConnectionError("PostgreSQL") from exc
 
@@ -48,12 +43,6 @@ def _query_error(exc: psycopg2.Error) -> DatabaseQueryError:
         "PostgreSQL",
         code=getattr(exc, "pgcode", None),
     )
-
-
-def _cleanup_error(exc: Exception) -> DatabaseQueryError:
-    if isinstance(exc, psycopg2.Error):
-        return _query_error(exc)
-    return DatabaseQueryError("PostgreSQL")
 
 
 @contextmanager
@@ -95,7 +84,9 @@ def _cursor() -> Iterator:
                     cleanup_error = exc
 
         if cleanup_error is not None and not operation_failed:
-            raise _cleanup_error(cleanup_error) from cleanup_error
+            if isinstance(cleanup_error, psycopg2.Error):
+                raise _query_error(cleanup_error) from cleanup_error
+            raise DatabaseQueryError("PostgreSQL") from cleanup_error
 
 
 def check_connection() -> None:
