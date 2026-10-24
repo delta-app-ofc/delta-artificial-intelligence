@@ -139,7 +139,7 @@ def test_execute_agent_error_creates_error_result(monkeypatch):
     result = _execute_node(state)
 
     assert result["agent_results"][0]["status"] == "error"
-    assert "banco indisponível" in result["warnings"][0]
+    assert "forecast" in result["warnings"][0]
 
 
 def test_execute_collects_all_results(monkeypatch):
