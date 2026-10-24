@@ -26,16 +26,15 @@ _TARGETS = (
 _LOCAL_HOSTS = {"localhost", "127.0.0.1", "::1"}
 
 
-def _client_and_database(component: str):
+def _check_target(component: str, collection_name: str) -> bool:
     settings = get_settings()
     validate_mongo_config(component, settings=settings)
     if component == "app":
-        return db_mongo.get_app_client(), settings.mongo_db_app
-    return db_mongo.get_telemetry_client(), settings.mongo_db_telemetry
-
-
-def _check_target(component: str, collection_name: str) -> bool:
-    client, database_name = _client_and_database(component)
+        client = db_mongo.get_app_client()
+        database_name = settings.mongo_db_app
+    else:
+        client = db_mongo.get_telemetry_client()
+        database_name = settings.mongo_db_telemetry
     client.admin.command("ping")
     collection = client[database_name][collection_name]
     document = collection.find_one(
@@ -93,8 +92,8 @@ def _validate_fixture_target(settings: Settings) -> None:
 
 def _run_fixture(settings: Settings) -> None:
     _validate_fixture_target(settings)
-    app_client, _ = _client_and_database("app")
-    telemetry_client, _ = _client_and_database("telemetry")
+    app_client = db_mongo.get_app_client()
+    telemetry_client = db_mongo.get_telemetry_client()
     app_client.admin.command("ping")
     telemetry_client.admin.command("ping")
 
