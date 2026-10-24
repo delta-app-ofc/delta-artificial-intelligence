@@ -69,6 +69,19 @@ def _settings(*, fallback_enabled: bool = True) -> SimpleNamespace:
     )
 
 
+def _specialist_llm(
+    monkeypatch: pytest.MonkeyPatch,
+    primary: ProviderSpy,
+    fallback: ProviderSpy,
+) -> Any:
+    settings = _settings()
+    monkeypatch.setattr(llms, "get_settings", lambda: settings)
+    monkeypatch.setattr(llms, "validate_llm_config", lambda **kwargs: None)
+    monkeypatch.setattr(llms, "ChatGoogleGenerativeAI", lambda **kwargs: primary)
+    monkeypatch.setattr(llms, "ChatGroq", lambda **kwargs: fallback)
+    return llms.llm_especialista
+
+
 @pytest.fixture(autouse=True)
 def clear_provider_caches():
     llms.clear_llm_cache()
@@ -95,7 +108,10 @@ def _google_error(
     return GoogleServerError(status_code, response_json)
 
 
-def _groq_error(status_code: int, detail: str = "synthetic-private-detail") -> GroqAPIStatusError:
+def _groq_error(
+    status_code: int,
+    detail: str = "synthetic-private-detail",
+) -> GroqAPIStatusError:
     request = httpx.Request("POST", "https://api.groq.com/openai/v1/chat/completions")
     response = httpx.Response(status_code, request=request)
     return GroqAPIStatusError(detail, response=response, body={"message": detail})
@@ -131,7 +147,7 @@ def test_builder_key_error_is_not_misreported_as_unknown_attribute(monkeypatch):
     def broken_builder():
         raise KeyError("internal builder bug")
 
-    monkeypatch.setitem(llms._LAZY, "llm_gemini", broken_builder)
+    monkeypatch.setattr(llms, "_get_llm_gemini", broken_builder)
 
     with pytest.raises(KeyError, match="internal builder bug"):
         _ = llms.llm_gemini
@@ -147,7 +163,7 @@ def test_provider_models_receive_settings_and_finite_parameters(monkeypatch):
 
     def make_factory(name: str):
         def factory(**kwargs: Any) -> ProviderSpy:
-            model = ProviderSpy([])
+            model = ProviderSpy([ai_final("resposta sintética")])
             created[name].append((kwargs, model))
             return model
 
@@ -164,9 +180,12 @@ def test_provider_models_receive_settings_and_finite_parameters(monkeypatch):
 
     specialist = llms.llm_especialista
     fast = llms.llm_rapido
+    specialist.invoke([HumanMessage(content="consulta especialista")])
+    fast.invoke([HumanMessage(content="consulta rápida")])
 
-    assert specialist._primary is created["gemini"][0][1]
-    assert specialist._fallback is created["groq"][0][1]
+    assert len(created["gemini"][0][1].inputs) == 1
+    assert created["groq"][0][1].inputs == []
+    assert len(created["groq"][1][1].inputs) == 1
     assert created["gemini"][0][0] == {
         "model": "gemini-test-model",
         "temperature": 0.3,
@@ -197,13 +216,30 @@ def test_provider_models_receive_settings_and_finite_parameters(monkeypatch):
     assert set(validated) >= {"specialist", "gemini", "groq_specialist", "fast"}
 
 
-def test_primary_success_does_not_invoke_fallback():
+def test_fast_model_is_none_when_its_configuration_is_missing(monkeypatch):
+    settings = load_settings(environ={"APP_ENV": "test"})
+
+    def validate_selected_provider(*, provider: str) -> None:
+        validate_llm_config(provider, settings=settings)
+
+    monkeypatch.setattr(llms, "get_settings", lambda: settings)
+    monkeypatch.setattr(
+        llms,
+        "validate_llm_config",
+        validate_selected_provider,
+    )
+
+    assert llms.llm_rapido is None
+
+
+def test_primary_success_does_not_invoke_fallback(monkeypatch):
     primary = ProviderSpy([ai_final("resposta principal")])
     fallback = ProviderSpy([ai_final("resposta alternativa")])
     tools = [{"type": "function", "function": {"name": "lookup"}}]
     messages = [HumanMessage(content="consulta")]
+    model = _specialist_llm(monkeypatch, primary, fallback)
 
-    response = llms._FallbackLLM(primary, fallback).bind_tools(tools).invoke(messages)
+    response = model.bind_tools(tools).invoke(messages)
 
     assert response.content == "resposta principal"
     assert len(primary.inputs) == 1
@@ -212,13 +248,16 @@ def test_primary_success_does_not_invoke_fallback():
     assert fallback.bound_tools[0][0] is tools
 
 
-def test_transient_primary_error_uses_fallback_with_same_tools_and_messages():
+def test_transient_primary_error_uses_fallback_with_same_tools_and_messages(
+    monkeypatch,
+):
     primary = ProviderSpy([_groq_timeout()])
     fallback = ProviderSpy([ai_final("resposta alternativa")])
     tools = [{"type": "function", "function": {"name": "lookup"}}]
     messages = [HumanMessage(content="consulta")]
+    model = _specialist_llm(monkeypatch, primary, fallback)
 
-    response = llms._FallbackLLM(primary, fallback).bind_tools(tools).invoke(messages)
+    response = model.bind_tools(tools).invoke(messages)
 
     assert response.content == "resposta alternativa"
     assert primary.inputs[0] is messages
@@ -227,7 +266,9 @@ def test_transient_primary_error_uses_fallback_with_same_tools_and_messages():
     assert fallback.bound_tools[0][0] is tools
 
 
-def test_fallback_tool_call_runs_once_and_receives_tool_message_on_next_turn():
+def test_fallback_tool_call_runs_once_and_receives_tool_message_on_next_turn(
+    monkeypatch,
+):
     tool_effects: list[int] = []
 
     def lookup(value: int) -> dict[str, int]:
@@ -246,9 +287,10 @@ def test_fallback_tool_call_runs_once_and_receives_tool_message_on_next_turn():
             ai_final("A consulta retornou 7."),
         ]
     )
+    model = _specialist_llm(monkeypatch, primary, fallback)
 
     result = run_agent(
-        llm=llms._FallbackLLM(primary, fallback),
+        llm=model,
         system_prompt="Responda usando a ferramenta quando necessário.",
         tools=[lookup_tool],
         question="Consulte o valor 6.",
@@ -262,17 +304,23 @@ def test_fallback_tool_call_runs_once_and_receives_tool_message_on_next_turn():
     assert len(fallback.input_snapshots) == 2
     second_turn = fallback.input_snapshots[1]
     assert any(isinstance(message, ToolMessage) for message in second_turn)
-    assert any('"value": 7' in message.content for message in second_turn if isinstance(message, ToolMessage))
+    assert any(
+        '"value": 7' in message.content
+        for message in second_turn
+        if isinstance(message, ToolMessage)
+    )
 
 
 @pytest.mark.parametrize("provider", ["google", "groq"])
 @pytest.mark.parametrize("status_code", [400, 401, 403])
 def test_non_transient_provider_errors_are_safe_and_do_not_fallback(
-    provider: str, status_code: int
+    provider: str,
+    status_code: int,
+    monkeypatch,
 ):
     primary = ProviderSpy([_provider_error(provider, status_code)])
     fallback = ProviderSpy([ai_final("não deve ser chamada")])
-    model = llms._FallbackLLM(primary, fallback).bind_tools([])
+    model = _specialist_llm(monkeypatch, primary, fallback).bind_tools([])
 
     with pytest.raises(llms.LLMProviderError) as error:
         model.invoke([HumanMessage(content="consulta")])
@@ -282,11 +330,11 @@ def test_non_transient_provider_errors_are_safe_and_do_not_fallback(
     assert fallback.inputs == []
 
 
-def test_google_wrapper_without_recognized_cause_propagates():
+def test_google_wrapper_without_recognized_cause_propagates(monkeypatch):
     wrapper = ChatGoogleGenerativeAIError("synthetic wrapper without cause")
     primary = ProviderSpy([wrapper])
     fallback = ProviderSpy([ai_final("não deve ser chamada")])
-    model = llms._FallbackLLM(primary, fallback).bind_tools([])
+    model = _specialist_llm(monkeypatch, primary, fallback).bind_tools([])
 
     with pytest.raises(ChatGoogleGenerativeAIError) as error:
         model.invoke([HumanMessage(content="consulta")])
@@ -297,12 +345,17 @@ def test_google_wrapper_without_recognized_cause_propagates():
 
 @pytest.mark.parametrize("provider", ["google", "groq"])
 @pytest.mark.parametrize("status_code", [408, 429, 500, 503])
-def test_transient_provider_status_uses_fallback(provider: str, status_code: int):
+def test_transient_provider_status_uses_fallback(
+    provider: str,
+    status_code: int,
+    monkeypatch,
+):
     primary = ProviderSpy([_provider_error(provider, status_code)])
     fallback = ProviderSpy([ai_final("resposta alternativa")])
     messages = [HumanMessage(content="consulta")]
+    model = _specialist_llm(monkeypatch, primary, fallback)
 
-    response = llms._FallbackLLM(primary, fallback).bind_tools([]).invoke(messages)
+    response = model.bind_tools([]).invoke(messages)
 
     assert response.content == "resposta alternativa"
     assert primary.inputs == [messages]
@@ -318,16 +371,19 @@ def test_transient_provider_status_uses_fallback(provider: str, status_code: int
             request=httpx.Request("POST", "https://generativelanguage.googleapis.com"),
         ),
         GroqAPITimeoutError(
-            request=httpx.Request("POST", "https://api.groq.com/openai/v1/chat/completions")
+            request=httpx.Request(
+                "POST", "https://api.groq.com/openai/v1/chat/completions"
+            )
         ),
     ],
     ids=["httpx-timeout", "httpx-connect", "groq-timeout"],
 )
-def test_transport_errors_use_fallback(transport_error: Exception):
+def test_transport_errors_use_fallback(transport_error: Exception, monkeypatch):
     primary = ProviderSpy([transport_error])
     fallback = ProviderSpy([ai_final("resposta alternativa")])
+    model = _specialist_llm(monkeypatch, primary, fallback)
 
-    response = llms._FallbackLLM(primary, fallback).bind_tools([]).invoke(
+    response = model.bind_tools([]).invoke(
         [HumanMessage(content="consulta")]
     )
 
@@ -337,10 +393,13 @@ def test_transport_errors_use_fallback(transport_error: Exception):
 
 
 @pytest.mark.parametrize("programming_error", [TypeError("tipo"), ValueError("valor")])
-def test_programming_errors_are_not_masked_or_retried(programming_error: Exception):
+def test_programming_errors_are_not_masked_or_retried(
+    programming_error: Exception,
+    monkeypatch,
+):
     primary = ProviderSpy([programming_error])
     fallback = ProviderSpy([ai_final("não deve ser chamada")])
-    model = llms._FallbackLLM(primary, fallback)
+    model = _specialist_llm(monkeypatch, primary, fallback)
 
     with pytest.raises(type(programming_error), match=str(programming_error)):
         model.invoke([HumanMessage(content="consulta")])
@@ -348,10 +407,10 @@ def test_programming_errors_are_not_masked_or_retried(programming_error: Excepti
     assert fallback.inputs == []
 
 
-def test_both_transient_providers_fail_with_safe_error():
+def test_both_transient_providers_fail_with_safe_error(monkeypatch):
     primary = ProviderSpy([_google_error(503)])
     fallback = ProviderSpy([_groq_error(429)])
-    model = llms._FallbackLLM(primary, fallback).bind_tools([])
+    model = _specialist_llm(monkeypatch, primary, fallback).bind_tools([])
 
     with pytest.raises(llms.LLMUnavailableError) as error:
         model.invoke([HumanMessage(content="consulta")])
