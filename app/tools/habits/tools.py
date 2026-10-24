@@ -70,7 +70,19 @@ def _normalize_day(day: str) -> str | None:
     return upper if upper in valid else None
 
 
+_NOT_RESIDENTIAL = {
+    "status": "not_applicable",
+    "message": (
+        "Hábitos de consumo estão disponíveis apenas para usuários residenciais. "
+        "Sua conta está vinculada a uma organização."
+    ),
+}
+
+
 def build_tools(user_id: int) -> list[BaseTool]:
+
+    _access_kind = db_postgres.get_user_access_kind(user_id)
+    _is_residential = _access_kind == "residential"
 
     @tool
     def list_habits() -> dict:
@@ -79,7 +91,11 @@ def build_tools(user_id: int) -> list[BaseTool]:
 
         Retorna lista com name (nome do hábito), frequency (vezes por semana) e
         days (lista de dias). Lista vazia significa sem hábitos cadastrados.
+
+        Disponível apenas para usuários residenciais.
         """
+        if not _is_residential:
+            return _NOT_RESIDENTIAL
         habits = db_postgres.get_user_habits(user_id)
         if not habits:
             return {"status": "insufficient_data", "message": "Nenhum hábito cadastrado."}
@@ -93,7 +109,11 @@ def build_tools(user_id: int) -> list[BaseTool]:
         completo: seg, segunda, segunda-feira, ter, terça, sab, sábado, etc.
 
         Retorna lista com name e frequency dos hábitos daquele dia.
+
+        Disponível apenas para usuários residenciais.
         """
+        if not _is_residential:
+            return _NOT_RESIDENTIAL
         canonical = _normalize_day(day)
         if canonical is None:
             return {
@@ -127,7 +147,11 @@ def build_tools(user_id: int) -> list[BaseTool]:
           Pode ser lista vazia se os dias ainda não forem conhecidos.
 
         Retorna confirmação com o nome canônico, frequência e dias vinculados.
+
+        Disponível apenas para usuários residenciais.
         """
+        if not _is_residential:
+            return _NOT_RESIDENTIAL
         canonical_name = _VALID_HABITS.get(name.strip().lower())
         if canonical_name is None:
             valid = ", ".join(sorted(set(_VALID_HABITS.values())))
@@ -181,7 +205,11 @@ def build_tools(user_id: int) -> list[BaseTool]:
 
         Use quando o usuário perguntar quanto de água um hábito consome, ou para
         contextualizar o peso de um hábito no consumo mensal.
+
+        Disponível apenas para usuários residenciais.
         """
+        if not _is_residential:
+            return _NOT_RESIDENTIAL
         canonical = _VALID_HABITS.get(habit_name.strip().lower())
         if canonical is None:
             valid = ", ".join(sorted(set(_VALID_HABITS.values())))

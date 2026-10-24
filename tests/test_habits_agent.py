@@ -17,6 +17,10 @@ _HABITS = [
 @pytest.fixture
 def habits_stubs(monkeypatch):
     monkeypatch.setattr(
+        "app.data.db_postgres.get_user_access_kind",
+        lambda uid: "residential",
+    )
+    monkeypatch.setattr(
         "app.data.db_postgres.get_user_habits",
         lambda uid: _HABITS,
     )
@@ -74,6 +78,7 @@ def test_get_habits_by_day_monday(habits_stubs):
 
 
 def test_no_habits_returns_insufficient_data(monkeypatch):
+    monkeypatch.setattr("app.data.db_postgres.get_user_access_kind", lambda uid: "residential")
     monkeypatch.setattr("app.data.db_postgres.get_user_habits", lambda uid: [])
 
     llm = ScriptedChatModel(
@@ -115,3 +120,52 @@ def test_chart_data_is_none_when_no_list_habits_called(habits_stubs):
     result = agent.run("O que faço no sábado?")
 
     assert result.chart_data is None
+
+
+def test_organizational_user_cannot_list_habits(monkeypatch):
+    monkeypatch.setattr("app.data.db_postgres.get_user_access_kind", lambda uid: "organizational")
+
+    llm = ScriptedChatModel(
+        responses=[
+            ai_tool_call("list_habits", {}, "c1"),
+            ai_final("Hábitos não disponíveis para sua conta."),
+        ]
+    )
+    agent = HabitsAgent(user_id=5, llm=llm)
+    result = agent.run("Quais são meus hábitos?")
+
+    output = result.tool_calls[0].output
+    assert output["status"] == "not_applicable"
+    assert "residenci" in output["message"].lower()
+
+
+def test_organizational_user_cannot_create_habit(monkeypatch):
+    monkeypatch.setattr("app.data.db_postgres.get_user_access_kind", lambda uid: "organizational")
+
+    llm = ScriptedChatModel(
+        responses=[
+            ai_tool_call("create_habit", {"name": "banho", "frequency": 3, "days": []}, "c1"),
+            ai_final("Não é possível cadastrar hábitos para sua conta."),
+        ]
+    )
+    agent = HabitsAgent(user_id=5, llm=llm)
+    result = agent.run("Cadastra banho longo 3x por semana.")
+
+    output = result.tool_calls[0].output
+    assert output["status"] == "not_applicable"
+
+
+def test_organizational_user_cannot_get_habits_by_day(monkeypatch):
+    monkeypatch.setattr("app.data.db_postgres.get_user_access_kind", lambda uid: "organizational")
+
+    llm = ScriptedChatModel(
+        responses=[
+            ai_tool_call("get_habits_by_day", {"day": "segunda"}, "c1"),
+            ai_final("Hábitos não disponíveis para sua conta."),
+        ]
+    )
+    agent = HabitsAgent(user_id=5, llm=llm)
+    result = agent.run("O que faço na segunda?")
+
+    output = result.tool_calls[0].output
+    assert output["status"] == "not_applicable"
