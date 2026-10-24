@@ -9,8 +9,8 @@ from __future__ import annotations
 import uuid
 from functools import lru_cache
 
-from app.config import QDRANT_URL, QDRANT_API_KEY
-from app.memory.session import load_history, load_history_validated
+from app.config import get_settings
+from app.memory.session import load_history_validated
 
 
 _COLLECTION = "session_summaries"
@@ -24,17 +24,23 @@ _collection_initialized = False
 def _qdrant():
     from qdrant_client import QdrantClient
 
-    return QdrantClient(url=QDRANT_URL, api_key=QDRANT_API_KEY or None)
+    settings = get_settings()
+
+    return QdrantClient(
+        url=settings.qdrant_url or "http://localhost:6333",
+        api_key=settings.qdrant_api_key,
+    )
 
 
 @lru_cache(maxsize=1)
 def _embed_model():
     from langchain_google_genai import GoogleGenerativeAIEmbeddings
-    from app.config import GEMINI_API_KEY
+
+    settings = get_settings()
 
     return GoogleGenerativeAIEmbeddings(
         model=_EMBED_MODEL,
-        google_api_key=GEMINI_API_KEY,
+        google_api_key=settings.gemini_api_key,
     )
 
 
