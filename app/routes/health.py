@@ -1,8 +1,14 @@
 from fastapi import APIRouter
 
-router = APIRouter()
+router = APIRouter(tags=["health"])
 
 
 @router.get("/health")
 def health():
-    return {"status": "ok"}
+    from app.config import get_settings
+    issues = []
+    try:
+        get_settings()
+    except Exception as exc:
+        issues.append(str(exc))
+    return {"status": "ok" if not issues else "degraded", "issues": issues}
