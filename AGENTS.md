@@ -61,7 +61,7 @@ Os componentes abaixo foram implementados e têm cobertura de testes:
 Os componentes abaixo continuam reservados. Não descreva seu comportamento como
 funcional nem os preencha fora do escopo da tarefa:
 
-- Agentes `judge`, `profile` e `rag`;
+- Agentes `judge` e `rag`;
 - métricas em `app/observability/`.
 
 O serviço documental RAG em `app/services/rag.py` segmenta Markdown por títulos, indexa embeddings Gemini em `rag_documents` e recupera trechos com fonte, revisão e linhas. `scripts/rag.py` oferece inspeção offline, indexação e busca explícitas; não gera respostas nem está integrado ao agente/grafo. Veja `docs/rag-retrieval.md`. Os testes usam Qdrant em memória e embeddings controlados; não comprovam Gemini/Qdrant remoto ou qualidade semântica.
