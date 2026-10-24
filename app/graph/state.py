@@ -33,3 +33,6 @@ class GraphState(_GraphStateRequired, total=False):
     response: str
     agent_used: str
     chart_data: dict | None
+    pii_map: dict
+    _blocked: bool
+    skip_guardrail_input: bool

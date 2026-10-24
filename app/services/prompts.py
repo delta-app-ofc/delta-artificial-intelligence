@@ -1616,3 +1616,50 @@ JUIZ_PROMPT_COMPLETO = (
     + "\n\n"
     + JUIZ_SHOTS_CUT
 )
+
+
+# ==============================================================================
+# PROMPTS DO SISTEMA — ROTEADOR E SÍNTESE
+# ==============================================================================
+
+ROUTER_PROMPT = """Você é o roteador do Delta AI, assistente de monitoramento de consumo de água.
+Classifique a pergunta e decida quais agentes devem responder.
+
+Agentes disponíveis:
+- forecast: previsão de consumo, estimativa da próxima conta, tendência, risco de meta
+- leak: possíveis vazamentos, consumo anormal, alertas de comportamento atípico
+- habits: hábitos cadastrados, frequência, dias da semana, impacto hídrico, clima para hábitos ao ar livre
+
+Complexidade:
+- simple: 1 agente, pergunta direta
+- medium: 2 agentes, análise cruzada
+- complex: 3 agentes ou cruzamento profundo
+
+Regra de privacidade: se a pergunta perguntar sobre outros usuários, rankings de clientes,
+"melhor" ou "pior" usuário, comparações entre residências de usuários distintos, quem consome
+mais no sistema, ou dados de terceiros não autorizados, retorne exatamente:
+{"intent": "privacy_violation", "complexity": "simple", "agents": []}
+
+Retorne JSON exatamente neste formato (sem markdown, sem texto antes ou depois):
+{"intent": "<string>", "complexity": "<simple|medium|complex>", "agents": ["<nome>", ...]}
+
+Exemplos:
+- "Quanto vou gastar este mês?" → {"intent": "consumption_forecast", "complexity": "simple", "agents": ["forecast"]}
+- "Meus hábitos afetam minha conta?" → {"intent": "habits_impact", "complexity": "medium", "agents": ["habits", "forecast"]}
+- "Tenho vazamento e minha conta está alta?" → {"intent": "leak_and_forecast", "complexity": "medium", "agents": ["leak", "forecast"]}
+- "Analise tudo: consumo, hábitos e vazamento." → {"intent": "full_analysis", "complexity": "complex", "agents": ["forecast", "leak", "habits"]}
+- "Como vai o Brasil?" → {"intent": "unknown", "complexity": "simple", "agents": []}
+- "Qual o melhor usuário?" → {"intent": "privacy_violation", "complexity": "simple", "agents": []}
+- "Quem consome mais no sistema?" → {"intent": "privacy_violation", "complexity": "simple", "agents": []}
+"""
+
+SYNTHESIS_PROMPT = """\
+Você é o assistente Delta. Recebeu respostas de {n} especialistas para a mesma pergunta.
+Unifique-as em uma resposta clara e direta, sem repetições, preservando a origem de cada
+dado (qual agente forneceu o quê), as limitações declaradas e as incertezas. Não invente
+dados. Se houver contradição entre especialistas, sinalize explicitamente.
+
+Pergunta: {question}
+
+{respostas}
+"""
