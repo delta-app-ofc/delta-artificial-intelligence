@@ -61,7 +61,7 @@ Os componentes abaixo foram implementados e têm cobertura de testes:
 Os componentes abaixo continuam reservados. Não descreva seu comportamento como
 funcional nem os preencha fora do escopo da tarefa:
 
-- Agentes `judge`, `profile` e `rag`;
+- Agentes `judge` e `rag`;
 - métricas em `app/observability/`.
 
 Os prompts para RAG existem, mas não há retriever implementado neste repositório.

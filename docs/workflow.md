@@ -150,7 +150,7 @@ opcionais (`total=False`):
 
 - `ConsumptionAgent` ainda não está no `AGENT_REGISTRY` — não é roteável pelo
   workflow. Adicionar é uma task separada.
-- Agentes `judge`, `profile` e `rag` não estão implementados.
+- Agentes `judge` e `rag` não estão implementados.
 - O nó `context` consulta memória de longo prazo mesmo quando a pergunta não
   referencia o passado — custo desnecessário que pode ser otimizado com um filtro.
 - Não há rate limiting por `user_id` no workflow — isso cabe a um middleware
