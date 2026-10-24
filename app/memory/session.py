@@ -5,16 +5,15 @@ from __future__ import annotations
 from datetime import datetime, timezone
 
 from app.data.db_mongo import get_app_client
-from app.config import MONGO_DB_APP
-
-
-def _col():
-    return get_app_client()[MONGO_DB_APP]["conversations"]
+from app.config import get_settings
 
 
 def load_history(session_id: str) -> list[dict]:
     """Retorna todas as mensagens da sessão ordenadas por timestamp."""
-    doc = _col().find_one({"session_id": session_id}, {"_id": 0, "messages": 1})
+
+    collection = get_app_client()[get_settings().mongo_db_app]["conversations"]
+    doc = collection.find_one({"session_id": session_id}, {"_id": 0, "messages": 1})
+
     return (doc or {}).get("messages", [])
 
 
@@ -24,12 +23,14 @@ def load_history_validated(user_id: int, session_id: str) -> list[dict]:
     Silenciosamente retorna lista vazia quando a sessão não existe ou pertence
     a outro usuário — sem expor a existência da sessão a quem não tem acesso.
     """
-    doc = _col().find_one(
+    collection = get_app_client()[get_settings().mongo_db_app]["conversations"]
+    doc = collection.find_one(
         {"session_id": session_id},
         {"_id": 0, "user_id": 1, "messages": 1},
     )
     if doc is None or doc.get("user_id") != user_id:
         return []
+
     return doc.get("messages", [])
 
 
@@ -39,10 +40,13 @@ def append_turn(session_id: str, user_id: int, role: str, content: str) -> None:
     Rejeita sessões que já existam e pertençam a outro usuário, evitando que
     uma colisão de session_id grave mensagens na sessão alheia.
     """
-    existing = _col().find_one({"session_id": session_id}, {"user_id": 1})
+    collection = get_app_client()[get_settings().mongo_db_app]["conversations"]
+    existing = collection.find_one({"session_id": session_id}, {"user_id": 1})
+
     if existing and existing.get("user_id") != user_id:
         raise ValueError(f"session {session_id!r} pertence a outro usuário")
-    _col().update_one(
+
+    collection.update_one(
         {"session_id": session_id},
         {
             "$setOnInsert": {"user_id": user_id, "created_at": datetime.now(timezone.utc)},
@@ -60,8 +64,11 @@ def append_turn(session_id: str, user_id: int, role: str, content: str) -> None:
 
 def get_sessions_for_user(user_id: int) -> list[dict]:
     """Lista todas as sessões do usuário (sem as mensagens completas)."""
-    cursor = _col().find(
+
+    collection = get_app_client()[get_settings().mongo_db_app]["conversations"]
+    cursor = collection.find(
         {"user_id": user_id},
         {"_id": 0, "session_id": 1, "created_at": 1},
     )
+
     return list(cursor)
