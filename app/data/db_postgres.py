@@ -38,13 +38,6 @@ def get_conn():
         raise DatabaseConnectionError("PostgreSQL") from exc
 
 
-def _query_error(exc: psycopg2.Error) -> DatabaseQueryError:
-    return DatabaseQueryError(
-        "PostgreSQL",
-        code=getattr(exc, "pgcode", None),
-    )
-
-
 @contextmanager
 def _cursor() -> Iterator:
     """Abre e fecha cursor/conexão, protegendo mensagens do driver."""
@@ -52,23 +45,17 @@ def _cursor() -> Iterator:
     cur = None
     operation_failed = False
     try:
-        try:
-            cur = conn.cursor()
-        except psycopg2.Error as exc:
-            operation_failed = True
-            raise _query_error(exc) from exc
-        except BaseException:
-            operation_failed = True
-            raise
-
-        try:
-            yield cur
-        except psycopg2.Error as exc:
-            operation_failed = True
-            raise _query_error(exc) from exc
-        except BaseException:
-            operation_failed = True
-            raise
+        cur = conn.cursor()
+        yield cur
+    except psycopg2.Error as exc:
+        operation_failed = True
+        raise DatabaseQueryError(
+            "PostgreSQL",
+            code=getattr(exc, "pgcode", None),
+        ) from exc
+    except BaseException:
+        operation_failed = True
+        raise
     finally:
         cleanup_error = None
         try:
@@ -85,7 +72,10 @@ def _cursor() -> Iterator:
 
         if cleanup_error is not None and not operation_failed:
             if isinstance(cleanup_error, psycopg2.Error):
-                raise _query_error(cleanup_error) from cleanup_error
+                raise DatabaseQueryError(
+                    "PostgreSQL",
+                    code=getattr(cleanup_error, "pgcode", None),
+                ) from cleanup_error
             raise DatabaseQueryError("PostgreSQL") from cleanup_error
 
 
