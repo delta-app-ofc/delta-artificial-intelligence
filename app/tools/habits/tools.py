@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from langchain_core.tools import BaseTool, tool
 
-from app.data import db_postgres
+from app.data import db_mongo, db_postgres
 
 _HABIT_LITERS_PER_SESSION: dict[str, float] = {
     "BANHO LONGO": 80.0,
@@ -205,4 +205,75 @@ def build_tools(user_id: int) -> list[BaseTool]:
             "note": "Estimativas baseadas em médias de referência. Não representam medições do hidrômetro.",
         }
 
-    return [list_habits, get_habits_by_day, create_habit, estimate_habit_water_impact]
+    @tool
+    def get_weather_history(days: int = 7) -> dict:
+        """Retorna o histórico meteorológico recente da localização do usuário,
+        lendo da coleção weather_daily no MongoDB.
+
+        days: número de dias para trás (padrão 7, máximo 30).
+
+        Use para identificar padrões climáticos recentes que influenciam hábitos
+        ao ar livre: chuva acumulada, temperaturas médias, vento.
+
+        Retorna lista de dias com temperatura média, chuva total e condição
+        predominante. Lista vazia significa sem registros no período.
+        """
+        days = max(1, min(days, 30))
+        location = db_postgres.get_user_location(user_id)
+        if location is None:
+            return {
+                "status": "insufficient_data",
+                "message": "Localização do usuário não encontrada.",
+            }
+
+        try:
+            docs = db_mongo.get_weather_daily(
+                location["city"], location["state"], location["country"], days
+            )
+        except Exception:
+            return {
+                "status": "error",
+                "message": "Não foi possível acessar o histórico meteorológico.",
+            }
+
+        if not docs:
+            return {
+                "status": "no_data",
+                "location": location,
+                "days_requested": days,
+                "message": "Sem registros meteorológicos para o período solicitado.",
+            }
+
+        summaries = []
+        for doc in docs:
+            hours = doc.get("hours", [])
+            if not hours:
+                continue
+            temps = [h["temperature_c"] for h in hours if "temperature_c" in h]
+            rains = [h.get("rain_mm", 0) for h in hours]
+            conditions = [h.get("condition", "") for h in hours if h.get("condition")]
+            avg_temp = round(sum(temps) / len(temps), 1) if temps else None
+            total_rain = round(sum(rains), 1)
+            condition = max(set(conditions), key=conditions.count) if conditions else None
+            summaries.append({
+                "date": doc.get("weather_date").isoformat() if doc.get("weather_date") else None,
+                "avg_temperature_c": avg_temp,
+                "total_rain_mm": total_rain,
+                "predominant_condition": condition,
+                "samples": doc.get("samples", len(hours)),
+            })
+
+        return {
+            "status": "ok",
+            "location": location,
+            "days": summaries,
+            "note": "Dados históricos do MongoDB. Não representam previsão futura.",
+        }
+
+    return [
+        list_habits,
+        get_habits_by_day,
+        create_habit,
+        estimate_habit_water_impact,
+        get_weather_history,
+    ]
