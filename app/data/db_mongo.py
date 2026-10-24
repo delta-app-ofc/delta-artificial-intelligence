@@ -266,6 +266,35 @@ def get_anomalous_consumption_windows(user_id: int, days: int) -> list[Consumpti
     )
 
 
+def get_weather_daily(city: str, state: str, country: str, days: int) -> list[dict]:
+    """Retorna documentos weather_daily dos últimos N dias para a localização.
+
+    Cada documento segue o schema de db_delta_app: campos location, weather_date,
+    hours (array de observações horárias), samples e timestamps.
+    Lista vazia quando não há registros para o período.
+    """
+    def read() -> list[dict]:
+        collection = _app()["weather_daily"]
+        cursor = collection.find(
+            {
+                "location.city": city,
+                "location.state": state,
+                "location.country": country,
+                "weather_date": {"$gte": _since(days)},
+            },
+            max_time_ms=_query_timeout_ms("app"),
+        )
+        try:
+            docs = list(cursor.sort("weather_date", DESCENDING))
+            for doc in docs:
+                doc.pop("_id", None)
+            return docs
+        finally:
+            cursor.close()
+
+    return _run_query(read)
+
+
 def get_alerts_history(
     user_id: int, days: int, only_active: bool = False
 ) -> list[Alert]:
