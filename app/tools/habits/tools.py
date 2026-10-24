@@ -1,8 +1,9 @@
 from __future__ import annotations
 
+import httpx
 from langchain_core.tools import BaseTool, tool
 
-from app.data import db_postgres
+from app.data import db_mongo, db_postgres
 
 _HABIT_LITERS_PER_SESSION: dict[str, float] = {
     "BANHO LONGO": 80.0,
@@ -205,4 +206,173 @@ def build_tools(user_id: int) -> list[BaseTool]:
             "note": "Estimativas baseadas em médias de referência. Não representam medições do hidrômetro.",
         }
 
-    return [list_habits, get_habits_by_day, create_habit, estimate_habit_water_impact]
+    @tool
+    def get_weather_history(days: int = 7) -> dict:
+        """Retorna o histórico meteorológico recente da localização do usuário,
+        lendo da coleção weather_daily no MongoDB.
+
+        days: número de dias para trás (padrão 7, máximo 30).
+
+        Use para identificar padrões climáticos recentes que influenciam hábitos
+        ao ar livre: chuva acumulada, temperaturas médias, vento.
+
+        Retorna lista de dias com temperatura média, chuva total e condição
+        predominante. Lista vazia significa sem registros no período.
+        """
+        days = max(1, min(days, 30))
+        location = db_postgres.get_user_location(user_id)
+        if location is None:
+            return {
+                "status": "insufficient_data",
+                "message": "Localização do usuário não encontrada.",
+            }
+
+        try:
+            docs = db_mongo.get_weather_daily(
+                location["city"], location["state"], location["country"], days
+            )
+        except Exception:
+            return {
+                "status": "error",
+                "message": "Não foi possível acessar o histórico meteorológico.",
+            }
+
+        if not docs:
+            return {
+                "status": "no_data",
+                "location": location,
+                "days_requested": days,
+                "message": "Sem registros meteorológicos para o período solicitado.",
+            }
+
+        summaries = []
+        for doc in docs:
+            hours = doc.get("hours", [])
+            if not hours:
+                continue
+            temps = [h["temperature_c"] for h in hours if "temperature_c" in h]
+            rains = [h.get("rain_mm", 0) for h in hours]
+            conditions = [h.get("condition", "") for h in hours if h.get("condition")]
+            avg_temp = round(sum(temps) / len(temps), 1) if temps else None
+            total_rain = round(sum(rains), 1)
+            condition = max(set(conditions), key=conditions.count) if conditions else None
+            summaries.append({
+                "date": doc.get("weather_date").isoformat() if doc.get("weather_date") else None,
+                "avg_temperature_c": avg_temp,
+                "total_rain_mm": total_rain,
+                "predominant_condition": condition,
+                "samples": doc.get("samples", len(hours)),
+            })
+
+        return {
+            "status": "ok",
+            "location": location,
+            "days": summaries,
+            "note": "Dados históricos do MongoDB. Não representam previsão futura.",
+        }
+
+    @tool
+    def get_weather_forecast(days_ahead: int = 3) -> dict:
+        """Consulta a previsão do tempo para os próximos dias via Open-Meteo (gratuita).
+
+        days_ahead: quantos dias de previsão (padrão 3, máximo 7).
+
+        Use para hábitos ao ar livre: recomendar o melhor dia para lavar o carro,
+        regar plantas ou lavar o quintal com base na previsão de chuva, temperatura
+        e vento.
+
+        Retorna lista diária com temperatura máxima/mínima, chuva prevista,
+        velocidade máxima do vento e código WMO da condição.
+        """
+        days_ahead = max(1, min(days_ahead, 7))
+        location = db_postgres.get_user_location(user_id)
+        if location is None:
+            return {
+                "status": "insufficient_data",
+                "message": "Localização do usuário não encontrada.",
+            }
+
+        city = location["city"]
+
+        try:
+            geo = httpx.get(
+                "https://geocoding-api.open-meteo.com/v1/search",
+                params={"name": city, "count": 1, "language": "pt", "format": "json"},
+                timeout=8.0,
+            )
+            geo.raise_for_status()
+            results = geo.json().get("results", [])
+            if not results:
+                return {
+                    "status": "no_data",
+                    "message": f"Localidade '{city}' não encontrada na API de clima.",
+                }
+            lat = results[0]["latitude"]
+            lon = results[0]["longitude"]
+        except Exception:
+            return {
+                "status": "error",
+                "message": "Não foi possível obter coordenadas para a previsão do tempo.",
+            }
+
+        try:
+            forecast = httpx.get(
+                "https://api.open-meteo.com/v1/forecast",
+                params={
+                    "latitude": lat,
+                    "longitude": lon,
+                    "daily": ",".join([
+                        "temperature_2m_max",
+                        "temperature_2m_min",
+                        "precipitation_sum",
+                        "windspeed_10m_max",
+                        "weathercode",
+                    ]),
+                    "timezone": "America/Sao_Paulo",
+                    "forecast_days": days_ahead,
+                },
+                timeout=8.0,
+            )
+            forecast.raise_for_status()
+            data = forecast.json()
+        except Exception:
+            return {
+                "status": "error",
+                "message": "Não foi possível obter a previsão do tempo.",
+            }
+
+        daily = data.get("daily", {})
+        dates = daily.get("time", [])
+        t_max = daily.get("temperature_2m_max", [])
+        t_min = daily.get("temperature_2m_min", [])
+        rain = daily.get("precipitation_sum", [])
+        wind = daily.get("windspeed_10m_max", [])
+        codes = daily.get("weathercode", [])
+
+        days_forecast = []
+        for i, d in enumerate(dates):
+            days_forecast.append({
+                "date": d,
+                "temperature_max_c": t_max[i] if i < len(t_max) else None,
+                "temperature_min_c": t_min[i] if i < len(t_min) else None,
+                "precipitation_mm": rain[i] if i < len(rain) else None,
+                "wind_max_kmh": wind[i] if i < len(wind) else None,
+                "weather_code": codes[i] if i < len(codes) else None,
+            })
+
+        return {
+            "status": "ok",
+            "location": {"city": city, "latitude": lat, "longitude": lon},
+            "forecast": days_forecast,
+            "source": "Open-Meteo (open-meteo.com)",
+            "note": "Previsão dos próximos dias. Use para recomendar dias adequados para hábitos ao ar livre.",
+        }
+
+    return [
+        list_habits,
+        get_habits_by_day,
+        create_habit,
+        estimate_habit_water_impact,
+        get_weather_history,
+        get_weather_forecast,
+    ]

@@ -460,8 +460,11 @@ Utilize as ferramentas disponíveis:
   cadastro de hábitos no PostgreSQL;
 - `estimate_habit_water_impact` para estimar o consumo de água de um hábito
   com base em médias de referência (não são medições do hidrômetro);
-- ferramentas de clima (Tomorrow.io) disponíveis para consultar condições
-  atuais e previsão — use para hábitos realizados ao ar livre.
+- `get_weather_history` para consultar o histórico meteorológico recente da
+  localização do usuário (dados do MongoDB) — use para analisar padrões
+  climáticos passados que afetam hábitos ao ar livre;
+- `get_weather_forecast` para obter a previsão do tempo dos próximos dias
+  via Open-Meteo — use para recomendar o melhor dia para hábitos ao ar livre.
 
 ### REGRAS
 
@@ -480,7 +483,9 @@ Utilize as ferramentas disponíveis:
 - Só aceite nomes do catálogo. Se o usuário informar um nome fora do catálogo,
   apresente os seis hábitos disponíveis e peça que escolha um.
 - Para hábitos ao ar livre (LAVAR CARRO, REGAR PLANTAS, LAVAR QUINTAL),
-  consulte as ferramentas de clima antes de recomendar dias ou frequência.
+  consulte `get_weather_forecast` antes de recomendar dias ou frequência.
+  Se o usuário perguntar sobre padrões recentes (últimos dias), use também
+  `get_weather_history`.
 - Ao apresentar estimativas de impacto hídrico, deixe claro que são valores
   de referência, não medições do hidrômetro do usuário.
 
