@@ -259,7 +259,7 @@ def test_existing_query_keeps_parameters_types_and_empty_result(monkeypatch):
 
     assert db_postgres.get_user_region_id(42) == 17
     query, parameters = cursor.executions[0]
-    assert "WHERE up.user_id = %s" in query
+    assert "fn_get_user_property_context(%s)" in query
     assert parameters == (42,)
     assert isinstance(parameters, tuple)
 
