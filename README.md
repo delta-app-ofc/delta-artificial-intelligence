@@ -1,10 +1,9 @@
 # delta-artificial-intelligence
 
 Chatbot de IA do Projeto Delta — plataforma de monitoramento inteligente de
-consumo residencial de água. Este repositório reúne os agentes especialistas
-e as tools de acesso a dados; a API HTTP (FastAPI), o roteamento entre
-agentes (LangGraph), guardrails e memória de sessão ainda são só o esqueleto
-de pastas, sem implementação.
+consumo residencial de água. Este repositório reúne os agentes especialistas,
+as tools de acesso a dados, a orquestração LangGraph, guardrails de segurança,
+memória de sessão e longo prazo, e a API HTTP (FastAPI).
 
 O motor de detecção de vazamento (regras que calculam `anomaly_detected` e
 criam alertas) não usa LLM e por isso mora em outro repositório,
@@ -55,16 +54,16 @@ coleção em cada alvo Mongo, sem imprimir documentos. Conectividade não
 comprova que o schema/views do produto ou os dados necessários existam.
 O modo Mongo `--fixture` insere, converte e remove documentos sintéticos
 somente em databases de teste isolados em loopback; veja os requisitos no
-[guia MongoDB](docs/mongo-connection.md) antes de usá-lo.
+[guia MongoDB](https://github.com/delta-app-ofc/delta-handbook/blob/main/DADOS/IA/agentes/mongo-connection.md) antes de usá-lo.
 
 Settings são snapshots em cache. Ao trocar configuração em um processo já
 em execução, recarregue os settings e descarte os clientes afetados:
 `clear_llm_cache()` para modelos e `close_clients()` para os dois clientes
 Mongo. Reiniciar o processo também aplica a nova configuração.
 
-Detalhes: [settings e ambientes](docs/settings.md),
-[conector PostgreSQL](docs/postgres-connection.md) e
-[conector MongoDB](docs/mongo-connection.md).
+Detalhes: [settings e ambientes](https://github.com/delta-app-ofc/delta-handbook/blob/main/DADOS/IA/agentes/settings.md),
+[conector PostgreSQL](https://github.com/delta-app-ofc/delta-handbook/blob/main/DADOS/IA/agentes/postgres-connection.md) e
+[conector MongoDB](https://github.com/delta-app-ofc/delta-handbook/blob/main/DADOS/IA/agentes/mongo-connection.md).
 
 ## Base documental RAG
 
@@ -123,9 +122,12 @@ pip install -r requirements.txt -r requirements-dev.txt
 python -m pytest -q
 ```
 
-A suíte versionada em `tests/test_rag.py` verifica o ciclo documental RAG com
-Qdrant em memória e modelos controlados. O próprio arquivo isola o ambiente e
-o cache de settings; os testes não leem `.env` nem chamam bancos ou provedores remotos.
+Os testes usam cálculos puros, LLM roteirizado e clientes/leitores substituídos.
+Cobrem settings, provedores/fallback, recursos e erros dos conectores, os agentes
+e seus cálculos, o workflow LangGraph (guardrails, context-passing, síntese,
+roteamento), as rotas HTTP e cenários de anti-alucinação. Nenhum depende de
+Postgres/Mongo ou de uma chamada real de LLM. `tests/conftest.py` isola o
+ambiente e o cache de settings.
 
 Esses testes não comprovam acesso real, disponibilidade do modelo para a
 conta ou qualidade da redação. Na validação local deste conjunto, Docker
@@ -226,7 +228,7 @@ python manual_chat.py consumption "Quanto consumi ontem?"
 O modo manual usa um ID demonstrativo definido no arquivo e precisa dos
 bancos e do LLM configurados. Uma integração deve fornecer o usuário
 autenticado pelo backend; este repositório ainda não implementa autenticação
-HTTP. Veja [regras e exemplos de uso](docs/consumption-agent.md).
+HTTP. Veja [regras e exemplos de uso](https://github.com/delta-app-ofc/delta-handbook/blob/main/DADOS/IA/agentes/consumption-agent.md).
 
 ## Agente de Vazamento
 
@@ -291,11 +293,11 @@ O fallback preserva `bind_tools` e histórico, sem repetir tools já executadas,
 e só é acionado para erros transitórios reconhecidos. Pode ser desativado
 com `LLM_FALLBACK_ENABLED=false`.
 
-`llm_rapido` usa Groq (`GROQ_FAST_MODEL`, default `openai/gpt-oss-20b`), mas
-nenhum roteador ou juiz implementado o consome. Timeout, retries e limite de
-saída são configuráveis. A disponibilidade depende da conta e do identificador;
+`llm_rapido` usa Groq (`GROQ_FAST_MODEL`, default `openai/gpt-oss-20b`) e é
+usado pelo router e pelo nó de síntese do workflow. Timeout, retries e limite
+de saída são configuráveis. A disponibilidade depende da conta e do identificador;
 os testes não medem qualidade em português. Justificativas, parâmetros e
-fontes oficiais estão em [provedores e modelos](docs/llm-models.md).
+fontes oficiais estão em [provedores e modelos](https://github.com/delta-app-ofc/delta-handbook/blob/main/DADOS/IA/agentes/llm-models.md).
 
 ## Console de testes dos agentes
 
@@ -328,7 +330,7 @@ Cada aba mantém seu rascunho, histórico e sessão separados enquanto a página
 estiver aberta. A opção **Nova sessão** gera uma nova conversa na próxima
 mensagem; não encerra nem resume a anterior. O chat envia a mesma mensagem
 pelo fluxo real do aplicativo, enquanto as abas individuais testam apenas o
-especialista. O histórico recente alimenta a classificação; os especialistas
+especialista. O histórico recente alimenta a classificação e os especialistas
 continuam recebendo a pergunta atual conforme o contrato existente.
 
 Não há modo demonstrativo. Configure o arquivo .env a partir de
@@ -374,3 +376,96 @@ isolamento de usuário e diagnósticos, guardrails, falhas parciais, componentes
 pendentes, callbacks de modelos/fallback e proteção do console por ambiente.
 Usa substitutos controlados: essa suíte não comprova acesso remoto aos
 bancos/provedores nem qualidade semântica.
+
+## Agente de Hábitos
+
+Analisa hábitos de consumo registrados, estima seu impacto hídrico e relaciona
+com dados de clima (histórico e previsão) para contextualizar variações sazonais.
+
+- `HabitsAgent(user_id, llm=None)` — standalone, sem dependência de FastAPI ou LangGraph.
+- Tools (`app/tools/habits/tools.py`), todas vinculadas ao `user_id`:
+  - `list_habits` — lista hábitos cadastrados.
+  - `get_habits_by_day` — filtra por dia da semana.
+  - `create_habit` — cadastra um novo hábito (grava em `tb_user_habit` + `tb_user_habit_day`).
+  - `estimate_habit_water_impact` — calcula impacto médio em litros.
+  - `get_weather_history` — lê a coleção `weather_daily` (MongoDB) e devolve
+    temperatura, chuva e condição predominante dos últimos N dias. Requer
+    localização do usuário (cidade/estado via `tb_address`).
+
+O agente não envia o `user_id` como argumento livre ao LLM; a localização é
+obtida internamente em `get_user_location`.
+
+## Orquestração LangGraph
+
+`run_workflow(user_id, session_id, question)` em `app/graph/workflow.py` é o
+ponto de entrada para o chatbot. O grafo executa os nós nesta ordem:
+
+```
+guardrail_input → context → route → execute → synthesize → respond → guardrail_output → END
+                ↘ (_blocked)
+                END
+```
+
+- **guardrail_input**: valida a mensagem (veja "Guardrails"). Se bloqueada,
+  retorna imediatamente sem chamar nenhum agente. A rota HTTP pode setar
+  `skip_guardrail_input=True` para evitar dupla validação.
+- **context**: recupera histórico de sessão e memória de longo prazo.
+- **route**: `llm_rapido` classifica a intenção e escolhe os agentes. Intenção
+  `privacy_violation` (pergunta sobre outros usuários) bloqueia a execução antes
+  do nó execute.
+- **execute**: chama cada agente em sequência. O segundo agente em diante recebe
+  a pergunta original **mais** um bloco "Contexto dos agentes anteriores:" com os
+  primeiros 300 caracteres da resposta de cada agente anterior — sem re-consultar
+  o banco, preservando a rastreabilidade da origem.
+- **synthesize**: quando ≥ 2 agentes têm sucesso, `llm_rapido` unifica as
+  respostas em texto coeso, indicando a origem de cada dado. Falha silenciosa
+  (concatenação bruta como fallback).
+- **respond**: monta a resposta final.
+- **guardrail_output**: sanitiza a resposta (PII, credenciais) e persiste o
+  histórico de sessão.
+
+## Guardrails
+
+Aplicados em duas camadas (defesa em profundidade): na rota HTTP
+(`app/routes/chat.py`) e no workflow (`app/graph/workflow.py`).
+
+**Entrada** (`app/guardrails/input.py` — `validate_input`):
+- Bloqueia mensagens vazias, muito longas (> 2000 chars) ou com `user_id` inválido.
+- Detecta padrões de injeção de prompt (15 regras regex) e palavras-chave internas.
+- Anonimiza PII (CPF, CNPJ, telefone, e-mail) com tokens `[PII_TIPO_hash]` antes
+  de repassar ao LLM. O mapa de tokens é armazenado em `GraphState.pii_map`.
+
+**Saída** (`app/guardrails/output.py` — `validate_output`):
+- Bloqueia respostas vazias ou com padrões de credencial ("senha:", "token:").
+- Redige CPF/CNPJ/telefone que apareçam diretamente no texto como `[TIPO OMITIDO]`.
+- Resolve tokens PII da entrada (substitui o token pelo indicador `[TIPO OMITIDO]`,
+  nunca devolve o valor original).
+
+## Memória de sessão e longo prazo
+
+- **Sessão** (`app/memory/session.py`): histórico de mensagens por `session_id`
+  no MongoDB. `append_turn` valida ownership antes de gravar. `load_history_validated`
+  verifica que a sessão pertence ao usuário antes de retornar.
+- **Longo prazo** (`app/memory/long_term.py`): embeddings Gemini armazenados no
+  Qdrant. Consultada pelo nó `context` quando a pergunta referencia o passado.
+
+## API HTTP
+
+```bash
+uvicorn app.main:app --reload
+# Swagger UI: http://localhost:8000/docs
+```
+
+| Método | Rota | Descrição |
+|--------|------|-----------|
+| POST | `/chat` | Envia mensagem ao chatbot |
+| GET | `/health` | Status dos serviços configurados |
+| GET | `/users/{user_id}/sessions` | Lista sessões do usuário |
+| GET | `/sessions/{session_id}/messages` | Histórico de uma sessão |
+| POST | `/sessions/{session_id}/close` | Encerra uma sessão |
+
+`POST /chat` aceita `{"user_id": 1, "message": "Quanto consumi?"}` e devolve
+`{"response": "...", "agents_used": ["forecast"], "session_id": "...", "chart_data": null}`.
+
+O `user_id` deve vir do backend autenticado — este repositório não implementa
+autenticação HTTP.

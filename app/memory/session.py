@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import warnings
 from datetime import datetime, timezone
 
 from app.data.db_mongo import get_app_client
@@ -9,7 +10,12 @@ from app.config import get_settings
 
 
 def load_history(session_id: str) -> list[dict]:
-    """Retorna todas as mensagens da sessão ordenadas por timestamp."""
+    """DESCONTINUADA: não valida o dono da sessão. Use load_history_validated."""
+    warnings.warn(
+        "load_history não valida o dono da sessão; use load_history_validated.",
+        DeprecationWarning,
+        stacklevel=2,
+    )
 
     collection = get_app_client()[get_settings().mongo_db_app]["conversations"]
     doc = collection.find_one({"session_id": session_id}, {"_id": 0, "messages": 1})

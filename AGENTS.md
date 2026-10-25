@@ -12,47 +12,62 @@ Os repositórios Delta são independentes. Faça alterações e operações Git 
 
 ## 2. Contexto e estado atual deste repositório
 
-O `delta-artificial-intelligence` contém código Python para agentes especialistas de consumo, previsão e vazamento, ferramentas de acesso a dados, cálculos determinísticos, prompts e testes. A API HTTP e a orquestração geral continuam como espaço reservado: a presença de dependências ou arquivos vazios não comprova que estejam implementadas.
+O `delta-artificial-intelligence` contém agentes Python de consumo, previsão, vazamento, hábitos e RAG, além de uma API FastAPI, um workflow LangGraph, guardrails, memória, ferramentas de dados e testes. O Juiz permanece pendente; confirme o estado de cada integração no código.
 
-A stack declarada inclui Python, FastAPI/Uvicorn, Pydantic, LangChain/LangGraph, integrações Gemini e Groq, PostgreSQL (`psycopg2`), MongoDB (`pymongo`) e Redis. No código atual, os agentes usam LangChain, Gemini/Groq e acessos PostgreSQL/MongoDB; FastAPI, LangGraph e Redis não têm fluxo de aplicação implementado.
+A stack declarada inclui Python, FastAPI/Uvicorn, Pydantic, LangChain/LangGraph, integrações Gemini e Groq, PostgreSQL (`psycopg2`), MongoDB (`pymongo`) e Redis. No código atual, FastAPI e LangGraph implementam o chat e as rotas de sessão; LangChain, Gemini/Groq, PostgreSQL, MongoDB e Qdrant apoiam agentes e memória. Redis consta nas dependências, sem fluxo de aplicação implementado.
 
 ### Componentes implementados
 
-- `ConsumptionAgent`, `ForecastAgent` e `LeakAgent` funcionam de forma independente, sem depender de uma API FastAPI ou do grafo LangGraph.
+- `ConsumptionAgent`, `ForecastAgent`, `LeakAgent`, `HabitsAgent` e `RagAgent` estão implementados e podem ser usados diretamente; os agentes disponíveis também são registrados no workflow LangGraph.
 - `app/tools/consumption/analysis.py` resolve períodos e calcula totais, médias, comparações e picos em Python. `app/tools/consumption/tools.py` entrega resumos com série diária e metadados, vinculados ao usuário confiável; não usa elegibilidade de previsão para bloquear consumo observado.
 - Consumo prioriza o vínculo residencial e lê janelas Mongo pelo usuário. No caminho organizacional, resolve unidades autorizadas antes de consultar a view diária SQL; nomes ambíguos não consultam consumo, e `unit_id` nunca dispensa autorização. A fonte residencial não permite segmentar por imóvel.
 - Cada `ConsumptionAgent.run()` captura uma referência temporal única para prompt e tools, renovada na próxima execução. O default é `America/Sao_Paulo`; timestamps Mongo são consultados em UTC. Períodos usam [início, fim), datas customizadas são inclusivas na entrada e o limite é 366 dias.
-- Consumo diferencia ausência, zero registrado, lacunas, fonte indisponível e dados inconsistentes. Médias usam dias com registros, duplicatas idênticas do mesmo dispositivo contam uma vez e conflitos são rejeitados. A fonte SQL diária não fornece pico horário nem horário da última leitura. Veja `docs/consumption-agent.md`.
+- Consumo diferencia ausência, zero registrado, lacunas, fonte indisponível e dados inconsistentes. Médias usam dias com registros, duplicatas idênticas do mesmo dispositivo contam uma vez e conflitos são rejeitados. A fonte SQL diária não fornece pico horário nem horário da última leitura. Veja `delta-handbook/DADOS/IA/agentes/consumption-agent.md`.
 - `app/agents/_runtime.py` implementa um laço simples de chamadas de ferramentas com limite de iterações e registro dos resultados.
 - `app/tools/forecast/calculations.py` realiza os cálculos de previsão em Python puro; o LLM não deve calcular os valores numéricos da previsão.
 - `app/tools/forecast/tools.py` reúne ferramentas que consultam dados e chamam os cálculos. O usuário residencial usa PostgreSQL e MongoDB; o caminho organizacional consulta dados consolidados no PostgreSQL.
 - `app/tools/leak/tools.py` consulta anomalias e alertas já registrados no MongoDB. `app/tools/leak/analysis.py` resume esses sinais; não implementa o motor que detecta vazamentos.
 - `app/data/db_postgres.py` contém consultas PostgreSQL para os caminhos residencial e organizacional; `app/data/db_mongo.py` contém leituras de telemetria e dados da aplicação.
 - O conector PostgreSQL usa settings, preserva opções da URI e abre uma conexão por operação, sem pool. Aplica `connect_timeout` e `statement_timeout`, fecha cursor/conexão mesmo em falhas e distingue ausência de dados de erro de banco com mensagens públicas seguras.
-- `python -m scripts.check_postgres` valida PostgreSQL com `SELECT 1` sem depender de chaves LLM ou do schema do produto. `docs/postgres-connection.md` registra configuração e limites; a conexão real continua pendente neste ambiente sem serviço/credenciais.
+- `python -m scripts.check_postgres` valida PostgreSQL com `SELECT 1` sem depender de chaves LLM ou do schema do produto. `delta-handbook/DADOS/IA/agentes/postgres-connection.md` registra configuração e limites; a conexão real continua pendente neste ambiente sem serviço/credenciais.
 - O acesso MongoDB mantém clientes lazy independentes para app/telemetria, com timezone, timeouts e fechamento explícito via `close_clients()`. Falhas não viram ausência de registros; `DatabaseDataError` identifica documento inválido sem expor detalhes brutos.
-- `python -m scripts.check_mongo` verifica ping e leitura de app/telemetria separadamente. A opção `--fixture` exige `APP_ENV=test`, um endpoint loopback por URI, porta explícita e databases distintos prefixados `delta_test_`; limpa somente os IDs próprios. Veja `docs/mongo-connection.md`. Leitura real de documento permanece pendente neste ambiente.
+- `python -m scripts.check_mongo` verifica ping e leitura de app/telemetria separadamente. A opção `--fixture` exige `APP_ENV=test`, um endpoint loopback por URI, porta explícita e databases distintos prefixados `delta_test_`; limpa somente os IDs próprios. Veja `delta-handbook/DADOS/IA/agentes/mongo-connection.md`. Leitura real de documento permanece pendente neste ambiente.
 - `app/config.py` centraliza settings imutáveis em cache e valida cada componente antes do uso. Variáveis do processo prevalecem sobre `.env`; `APP_ENV=test` ignora qualquer arquivo `.env`. Defaults de bancos locais só existem em `development` e para variáveis ausentes, nunca explicitamente vazias.
-- `docs/settings.md` descreve ambientes, precedência, recarga e validação. `.env.example` usa somente valores descartáveis locais; `tests/.env.example` é explicativo e não é carregado pela suíte.
+- `delta-handbook/DADOS/IA/agentes/settings.md` descreve ambientes, precedência, recarga e validação. `.env.example` usa somente valores descartáveis locais; `tests/.env.example` é explicativo e não é carregado pela suíte.
 - `app/services/prompts.py` mantém prompts dos sete agentes planejados. Ter prompt definido não significa que o agente correspondente esteja implementado.
 - `app/services/llms.py` configura modelos sob demanda a partir dos settings. O especialista mantém `bind_tools` nos dois provedores e usa Groq como fallback apenas para falhas transitórias; erros permanentes recebem mensagens públicas seguras e erros de programação propagam. O histórico de ferramentas é preservado sem repetir sua execução.
-- `docs/llm-models.md` registra papéis, modelos, parâmetros, retries e fontes oficiais. A disponibilidade de um modelo depende da conta; testes com clientes substituídos não comprovam acesso real nem qualidade das respostas.
+- `delta-handbook/DADOS/IA/agentes/llm-models.md` registra papéis, modelos, parâmetros, retries e fontes oficiais. A disponibilidade de um modelo depende da conta; testes com clientes substituídos não comprovam acesso real nem qualidade das respostas.
 - `tests/` contém testes com modelo falso e ferramentas substituídas; os testes não precisam de banco nem de chamadas reais a provedores de LLM.
 - `manual_chat.py` permite exercitar manualmente consumo, previsão e vazamento quando ambiente, bancos e chaves necessários estão configurados. Os IDs fixos são demonstrativos; uma futura integração deve fornecer o usuário autenticado pelo backend.
 
+### Componentes implementados na branch `feat/langgraph-orquestracao`
+
+Os componentes abaixo foram implementados e têm cobertura de testes:
+
+- API e rotas: `app/main.py` (CORS, registro de routers), `app/routes/chat.py`,
+  `app/routes/health.py`, `app/routes/sessions.py`, `app/schemas.py`.
+- Fluxo LangGraph: `app/graph/workflow.py` (grafo completo com guardrails,
+  context-passing, síntese), `app/graph/state.py`, `app/graph/router.py`,
+  `app/graph/context.py`.
+- Agente `habits`: `app/agents/habits.py`, `app/tools/habits/tools.py`
+  (inclui consulta ao histórico de clima no MongoDB `weather_daily`).
+- Guardrails: `app/guardrails/input.py` (anonimização PII, detecção de injeção),
+  `app/guardrails/output.py` (redação de PII na saída).
+- Memória de sessão: `app/memory/session.py` (MongoDB, ownership validado).
+- Memória de longo prazo: `app/memory/long_term.py` (Qdrant + embeddings Gemini).
+
 ### Componentes ainda sem implementação
 
-Os componentes abaixo continuam reservados no código revisado. Não descreva seu comportamento como funcional nem os preencha fora do escopo da tarefa:
+Os componentes abaixo continuam reservados. Não descreva seu comportamento como
+funcional nem os preencha fora do escopo da tarefa:
 
-- API e rotas: `app/main.py`, `app/routes/`, `app/schemas.py`;
-- fluxo LangGraph: `app/graph/workflow.py` e `app/graph/state.py`;
-- agentes `habits`, `judge`, `profile` e `rag`;
-- guardrails de entrada e saída em `app/guardrails/`;
-- memória de sessão ou de longo prazo em `app/memory/`;
+- Agente `judge`;
 - métricas em `app/observability/`.
 
 A fonte documental é `app/knowledge/delta-main-source.md`, caminho padrão de `RAG_DOCUMENT_PATH`, incluída também na imagem Docker. O `RagAgent` usa `app/tools/rag.py` para recuperar trechos de `rag_documents` com fonte, revisão, modelo e linhas, e está registrado no roteador. O modelo de embedding vem de `GEMINI_EMBEDDING_MODEL`; a tool verifica a completude da revisão atual e chama `index_document()` automaticamente quando necessário, antes de consultar. A coleção deve existir previamente com dimensão compatível. O identificador de payload `delta-product-reference` permanece estável ao renomear o arquivo, cuja revisão depende do conteúdo. Testes com Qdrant em memória e embeddings controlados não comprovam Gemini/Qdrant remoto ou qualidade semântica.
 
+O Judge permanece sem implementação.
+Redis aparece nas dependências, mas não há integração de aplicação implementada aqui.
 A ingestão e a consulta documental compartilham `app/services/rag.py`. A tool chama
 `ensure_document_indexed()` antes de `search_document()`, sem CLI manual. A preparação
 verifica fonte, revisão e modelo e indexa apenas se faltar conteúdo. IDs estáveis
@@ -70,22 +85,21 @@ O Judge permanece sem implementação.
 delta-artificial-intelligence/
 ├── .github/workflows/       # Verificações organizacionais de Pull Request
 ├── app/
-│   ├── agents/              # ConsumptionAgent, ForecastAgent, LeakAgent e runtime
+│   ├── agents/              # ConsumptionAgent, ForecastAgent, LeakAgent, HabitsAgent e runtime
 │   ├── data/                # Acesso PostgreSQL e MongoDB
-│   ├── graph/               # Estado, roteador e workflow LangGraph
-│   ├── guardrails/          # Reservado para validações de entrada e saída
-│   ├── memory/              # Reservado para memória
+│   ├── graph/               # Workflow LangGraph, router, state, context
+│   ├── guardrails/          # Validações de entrada e saída (PII, injeção)
+│   ├── memory/              # Sessão (MongoDB) e longo prazo (Qdrant)
 │   ├── observability/       # Reservado para métricas
-│   ├── routes/              # Chat, sessoes, health e console de testes
+│   ├── routes/              # API HTTP: chat, health, sessions e playground
 │   ├── services/            # LLMs, prompts e segmentação/recuperação documental RAG
-│   ├── tools/               # consumption/, forecast/, leak/, modelos e exceções
+│   ├── tools/               # consumption/, forecast/, leak/, habits/, modelos e exceções
 │   ├── config.py
-│   └── main.py              # Aplicacao FastAPI e registro de rotas
-├── frontend/                # Console HTML/CSS/JS com abas dos agentes
+│   └── main.py              # FastAPI app com CORS e routers registrados
+├── frontend/                # Console de testes com abas por agente e roteador
 ├── db/
 │   ├── postgres-init/       # Cópias locais de bootstrap PostgreSQL, arquivos 01 a 09
 │   └── README.md
-├── docs/                    # Configuração e guias técnicos das integrações
 ├── tests/                   # Testes RAG isolados com Qdrant em memória e modelos controlados
 ├── .env.example
 ├── AGENTS.md
@@ -191,30 +205,3 @@ Durante esta execução, as orientações diretas da pessoa usuária prevalecem 
 - Evite tentativas repetidas de recuperação de infraestrutura. Testes automatizados necessários continuam obrigatórios; valide cada alteração com os testes pertinentes e faça regressão completa quando o conjunto estiver pronto.
 
 A pasta agrupadora e os repositórios irmãos continuam fora do escopo de edição. Os worktrees não têm os mesmos caminhos relativos do checkout principal: consulte schemas oficiais usando o caminho confirmado da pasta agrupadora, sem criar cópias para simular schema ausente.
-
-## 11. Console de testes dos agentes
-
-A API FastAPI, o roteador e o workflow LangGraph estão implementados no código
-atual; descrições históricas de espaços reservados acima devem ser confrontadas
-com a implementação. O grafo registra Consumo, Previsão, Vazamento, Hábitos e RAG.
-
-frontend/ contém o console servido em /playground/, com a identidade visual
-do delta-web-app. Cada arquivo de frontend/tabs/ descreve uma aba; app.js
-mantém estados independentes e shared.js renderiza texto, gráficos e diagnósticos.
-app/routes/playground.py fixa o usuário 12345679 e o nome teste_agentes_25_10.
-As rotas não criam usuário, dados sintéticos ou perfil.
-
-O Juiz permanece pendente de integração por decisão explícita da pessoa usuária.
-Sua aba apenas informa skipped; não presuma uma interface futura do agente e
-não execute um juiz fictício. Um componente implementado que falha deve aparecer
-como erro, separado de componentes ainda pendentes.
-
-app/observability/diagnostics.py registra chamadas efetivas, ferramentas e etapas
-com contexto isolado por requisição. Preserve a separação entre modelos configurados
-e executados, o rastreamento de fallback e a remoção de credenciais/URIs dos
-diagnósticos. A busca de memória não cria nem recria coleções ao consultar.
-
-O console é habilitado por padrão em development/test e desabilitado em
-staging/production, com override DELTA_PLAYGROUND_ENABLED. Não exponha esse
-console interno com identidade fixa sem restrição de acesso. Testes de contrato
-com modelos substitutos não validam bancos ou provedores reais.

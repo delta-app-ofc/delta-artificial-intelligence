@@ -91,7 +91,7 @@ def run_test(req: PlaygroundRequest, mode: str):
                     return envelope(trace, session_id)
             message = guard["message"]
             if mode == "chat":
-                state = run_workflow(USER_ID, session_id, message)
+                state = run_workflow(USER_ID, session_id, message, persist_session=False)
                 response, chart = state["response"], state.get("chart_data")
                 results = state.get("agent_results", [])
                 trace.warnings.extend(state.get("warnings", []))
