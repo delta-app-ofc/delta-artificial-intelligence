@@ -54,16 +54,16 @@ coleção em cada alvo Mongo, sem imprimir documentos. Conectividade não
 comprova que o schema/views do produto ou os dados necessários existam.
 O modo Mongo `--fixture` insere, converte e remove documentos sintéticos
 somente em databases de teste isolados em loopback; veja os requisitos no
-[guia MongoDB](docs/mongo-connection.md) antes de usá-lo.
+[guia MongoDB](https://github.com/delta-app-ofc/delta-handbook/blob/main/DADOS/IA/agentes/mongo-connection.md) antes de usá-lo.
 
 Settings são snapshots em cache. Ao trocar configuração em um processo já
 em execução, recarregue os settings e descarte os clientes afetados:
 `clear_llm_cache()` para modelos e `close_clients()` para os dois clientes
 Mongo. Reiniciar o processo também aplica a nova configuração.
 
-Detalhes: [settings e ambientes](docs/settings.md),
-[conector PostgreSQL](docs/postgres-connection.md) e
-[conector MongoDB](docs/mongo-connection.md).
+Detalhes: [settings e ambientes](https://github.com/delta-app-ofc/delta-handbook/blob/main/DADOS/IA/agentes/settings.md),
+[conector PostgreSQL](https://github.com/delta-app-ofc/delta-handbook/blob/main/DADOS/IA/agentes/postgres-connection.md) e
+[conector MongoDB](https://github.com/delta-app-ofc/delta-handbook/blob/main/DADOS/IA/agentes/mongo-connection.md).
 
 ## Base documental RAG
 
@@ -228,7 +228,7 @@ python manual_chat.py consumption "Quanto consumi ontem?"
 O modo manual usa um ID demonstrativo definido no arquivo e precisa dos
 bancos e do LLM configurados. Uma integração deve fornecer o usuário
 autenticado pelo backend; este repositório ainda não implementa autenticação
-HTTP. Veja [regras e exemplos de uso](docs/consumption-agent.md).
+HTTP. Veja [regras e exemplos de uso](https://github.com/delta-app-ofc/delta-handbook/blob/main/DADOS/IA/agentes/consumption-agent.md).
 
 ## Agente de Vazamento
 
@@ -297,7 +297,7 @@ com `LLM_FALLBACK_ENABLED=false`.
 usado pelo router e pelo nó de síntese do workflow. Timeout, retries e limite
 de saída são configuráveis. A disponibilidade depende da conta e do identificador;
 os testes não medem qualidade em português. Justificativas, parâmetros e
-fontes oficiais estão em [provedores e modelos](docs/llm-models.md).
+fontes oficiais estão em [provedores e modelos](https://github.com/delta-app-ofc/delta-handbook/blob/main/DADOS/IA/agentes/llm-models.md).
 
 ## Agente de Hábitos
 
