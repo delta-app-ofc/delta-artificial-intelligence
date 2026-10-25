@@ -8,7 +8,7 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 
 WORKDIR /app
 
-# Disponibiliza certificados TLS e fusos horários para as integrações.
+# Disponibiliza certificados TLS e fusos horÃ¡rios para as integraÃ§Ãµes.
 RUN apt-get update \
     && apt-get install -y --no-install-recommends ca-certificates tzdata \
     && rm -rf /var/lib/apt/lists/*
@@ -18,6 +18,7 @@ RUN python -m pip install --no-cache-dir -r requirements.txt
 
 RUN useradd --create-home --uid 10001 appuser
 COPY --chown=appuser:appuser app/ ./app/
+COPY --chown=appuser:appuser frontend/ ./frontend/
 
 USER appuser
 

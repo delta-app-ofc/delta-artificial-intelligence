@@ -11,6 +11,7 @@ from threading import Lock
 import uuid
 
 from app.config import BASE_DIR, ConfigurationError, get_settings
+from app.observability.diagnostics import embedding_call
 from langchain_google_genai import GoogleGenerativeAIEmbeddings
 from qdrant_client import QdrantClient
 from qdrant_client.models import (
@@ -153,7 +154,8 @@ def index_document(document: RagDocument, *, client, embeddings) -> int:
         client.create_payload_index(COLLECTION, field, field_schema=PayloadSchemaType.KEYWORD, wait=True)
 
     texts = ["\n".join((*chunk.headings, chunk.text)) for chunk in document.chunks]
-    vectors = embeddings.embed_documents(texts, task_type="RETRIEVAL_DOCUMENT")
+    with embedding_call(model):
+        vectors = embeddings.embed_documents(texts, task_type="RETRIEVAL_DOCUMENT")
 
     if len(vectors) != len(document.chunks):
         raise ValueError("O provedor não retornou um embedding por trecho.")
@@ -222,7 +224,8 @@ def search_document(document: RagDocument, question: str, *, client, embeddings,
     if not _revision_is_complete(document, client=client):
         raise ValueError("Revisão ausente ou incompleta. Indexe o documento atual antes de consultar.")
 
-    vector = embeddings.embed_query(question, task_type="RETRIEVAL_QUERY")
+    with embedding_call(embedding_model_name()):
+        vector = embeddings.embed_query(question, task_type="RETRIEVAL_QUERY")
     response = client.query_points(
         COLLECTION, query=vector, query_filter=_revision_filter(document), limit=top_k,
         score_threshold=score_threshold, with_payload=True,

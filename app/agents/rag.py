@@ -8,6 +8,7 @@ from langchain_core.messages import AIMessage, ToolMessage
 
 from app.agents._runtime import AgentResult, ToolCall
 from app.config import ConfigurationError
+from app.observability.diagnostics import current_trace
 from app.services.prompts import RAG_PROMPT_COMPLETO
 from app.tools.rag import search_knowledge_base
 
@@ -51,6 +52,8 @@ class RagAgent:
 
                 call = calls[message.tool_call_id]
                 result.tool_calls.append(ToolCall(call["name"], call["args"], output))
+                if trace := current_trace():
+                    trace.tool("rag", call["name"], call["args"], output)
 
                 if output.get("status") == "ok":
                     result.sources.extend(chunk["citation"] for chunk in output["chunks"])

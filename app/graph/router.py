@@ -4,8 +4,11 @@ import json
 from typing import Literal
 
 from pydantic import BaseModel
+from app.config import ConfigurationError
+from app.observability.diagnostics import current_trace
 
 AGENT_REGISTRY: dict[str, str] = {
+    "consumption": "app.agents.consumption.ConsumptionAgent",
     "forecast": "app.agents.forecast.ForecastAgent",
     "leak": "app.agents.leak.LeakAgent",
     "habits": "app.agents.habits.HabitsAgent",
@@ -16,6 +19,7 @@ _ROUTER_PROMPT = """Você é o roteador do Delta AI, assistente de monitoramento
 Classifique a pergunta e decida quais agentes devem responder.
 
 Agentes disponíveis:
+- consumption: consumo registrado, totais, médias, comparação de períodos e picos diários; não prevê conta futura
 - forecast: previsão de consumo, estimativa da próxima conta, tendência, risco de meta
 - leak: possíveis vazamentos, consumo anormal, alertas de comportamento atípico
 - habits: hábitos cadastrados, frequência, dias da semana, impacto hídrico, clima para hábitos ao ar livre
@@ -71,6 +75,8 @@ def classify(question: str, context: dict) -> RoutingDecision:
     user_text = f"{ctx_text}\n\nPergunta: {question}" if ctx_text else question
 
     try:
+        if llm_rapido is None:
+            raise ConfigurationError("Configure GROQ_API_KEY e GROQ_FAST_MODEL para o roteador.")
         response = llm_rapido.invoke(
             [SystemMessage(content=_ROUTER_PROMPT), HumanMessage(content=user_text)]
         )
@@ -83,10 +89,13 @@ def classify(question: str, context: dict) -> RoutingDecision:
             data = json.loads(content[start:end]) if start >= 0 and end > start else {}
         decision = RoutingDecision(**data)
         known = set(AGENT_REGISTRY)
-        decision.agents = [a for a in decision.agents if a in known]
+        if trace := current_trace():
+            trace.skipped_agents.extend(a for a in decision.agents if a not in known)
+        decision.agents = list(dict.fromkeys(a for a in decision.agents if a in known))
         return decision
-    except Exception:
-        pass
+    except Exception as error:
+        if trace := current_trace():
+            trace.error("router", error)
 
     return RoutingDecision(intent="unknown", complexity="simple", agents=[])
 
@@ -97,5 +106,11 @@ def load_agent(name: str, user_id: int):
 
     module_path, class_name = AGENT_REGISTRY[name].rsplit(".", 1)
     module = importlib.import_module(module_path)
-    cls = getattr(module, class_name)
+    cls = getattr(module, class_name, None)
+    if cls is None or not callable(getattr(cls, "run", None)):
+        raise AgentNotImplemented(name)
     return cls(user_id=user_id)
+
+
+class AgentNotImplemented(RuntimeError):
+    """Componente reservado: não representa uma falha de um agente implementado."""

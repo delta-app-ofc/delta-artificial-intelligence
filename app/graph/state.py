@@ -7,13 +7,14 @@ from pydantic import BaseModel
 
 class AgentOutput(BaseModel):
     agent: str
-    status: Literal["success", "error"]
+    status: Literal["success", "error", "skipped"]
     answer: str
     data: dict = {}
     sources: list[str] = []
     confidence: float | None = None
     warnings: list[str] = []
     chart_data: dict | None = None
+    tool_calls: list[dict] = []
 
 
 class _GraphStateRequired(TypedDict):

@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from app.observability.diagnostics import current_trace
+
 RECENT_TURNS = 6
 
 # Palavras que indicam que o usuário quer contexto de sessões anteriores.
@@ -25,7 +27,9 @@ def build_context(user_id: int, session_id: str, question: str) -> dict:
 
     try:
         recent = load_history_validated(user_id, session_id)
-    except Exception:
+    except Exception as error:
+        if trace := current_trace():
+            trace.error("session_history", error)
         recent = []
 
     relevant: list[str] = []
@@ -35,7 +39,9 @@ def build_context(user_id: int, session_id: str, question: str) -> dict:
         try:
             from app.memory.long_term import search_memory
             relevant = search_memory(user_id, question)
-        except Exception:
+        except Exception as error:
+            if trace := current_trace():
+                trace.error("long_term_memory", error)
             relevant = []
 
     return {
