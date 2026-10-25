@@ -6,7 +6,6 @@ from decimal import Decimal
 from typing import Iterator, Literal
 
 import psycopg2
-from psycopg2.extensions import parse_dsn
 
 from app.config import get_settings, validate_postgres_config
 from app.tools.exceptions import (
@@ -21,18 +20,11 @@ def get_conn():
     settings = get_settings()
     validate_postgres_config(settings=settings)
     database_url = settings.database_url or ""
-    query_timeout_ms = settings.db_query_timeout_seconds * 1000
-    statement_timeout_option = f"-c statement_timeout={query_timeout_ms}ms"
 
     try:
-        existing_options = parse_dsn(database_url).get("options", "")
-        options = " ".join(
-            value for value in (existing_options, statement_timeout_option) if value
-        )
         return psycopg2.connect(
             database_url,
             connect_timeout=settings.db_connect_timeout_seconds,
-            options=options,
         )
     except psycopg2.Error as exc:
         raise DatabaseConnectionError("PostgreSQL") from exc
@@ -46,6 +38,11 @@ def _cursor() -> Iterator:
     operation_failed = False
     try:
         cur = conn.cursor()
+        # SET LOCAL funciona com poolers e expira ao encerrar esta transação.
+        cur.execute(
+            "SELECT set_config('statement_timeout', %s, true);",
+            (f"{get_settings().db_query_timeout_seconds * 1000}ms",),
+        )
         yield cur
         conn.commit()
     except psycopg2.Error as exc:
