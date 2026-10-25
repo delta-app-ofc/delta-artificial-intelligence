@@ -47,6 +47,7 @@ def _cursor() -> Iterator:
     try:
         cur = conn.cursor()
         yield cur
+        conn.commit()
     except psycopg2.Error as exc:
         operation_failed = True
         raise DatabaseQueryError(
