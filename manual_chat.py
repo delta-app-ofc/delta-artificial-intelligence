@@ -1,7 +1,8 @@
-"""Testa ConsumptionAgent, ForecastAgent e LeakAgent:
+"""Executa os agentes individualmente:
     python manual_chat.py consumption "Quanto consumi hoje?"
     python manual_chat.py forecast "Quanto eu vou gastar de água esse mês?"
     python manual_chat.py leak "Tem algum indício de vazamento na minha casa?"
+    python manual_chat.py rag "Como vinculo meu hidrômetro?"
 """
 
 from __future__ import annotations
@@ -12,6 +13,7 @@ from datetime import date
 from app.agents.consumption import ConsumptionAgent
 from app.agents.forecast import ForecastAgent
 from app.agents.leak import LeakAgent
+from app.agents.rag import RagAgent
 
 sys.stdout.reconfigure(encoding="utf-8")
 
@@ -21,7 +23,7 @@ CONSUMPTION_USER_ID = 1
 
 
 def main() -> None:
-    if len(sys.argv) < 3 or sys.argv[1] not in ("consumption", "forecast", "leak"):
+    if len(sys.argv) < 3 or sys.argv[1] not in ("consumption", "forecast", "leak", "rag"):
         print(__doc__)
         sys.exit(1)
 
@@ -33,6 +35,8 @@ def main() -> None:
         agent = ForecastAgent(user_id=FORECAST_USER_ID, today=date.today())
     elif agent_name == "leak":
         agent = LeakAgent(user_id=LEAK_USER_ID)
+    elif agent_name == "rag":
+        agent = RagAgent(user_id=1)
 
     result = agent.run(question)
 

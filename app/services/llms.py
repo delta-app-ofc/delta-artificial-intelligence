@@ -31,8 +31,6 @@ __all__ = [
     "llm_rapido",  # noqa: F822
 ]
 
-EMBEDDING_MODEL_NAME = "gemini-embedding-2-preview"
-
 _PUBLIC_UNAVAILABLE_MESSAGE = "O serviço de linguagem está indisponível no momento."
 _TRANSIENT_HTTP_CODES = {408, 429}
 
@@ -224,6 +222,8 @@ def clear_llm_cache() -> None:
 
 
 def __getattr__(name: str) -> Any:
+    if name == "EMBEDDING_MODEL_NAME":
+        return get_settings().gemini_embedding_model
     if name == "llm_gemini":
         return _get_llm_gemini()
     if name == "llm_groq_especialista":

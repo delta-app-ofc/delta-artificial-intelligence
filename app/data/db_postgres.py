@@ -47,6 +47,7 @@ def _cursor() -> Iterator:
     try:
         cur = conn.cursor()
         yield cur
+        conn.commit()
     except psycopg2.Error as exc:
         operation_failed = True
         raise DatabaseQueryError(
@@ -308,45 +309,95 @@ def get_organization_last_billed_period(
 def get_user_habits(user_id: int) -> list[dict]:
     """Retorna os hábitos de consumo de água do usuário.
 
-    Cada item tem: name (str), frequency (int — vezes por semana),
-    days (list[str] — dias da semana em maiúsculas, ex.: SEGUNDA).
+    Cada item tem: name (str), category (str), frequency (int — vezes por
+    semana), days (list[str] — dias em maiúsculas, ex.: SEGUNDA), start_time e
+    end_time (str HH:MM ou None) e estimated_liters (float ou None).
     """
     with _cursor() as cur:
         cur.execute(
             """
-            SELECT h.name, h.weekly_frequency, array_agg(hd.day_of_week ORDER BY hd.day_of_week)
-              FROM habits h
-              JOIN habit_days hd ON hd.habit_id = h.id
-             WHERE h.user_id = %s
-             GROUP BY h.id, h.name, h.weekly_frequency
-             ORDER BY h.name;
+            SELECT name, category, frequency, days,
+                   to_char(start_time, 'HH24:MI'),
+                   to_char(end_time, 'HH24:MI'),
+                   estimated_liters
+              FROM fn_user_habits(%s);
             """,
             (user_id,),
         )
         rows = cur.fetchall()
-    return [{"name": name, "frequency": freq, "days": list(days)} for name, freq, days in rows]
+    return [
+        {
+            "name": name,
+            "category": category,
+            "frequency": freq,
+            "days": list(days),
+            "start_time": start,
+            "end_time": end,
+            "estimated_liters": float(liters) if liters is not None else None,
+        }
+        for name, category, freq, days, start, end, liters in rows
+    ]
 
 
 def get_habits_by_weekday(user_id: int, day: str) -> list[dict]:
     """Retorna os hábitos do usuário que ocorrem no dia da semana informado.
 
     `day` deve estar em maiúsculas (ex.: SEGUNDA, SABADO).
-    Cada item retornado tem: name (str) e frequency (int).
+    Cada item retornado tem: name, frequency, start_time, end_time (HH:MM ou
+    None) e estimated_liters (float ou None).
     """
     with _cursor() as cur:
         cur.execute(
             """
-            SELECT h.name, h.weekly_frequency
-              FROM habits h
-              JOIN habit_days hd ON hd.habit_id = h.id
-             WHERE h.user_id = %s
-               AND hd.day_of_week = %s
-             ORDER BY h.name;
+            SELECT name, frequency,
+                   to_char(start_time, 'HH24:MI'),
+                   to_char(end_time, 'HH24:MI'),
+                   estimated_liters
+              FROM fn_user_habits_by_day(%s, %s);
             """,
             (user_id, day),
         )
         rows = cur.fetchall()
-    return [{"name": name, "frequency": freq} for name, freq in rows]
+    return [
+        {
+            "name": name,
+            "frequency": freq,
+            "start_time": start,
+            "end_time": end,
+            "estimated_liters": float(liters) if liters is not None else None,
+        }
+        for name, freq, start, end, liters in rows
+    ]
+
+
+def get_user_location(user_id: int) -> dict | None:
+    """Retorna cidade, estado e país do primeiro imóvel vinculado ao usuário.
+
+    Retorna None quando o usuário não tem imóvel cadastrado.
+    """
+    with _cursor() as cur:
+        cur.execute("SELECT city, state FROM fn_user_location(%s);", (user_id,))
+        row = cur.fetchone()
+    if row is None:
+        return None
+    return {"city": row[0], "state": row[1], "country": "BR"}
+
+
+def create_habit(user_id: int, name: str, frequency: int, days: list[str]) -> dict:
+    """Cadastra um hábito e vincula os dias da semana.
+
+    Retorna confirmação com name, frequency e days.
+    Levanta ValueError se o hábito já existir ou os dados forem inválidos.
+    """
+    with _cursor() as cur:
+        try:
+            cur.execute(
+                "SELECT fn_create_user_habit(%s, %s, %s, %s);",
+                (user_id, name, frequency, days),
+            )
+        except psycopg2.errors.RaiseException as exc:  # type: ignore[attr-defined]
+            raise ValueError(exc.diag.message_primary) from exc
+    return {"name": name, "frequency": frequency, "days": days}
 
 
 def get_organization_effective_rate(

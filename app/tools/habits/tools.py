@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from langchain_core.tools import BaseTool, tool
 
-from app.data import db_postgres
+from app.data import db_mongo, db_postgres
 
 _HABIT_LITERS_PER_SESSION: dict[str, float] = {
     "BANHO LONGO": 80.0,
@@ -69,7 +69,19 @@ def _normalize_day(day: str) -> str | None:
     return upper if upper in valid else None
 
 
+_NOT_RESIDENTIAL = {
+    "status": "not_applicable",
+    "message": (
+        "Hábitos de consumo estão disponíveis apenas para usuários residenciais. "
+        "Sua conta está vinculada a uma organização."
+    ),
+}
+
+
 def build_tools(user_id: int) -> list[BaseTool]:
+
+    _access_kind = db_postgres.get_user_access_kind(user_id)
+    _is_residential = _access_kind == "residential"
 
     @tool
     def list_habits() -> dict:
@@ -78,7 +90,11 @@ def build_tools(user_id: int) -> list[BaseTool]:
 
         Retorna lista com name (nome do hábito), frequency (vezes por semana) e
         days (lista de dias). Lista vazia significa sem hábitos cadastrados.
+
+        Disponível apenas para usuários residenciais.
         """
+        if not _is_residential:
+            return _NOT_RESIDENTIAL
         habits = db_postgres.get_user_habits(user_id)
         if not habits:
             return {"status": "insufficient_data", "message": "Nenhum hábito cadastrado."}
@@ -92,7 +108,11 @@ def build_tools(user_id: int) -> list[BaseTool]:
         completo: seg, segunda, segunda-feira, ter, terça, sab, sábado, etc.
 
         Retorna lista com name e frequency dos hábitos daquele dia.
+
+        Disponível apenas para usuários residenciais.
         """
+        if not _is_residential:
+            return _NOT_RESIDENTIAL
         canonical = _normalize_day(day)
         if canonical is None:
             return {
@@ -126,7 +146,11 @@ def build_tools(user_id: int) -> list[BaseTool]:
           Pode ser lista vazia se os dias ainda não forem conhecidos.
 
         Retorna confirmação com o nome canônico, frequência e dias vinculados.
+
+        Disponível apenas para usuários residenciais.
         """
+        if not _is_residential:
+            return _NOT_RESIDENTIAL
         canonical_name = _VALID_HABITS.get(name.strip().lower())
         if canonical_name is None:
             valid = ", ".join(sorted(set(_VALID_HABITS.values())))
@@ -180,7 +204,11 @@ def build_tools(user_id: int) -> list[BaseTool]:
 
         Use quando o usuário perguntar quanto de água um hábito consome, ou para
         contextualizar o peso de um hábito no consumo mensal.
+
+        Disponível apenas para usuários residenciais.
         """
+        if not _is_residential:
+            return _NOT_RESIDENTIAL
         canonical = _VALID_HABITS.get(habit_name.strip().lower())
         if canonical is None:
             valid = ", ".join(sorted(set(_VALID_HABITS.values())))
@@ -205,4 +233,74 @@ def build_tools(user_id: int) -> list[BaseTool]:
             "note": "Estimativas baseadas em médias de referência. Não representam medições do hidrômetro.",
         }
 
-    return [list_habits, get_habits_by_day, create_habit, estimate_habit_water_impact]
+    @tool
+    def get_weather_history(days: int = 7) -> dict:
+        """Retorna o histórico meteorológico recente da localização do usuário,
+        lendo da coleção weather_daily no MongoDB.
+
+        days: número de dias para trás (padrão 7, máximo 30).
+
+        Use para identificar padrões climáticos recentes que influenciam hábitos
+        ao ar livre: chuva acumulada, temperaturas médias, vento.
+
+        Retorna lista de dias com temperatura média, chuva total e condição
+        predominante. Lista vazia significa sem registros no período.
+        """
+        days = max(1, min(days, 30))
+        try:
+            location = db_postgres.get_user_location(user_id)
+            if location is None:
+                return {
+                    "status": "insufficient_data",
+                    "message": "Localização do usuário não encontrada.",
+                }
+            docs = db_mongo.get_weather_daily(
+                location["city"], location["state"], location["country"], days
+            )
+        except Exception:
+            return {
+                "status": "error",
+                "message": "Não foi possível acessar o histórico meteorológico.",
+            }
+
+        if not docs:
+            return {
+                "status": "no_data",
+                "location": location,
+                "days_requested": days,
+                "message": "Sem registros meteorológicos para o período solicitado.",
+            }
+
+        summaries = []
+        for doc in docs:
+            hours = doc.get("hours", [])
+            if not hours:
+                continue
+            temps = [h["temperature_c"] for h in hours if "temperature_c" in h]
+            rains = [h.get("rain_mm", 0) for h in hours]
+            conditions = [h.get("condition", "") for h in hours if h.get("condition")]
+            avg_temp = round(sum(temps) / len(temps), 1) if temps else None
+            total_rain = round(sum(rains), 1)
+            condition = max(set(conditions), key=conditions.count) if conditions else None
+            summaries.append({
+                "date": doc.get("weather_date").isoformat() if doc.get("weather_date") else None,
+                "avg_temperature_c": avg_temp,
+                "total_rain_mm": total_rain,
+                "predominant_condition": condition,
+                "samples": doc.get("samples", len(hours)),
+            })
+
+        return {
+            "status": "ok",
+            "location": location,
+            "days": summaries,
+            "note": "Dados históricos do MongoDB. Não representam previsão futura.",
+        }
+
+    return [
+        list_habits,
+        get_habits_by_day,
+        create_habit,
+        estimate_habit_water_impact,
+        get_weather_history,
+    ]

@@ -64,12 +64,22 @@ funcional nem os preencha fora do escopo da tarefa:
 - Agentes `judge` e `rag`;
 - métricas em `app/observability/`.
 
-O serviço documental RAG em `app/services/rag.py` segmenta Markdown por títulos, indexa embeddings Gemini em `rag_documents` e recupera trechos com fonte, revisão e linhas. `scripts/rag.py` oferece inspeção offline, indexação e busca explícitas; não gera respostas nem está integrado ao agente/grafo. Veja `docs/rag-retrieval.md`. Os testes usam Qdrant em memória e embeddings controlados; não comprovam Gemini/Qdrant remoto ou qualidade semântica.
+A fonte documental é `app/knowledge/delta-main-source.md`, caminho padrão de `RAG_DOCUMENT_PATH`, incluída também na imagem Docker. O `RagAgent` usa `app/tools/rag.py` para recuperar trechos de `rag_documents` com fonte, revisão, modelo e linhas, e está registrado no roteador. O modelo de embedding vem de `GEMINI_EMBEDDING_MODEL`; a tool verifica a completude da revisão atual e chama `index_document()` automaticamente quando necessário, antes de consultar. A coleção deve existir previamente com dimensão compatível. O identificador de payload `delta-product-reference` permanece estável ao renomear o arquivo, cuja revisão depende do conteúdo. Testes com Qdrant em memória e embeddings controlados não comprovam Gemini/Qdrant remoto ou qualidade semântica.
 
 O agente RAG e o Judge permanecem fora do escopo desta primeira etapa documental.
 Redis aparece nas dependências, mas não há integração de aplicação implementada aqui.
 `ConsumptionAgent` ainda não está no `AGENT_REGISTRY` do router — não é roteável
 pelo workflow LangGraph (task separada).
+A ingestão e a consulta documental compartilham `app/services/rag.py`. A tool chama
+`ensure_document_indexed()` antes de `search_document()`, sem CLI manual. A preparação
+verifica fonte, revisão e modelo e indexa apenas se faltar conteúdo. IDs estáveis
+preservam a idempotência, e um lock evita gerações simultâneas no mesmo processo.
+Revisões anteriores são preservadas e excluídas da consulta. Uma falha retorna
+indisponibilidade, e a próxima chamada tenta completar a revisão automaticamente.
+`tests/test_rag.py` verifica esse fluxo com Qdrant em memória e modelos controlados;
+não comprova integração remota nem fidelidade de um LLM real.
+
+O Judge permanece sem implementação.
 
 ### Estrutura atual
 
@@ -92,8 +102,7 @@ delta-artificial-intelligence/
 │   ├── postgres-init/       # Cópias locais de bootstrap PostgreSQL, arquivos 01 a 09
 │   └── README.md
 ├── docs/                    # Configuração e guias técnicos das integrações
-├── scripts/                 # Conectividade e CLI RAG (inspect offline; index/search com embeddings)
-├── tests/                   # Testes pytest; conftest isola ambiente e cache de settings
+├── tests/                   # Testes RAG isolados com Qdrant em memória e modelos controlados
 ├── .env.example
 ├── AGENTS.md
 ├── docker-compose.dev.yml   # PostgreSQL e MongoDB locais para desenvolvimento manual

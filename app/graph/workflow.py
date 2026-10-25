@@ -90,6 +90,7 @@ def _execute_node(state: GraphState) -> dict:
                 agent=name,
                 status="success",
                 answer=internal.response,
+                sources=internal.sources,
                 chart_data=internal.chart_data,
             )
         except Exception as exc:

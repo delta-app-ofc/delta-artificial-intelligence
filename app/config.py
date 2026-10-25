@@ -37,6 +37,7 @@ class Settings:
     mongo_db_app: str
     mongo_db_telemetry: str
     gemini_model: str
+    gemini_embedding_model: str
     groq_specialist_model: str
     groq_fast_model: str
     llm_fallback_enabled: bool
@@ -47,6 +48,7 @@ class Settings:
     db_query_timeout_seconds: int
     qdrant_url: str | None = field(repr=False)
     qdrant_api_key: str | None = field(repr=False)
+    rag_document_path: str | None = field(default=None, repr=False)
     _parse_errors: tuple[tuple[str, str], ...] = field(default=(), repr=False)
 
 
@@ -102,6 +104,9 @@ def load_settings(
     mongo_db_app = values.get("MONGO_DB_APP", "db_delta_app")
     mongo_db_telemetry = values.get("MONGO_DB_TELEMETRY", "db_delta_telemetry")
     gemini_model = values.get("GEMINI_MODEL", "gemini-2.5-flash")
+    gemini_embedding_model = values.get(
+        "GEMINI_EMBEDDING_MODEL", "gemini-embedding-2-preview"
+    )
     groq_specialist_model = values.get(
         "GROQ_SPECIALIST_MODEL", "openai/gpt-oss-120b"
     )
@@ -152,6 +157,7 @@ def load_settings(
         mongo_db_app=mongo_db_app or "",
         mongo_db_telemetry=mongo_db_telemetry or "",
         gemini_model=gemini_model or "",
+        gemini_embedding_model=gemini_embedding_model or "",
         groq_specialist_model=groq_specialist_model or "",
         groq_fast_model=groq_fast_model or "",
         llm_fallback_enabled=fallback_enabled,
@@ -162,6 +168,9 @@ def load_settings(
         db_query_timeout_seconds=parsed_numbers["DB_QUERY_TIMEOUT_SECONDS"],
         qdrant_url=values.get("QDRANT_URL"),
         qdrant_api_key=values.get("QDRANT_API_KEY"),
+        rag_document_path=values.get(
+            "RAG_DOCUMENT_PATH", "app/knowledge/delta-main-source.md"
+        ),
         _parse_errors=tuple(parse_errors),
     )
 

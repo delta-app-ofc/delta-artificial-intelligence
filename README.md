@@ -65,19 +65,55 @@ Detalhes: [settings e ambientes](docs/settings.md),
 [conector PostgreSQL](docs/postgres-connection.md) e
 [conector MongoDB](docs/mongo-connection.md).
 
-## Base documental RAG: primeira etapa
+## Base documental RAG
 
-`app/services/rag.py` segmenta o documento Markdown por `#`, `##` e `###`,
-preservando capítulos, subtópicos e linhas da fonte. Gera embeddings textuais
-Gemini e consulta os trechos por similaridade no Qdrant, na coleção separada
-`rag_documents`. A busca retorna conteúdo, fonte, revisão e score; ainda não
-gera respostas nem está ligada ao chatbot.
+A fonte do produto é [delta-main-source.md](app/knowledge/delta-main-source.md),
+incluída neste repositório e na imagem Docker. Esse é o caminho padrão de
+`RAG_DOCUMENT_PATH`; caminhos relativos partem da raiz do projeto.
 
-O comando `python -m scripts.rag inspect <documento.md>` inspeciona os trechos
-sem rede. `index` e `search --question "..."` exigem `GEMINI_API_KEY` e
-`QDRANT_URL`. Veja [configuração, comandos e limites](docs/rag-retrieval.md).
-Os testes cobrem Qdrant em memória com embeddings controlados; a integração
-Gemini/Qdrant remoto e a qualidade temática ainda precisam de validação real.
+O `RagAgent` usa `app/tools/rag.py` para consultar a coleção `rag_documents`
+no Qdrant. A busca usa `GEMINI_EMBEDDING_MODEL`, vetores de 3072 dimensões
+e filtros de fonte, revisão do documento e modelo. O agente recebe trechos
+com capítulos, subtópicos e linhas para citar nas respostas.
+
+### Indexação automática antes da consulta
+
+A coleção `rag_documents` precisa existir no Qdrant, com vetores de 3072 dimensões.
+Configure `GEMINI_API_KEY`, `GEMINI_EMBEDDING_MODEL`, `QDRANT_URL` e, quando exigido,
+`QDRANT_API_KEY` com permissão de leitura e escrita nessa coleção. A fonte vem de
+`RAG_DOCUMENT_PATH`; o agente não aceita caminhos de arquivo fornecidos pelo LLM.
+
+Em cada chamada a `search_knowledge_base`, a aplicação executa este fluxo:
+
+1. Lê e segmenta o documento por `#`, `##` e `###`, preservando hierarquia e linhas.
+2. Calcula a revisão SHA-256 e verifica se todos os trechos dessa fonte, revisão e
+   modelo já estão indexados.
+3. Se a revisão estiver ausente ou incompleta, chama `index_document()` e aguarda
+   a gravação. Confirma a quantidade de trechos antes de continuar.
+4. Gera o embedding da pergunta, recupera os trechos atuais e entrega as fontes
+   para o `RagAgent` elaborar a resposta.
+
+A primeira consulta e a primeira consulta após uma alteração da fonte ou do modelo
+podem levar mais tempo, pois também geram os embeddings do documento. Com a revisão
+completa, as próximas consultas reutilizam os vetores existentes. A atualização
+acontece durante a chamada da tool, sem comando manual ou decisão adicional do LLM.
+
+Os IDs derivam da fonte, revisão, modelo e posição do trecho. Uma tentativa repetida
+sobrescreve os mesmos pontos, sem duplicá-los. Renomear ou mover o arquivo sem alterar
+seu conteúdo não muda a revisão. Revisões anteriores permanecem como histórico,
+excluídas da recuperação pelo filtro de revisão atual; trechos removidos deixam de
+ser recuperados. Um lock evita indexações simultâneas no mesmo processo; processos
+diferentes mantêm a idempotência pelos IDs, mas podem gerar embeddings em paralelo.
+
+Se a preparação ou consulta falhar, a tool retorna `unavailable` sem recuperar a
+revisão antiga. Uma nova chamada tenta completar a revisão automaticamente. A tool
+não cria nem recria a coleção; coleção ausente ou dimensão incompatível exige ajuste
+da infraestrutura. A dimensão permanece fixa em 3072.
+
+Os testes em `tests/test_rag.py` cobrem primeira carga automática, reutilização do
+índice, edição, inclusão, remoção, renomeação, troca de modelo, consultas simultâneas
+e recuperação após falha. Usam Qdrant em memória, embeddings controlados e um modelo
+de resposta controlado; o acesso remoto e a qualidade semântica exigem validação própria.
 
 ## Testes
 

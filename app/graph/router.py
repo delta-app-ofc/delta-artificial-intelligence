@@ -12,6 +12,7 @@ AGENT_REGISTRY: dict[str, str] = {
     "forecast": "app.agents.forecast.ForecastAgent",
     "leak": "app.agents.leak.LeakAgent",
     "habits": "app.agents.habits.HabitsAgent",
+    "rag": "app.agents.rag.RagAgent",
 }
 
 

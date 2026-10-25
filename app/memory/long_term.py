@@ -1,6 +1,6 @@
 """Memória de longo prazo com Qdrant + Gemini embeddings.
 
-Coleção: session_summaries (vetores de 3072 dimensões, gemini-embedding-2-preview).
+Coleção: session_summaries (3072 dimensões, modelo definido no config).
 Filtragem por user_id em todas as buscas.
 """
 
@@ -10,7 +10,7 @@ import logging
 import uuid
 from functools import lru_cache
 
-from app.config import get_settings
+from app.config import ConfigurationError, get_settings
 from app.memory.session import load_history_validated
 
 
@@ -18,7 +18,6 @@ logger = logging.getLogger(__name__)
 
 _COLLECTION = "session_summaries"
 _VECTOR_SIZE = 3072
-_EMBED_MODEL = "models/gemini-embedding-2-preview"
 
 _collection_initialized = False
 
@@ -41,9 +40,13 @@ def _embed_model():
 
     settings = get_settings()
 
+    if not settings.gemini_embedding_model:
+        raise ConfigurationError("GEMINI_EMBEDDING_MODEL ausente ou vazio.")
+
     return GoogleGenerativeAIEmbeddings(
-        model=_EMBED_MODEL,
+        model=settings.gemini_embedding_model,
         google_api_key=settings.gemini_api_key,
+        output_dimensionality=_VECTOR_SIZE,
     )
 
 
