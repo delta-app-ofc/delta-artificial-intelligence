@@ -12,7 +12,6 @@ from app.config import BASE_DIR, get_settings
 
 
 COLLECTION = "rag_documents"
-EMBEDDING_MODEL = "models/gemini-embedding-001"
 SOURCE = "delta-product-reference"
 
 
@@ -30,14 +29,15 @@ def search_knowledge_base(question: str) -> dict:
 
     if (
         not settings.gemini_api_key
+        or not settings.gemini_embedding_model
         or not settings.qdrant_url
         or not settings.rag_document_path
     ):
         return {
             "status": "unavailable",
             "message": (
-                "Configure GEMINI_API_KEY, QDRANT_URL e RAG_DOCUMENT_PATH "
-                "para consultar a base."
+                "Configure GEMINI_API_KEY, GEMINI_EMBEDDING_MODEL, QDRANT_URL "
+                "e RAG_DOCUMENT_PATH para consultar a base."
             ),
             "chunks": [],
         }
@@ -45,6 +45,11 @@ def search_knowledge_base(question: str) -> dict:
     client = None
 
     try:
+        # O payload da indexação identifica o modelo com o prefixo models/.
+        embedding_model = (
+            "models/" + settings.gemini_embedding_model.removeprefix("models/")
+        )
+
         path = Path(settings.rag_document_path)
         if not path.is_absolute():
             path = BASE_DIR / path
@@ -76,19 +81,22 @@ def search_knowledge_base(question: str) -> dict:
             for key, value in {
                 "source": SOURCE,
                 "revision": revision,
-                "embedding_model": EMBEDDING_MODEL,
+                "embedding_model": embedding_model,
             }.items()
         ])
 
         if client.count(COLLECTION, count_filter=query_filter, exact=True).count == 0:
             return {
                 "status": "unavailable",
-                "message": "A revisão atual do documento ainda não está indexada na base RAG.",
+                "message": (
+                    "A revisão atual do documento ainda não está indexada "
+                    "com o modelo de embedding configurado na base RAG."
+                ),
                 "chunks": [],
             }
 
         embeddings = GoogleGenerativeAIEmbeddings(
-            model=EMBEDDING_MODEL,
+            model=embedding_model,
             api_key=settings.gemini_api_key,
             output_dimensionality=3072,
             vertexai=False,
