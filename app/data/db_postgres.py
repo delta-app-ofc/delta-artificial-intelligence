@@ -385,18 +385,11 @@ def get_user_habits(user_id: int) -> list[dict]:
     with _cursor() as cur:
         cur.execute(
             """
-            SELECT h.name, h.category, uh.frequency,
-                   COALESCE(array_agg(d.name ORDER BY d.id) FILTER (WHERE d.id IS NOT NULL), '{}'),
-                   to_char(uh.start_time, 'HH24:MI'),
-                   to_char(uh.end_time, 'HH24:MI'),
-                   uh.estimated_liters
-              FROM tb_user_habit uh
-              JOIN tb_habit h ON h.id = uh.habit_id
-              LEFT JOIN tb_user_habit_day uhd ON uhd.user_habit_id = uh.id
-              LEFT JOIN tb_day_of_week d ON d.id = uhd.day_of_week_id
-             WHERE uh.user_id = %s
-             GROUP BY uh.id, h.name, h.category
-             ORDER BY h.name;
+            SELECT name, category, frequency, days,
+                   to_char(start_time, 'HH24:MI'),
+                   to_char(end_time, 'HH24:MI'),
+                   estimated_liters
+              FROM fn_user_habits(%s);
             """,
             (user_id,),
         )
@@ -425,17 +418,11 @@ def get_habits_by_weekday(user_id: int, day: str) -> list[dict]:
     with _cursor() as cur:
         cur.execute(
             """
-            SELECT h.name, uh.frequency,
-                   to_char(uh.start_time, 'HH24:MI'),
-                   to_char(uh.end_time, 'HH24:MI'),
-                   uh.estimated_liters
-              FROM tb_user_habit uh
-              JOIN tb_habit h ON h.id = uh.habit_id
-              JOIN tb_user_habit_day uhd ON uhd.user_habit_id = uh.id
-              JOIN tb_day_of_week d ON d.id = uhd.day_of_week_id
-             WHERE uh.user_id = %s
-               AND d.name = %s
-             ORDER BY uh.start_time NULLS LAST, h.name;
+            SELECT name, frequency,
+                   to_char(start_time, 'HH24:MI'),
+                   to_char(end_time, 'HH24:MI'),
+                   estimated_liters
+              FROM fn_user_habits_by_day(%s, %s);
             """,
             (user_id, day),
         )
@@ -458,18 +445,7 @@ def get_user_location(user_id: int) -> dict | None:
     Retorna None quando o usuário não tem imóvel cadastrado.
     """
     with _cursor() as cur:
-        cur.execute(
-            """
-            SELECT a.city, a.state
-              FROM tb_user_property up
-              JOIN tb_property p ON p.id = up.property_id
-              JOIN tb_address  a ON a.id = p.address_id
-             WHERE up.user_id = %s
-             ORDER BY up.id
-             LIMIT 1;
-            """,
-            (user_id,),
-        )
+        cur.execute("SELECT city, state FROM fn_user_location(%s);", (user_id,))
         row = cur.fetchone()
     if row is None:
         return None
@@ -483,30 +459,13 @@ def create_habit(user_id: int, name: str, frequency: int, days: list[str]) -> di
     Levanta ValueError se o hábito já existir ou os dados forem inválidos.
     """
     with _cursor() as cur:
-        cur.execute("SELECT id FROM tb_habit WHERE name = %s;", (name,))
-        habit_row = cur.fetchone()
-        if habit_row is None:
-            raise ValueError("Hábito fora do catálogo.")
-        cur.execute(
-            """
-            INSERT INTO tb_user_habit (user_id, habit_id, frequency)
-            VALUES (%s, %s, %s)
-            ON CONFLICT (user_id, habit_id) DO NOTHING
-            RETURNING id;
-            """,
-            (user_id, habit_row[0], frequency),
-        )
-        row = cur.fetchone()
-        if row is None:
-            raise ValueError("Você já tem esse hábito cadastrado.")
-        for day in days:
+        try:
             cur.execute(
-                """
-                INSERT INTO tb_user_habit_day (user_habit_id, day_of_week_id)
-                SELECT %s, id FROM tb_day_of_week WHERE name = %s;
-                """,
-                (row[0], day),
+                "SELECT fn_create_user_habit(%s, %s, %s, %s);",
+                (user_id, name, frequency, days),
             )
+        except psycopg2.errors.RaiseException as exc:  # type: ignore[attr-defined]
+            raise ValueError(exc.diag.message_primary) from exc
     return {"name": name, "frequency": frequency, "days": days}
 
 
