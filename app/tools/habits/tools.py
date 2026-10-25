@@ -247,14 +247,13 @@ def build_tools(user_id: int) -> list[BaseTool]:
         predominante. Lista vazia significa sem registros no período.
         """
         days = max(1, min(days, 30))
-        location = db_postgres.get_user_location(user_id)
-        if location is None:
-            return {
-                "status": "insufficient_data",
-                "message": "Localização do usuário não encontrada.",
-            }
-
         try:
+            location = db_postgres.get_user_location(user_id)
+            if location is None:
+                return {
+                    "status": "insufficient_data",
+                    "message": "Localização do usuário não encontrada.",
+                }
             docs = db_mongo.get_weather_daily(
                 location["city"], location["state"], location["country"], days
             )

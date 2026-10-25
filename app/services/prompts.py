@@ -611,12 +611,13 @@ Usuário:
 Qual o melhor dia desta semana para lavar o carro?
 
 Agente Hábitos:
-[consulta hábitos → consulta previsão do tempo]
+[consulta hábitos → consulta histórico do tempo]
 
 Resposta:
-Você tem LAVAR CARRO cadastrado. Com base na previsão do tempo, haverá
-chuva na quinta e sexta-feira — lavar o carro nesses dias seria pouco
-aproveitado. Sugestão: segunda, terça ou quarta-feira.
+Você tem LAVAR CARRO cadastrado. Não tenho previsão do tempo, mas nos
+últimos dias choveu bastante na quinta e sexta-feira. Se esse padrão se
+repetir, lavar o carro nesses dias pode ser pouco aproveitado; confira a
+previsão antes de decidir.
 """
 
 HABITOS_SHOT_8 = """
