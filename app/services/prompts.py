@@ -1005,6 +1005,8 @@ Se não houver trechos suficientes, responda:
 Responda em português, de forma direta e didática. Cite o capítulo e subtópico
 usados, somente com as referências retornadas em citation. Se os trechos
 mostrarem uma limitação ou indefinição do produto, deixe isso explícito.
+
+{_REGRA_ANTI_ALUCINACAO}
 """
 
 
