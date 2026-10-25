@@ -88,7 +88,6 @@ def _previous_result(state: GraphState, agent_name: str) -> dict:
             return result
     return {}
 
-
 def _serialize_tool_calls(calls: list, stage: str) -> list[dict]:
     serialized: list[dict] = []
     for call in calls:
@@ -226,10 +225,6 @@ def _compose_node(state: GraphState) -> GraphState:
     }
 
 
-def _value(value):
-    return value.value if hasattr(value, "value") else value
-
-
 def _judge_node(state: GraphState) -> GraphState:
     candidate = state.get("candidate", "")
     revision_count = state.get("revision_count", 0)
@@ -265,8 +260,8 @@ def _judge_node(state: GraphState) -> GraphState:
             revision_count=revision_count,
         )
         judge_output = result.model_dump()
-        decision = _value(result.decision)
-        status = _value(result.status)
+        decision = result.decision
+        status = result.status
     except Exception:
         judge_output = {
             "decision": "reject",

@@ -4,7 +4,7 @@ O Juiz avalia a candidata produzida pelos especialistas antes de o grafo publica
 
 ## Regra de decisão
 
-As regras abaixo são as definidas para esta implementação. Elas substituem os limiares Noul 0,90/0,10 propostos no planejamento inicial.
+Esta implementação usa a seguinte política de decisão:
 
 | Avaliação | Primeira tentativa | Depois da única revisão |
 | --- | --- | --- |
@@ -16,7 +16,8 @@ As regras abaixo são as definidas para esta implementação. Elas substituem os
 
 O limite inclui exatamente 0,80: uma candidata sem erro nessa confiança pode ser publicada. A avaliação crítica tem prioridade: mesmo com confidence baixo, ela não entra na tentativa de correção.
 
-O campo usado para esse limite é o **confidence da Choice que classifica a gravidade do erro**. Não é a probabilidade Noul de conteúdo sem suporte, nem a nota ou confidence de alinhamento. Noul e Score servem como diagnóstico do julgamento. Confidence representa a concentração da classificação; não comprova a taxa de acerto do Juiz.
+O Jev responde uma única **Choice de gravidade**. O fluxo compara o confidence dessa classificação, entre 0 e 1, com o limite 0,80.
+Confidence representa a concentração da classificação; não comprova a taxa de acerto do Juiz.
 
 ## Fluxo
 
@@ -37,7 +38,7 @@ A candidata e o gráfico rejeitados não se tornam resposta pública. O históri
 
 ## Como o Python gera a justificativa
 
-O Jev retorna resultados tipados. **O Python não pede ao modelo para escrever uma justificativa livre.** Ele aplica a tabela de decisão e seleciona mensagens em português associadas aos motivos encontrados.
+O Jev retorna uma classificação tipada. **O Python não pede ao modelo para escrever uma justificativa livre.** Ele aplica a tabela de decisão e seleciona mensagens em português associadas aos motivos encontrados.
 
 - **Sem erro, baixa confiança:** a mensagem informa que a classificação ficou abaixo de 80% e pede conferência usando as evidências disponíveis. Ela não afirma que o conteúdo está errado.
 - **Erro corrigível:** a mensagem informa a classificação e solicita ajuste da candidata com base nas ferramentas e fontes. Ela não inventa qual número, frase ou fonte específica está errada.
@@ -98,7 +99,7 @@ O runner deve mostrar a resposta final e os metadados de revisão, como gravidad
 
 ## O que foi verificado
 
-Passaram 22 verificações locais, incluindo uma matriz de 24 combinações de gravidade, confidence e rodada. Foram usados substitutos e transporte HTTP simulado para testar as regras, a preservação de evidências e os percursos do grafo sem consumir crédito. Essas verificações não comprovam a qualidade semântica do Jev, disponibilidade dos provedores, bancos remotos ou configuração do ambiente de demonstração.
+Nesta revisão, a compilação e a importação do workflow passaram. Cinco casos simulados cobriram o limite 0,80, baixa confiança, erro corrigível, erro crítico e revisão esgotada; um timeout simulado confirmou o bloqueio seguro. Não houve chamadas aos provedores. Isso não comprova a qualidade semântica do Jev, a disponibilidade dos provedores, os bancos remotos ou a configuração do ambiente de demonstração.
 
 O teste real fica disponível no runner manual, para execução pela pessoa responsável. Não foi adicionada uma suíte persistente de testes ao repositório.
 
@@ -106,4 +107,4 @@ O teste real fica disponível no runner manual, para execução pela pessoa resp
 
 - [Integração TypeSafe no LangChain](https://docs.langchain.com/oss/python/integrations/providers/typesafe).
 - [Probabilidade e confidence](https://docs.typesafe.ai/confidence).
-- [Choice](https://docs.typesafe.ai/primitives/choice), [Noul](https://docs.typesafe.ai/primitives/noul) e [Score](https://docs.typesafe.ai/primitives/score).
+- [Choice](https://docs.typesafe.ai/primitives/choice).

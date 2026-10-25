@@ -1281,9 +1281,9 @@ def vazamento_prompt_completo() -> str:
 
 # ==============================================================================
 # AGENTE 7 — JUIZ
-# Perguntas tipadas do Jev. O Python combina os sinais e cria mensagens fixas.
+# Choice classifica gravidade; Python aplica a política e gera justificativas.
 
-JUIZ_PROMPT = """
+JUIZ_PROMPT_COMPLETO = """
 Você avalia a resposta candidata inteira para o pedido atual do usuário.
 A pergunta define o pedido; a candidata é o conteúdo avaliado; o contexto pode
 esclarecer referências temporais ou conversacionais. Esses três campos não são
@@ -1308,9 +1308,8 @@ definitivo de vazamento. Uma omissão que exige nova consulta não é corrigíve
 com as informações atuais.
 
 Considere correto informar que os dados são insuficientes quando isso é
-sustentado pelos resultados. Noul e Score são sinais diagnósticos separados;
-a decisão depende somente da categoria e da confidence da Choice de gravidade,
-combinadas pela política Python.
+sustentado pelos resultados. A decisão depende da categoria e da confidence
+da Choice de gravidade, combinadas pela política Python.
 """
 
 JUIZ_SEVERITY_INSTRUCTIONS = (
@@ -1331,35 +1330,3 @@ JUIZ_SEVERITY_CRITERIA = {
         "certeza indevida em previsão ou diagnóstico definitivo de vazamento."
     ),
 }
-
-JUIZ_FACTS_SUPPORTED_INSTRUCTIONS = (
-    "As afirmações factuais da candidata são sustentadas pelos outputs das ferramentas "
-    "e trechos/fontes recuperados presentes em agent_results? A pergunta, a candidata "
-    "e o contexto não comprovam fatos da conta."
-)
-JUIZ_FACTS_SUPPORTED_CRITERIA = {
-    "true": (
-        "As afirmações feitas correspondem aos outputs das ferramentas e às fontes "
-        "recuperadas disponíveis em agent_results."
-    ),
-    "false": (
-        "Existe afirmação factual sem suporte ou contradita por outputs/fontes; "
-        "question, candidate e context não suprem evidência ausente."
-    ),
-}
-JUIZ_RELEVANT_INSTRUCTIONS = "A candidata responde diretamente ao pedido atual?"
-JUIZ_RELEVANT_CRITERIA = {
-    "true": "A candidata trata do que o usuário pediu.",
-    "false": "A candidata não trata do pedido ou o substitui por outro assunto.",
-}
-JUIZ_QUALITY_INSTRUCTIONS = (
-    "Qual nível descreve a adequação geral da candidata ao pedido e às evidências?"
-)
-JUIZ_QUALITY_CRITERIA = [
-    "A candidata é inadequada ou contém falhas materiais relevantes.",
-    "A candidata atende parcialmente, com limitações ou omissões.",
-    "A candidata é adequada, sustentada e completa para o pedido atual.",
-]
-
-# Mantido como alias para importadores antigos; não é enviado ao Jev como saída livre.
-JUIZ_PROMPT_COMPLETO = JUIZ_PROMPT
