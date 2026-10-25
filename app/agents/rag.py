@@ -58,11 +58,17 @@ class RagAgent:
         result.sources = list(dict.fromkeys(result.sources))
 
         if not result.sources or not result.response.strip():
-            unavailable = any(call.output.get("status") == "unavailable" for call in result.tool_calls)
+            unavailable = any(
+                call.output.get("status") == "unavailable"
+                for call in result.tool_calls
+            )
             result.response = (
                 "Não consegui consultar a base documental do Delta neste momento."
                 if unavailable
-                else "Não encontrei informação suficiente na base documental do Delta para responder."
+                else (
+                    "Não encontrei informação suficiente na base documental "
+                    "do Delta para responder."
+                )
             )
             return result
 
