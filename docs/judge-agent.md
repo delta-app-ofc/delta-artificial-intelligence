@@ -4,23 +4,31 @@ O Juiz avalia a candidata produzida pelos especialistas antes de o grafo publica
 
 ## Regra de decisão
 
-A candidata só pode ser publicada quando todos os gates passam:
+O julgamento tem um gate principal e, somente se ele passar, um segundo gate:
 
-- Choice de gravidade: no_error com confidence >= 0,80.
-- Noul facts_supported: probabilidade >= 0,80. A SDK retorna esse valor no campo noul; não há outro campo confidence para Noul.
-- Noul relevant: probabilidade >= 0,60.
-- Score quality: diferente da primeira categoria, “A candidata é inadequada ou contém falhas materiais relevantes.” Como Score usa índice começando em zero, essa categoria corresponde a score 0.
+1. A primeira chamada Jev envia apenas uma Choice de gravidade.
+   - no_error com confidence >= 0,80 passa ao gate secundário.
+   - no_error com confidence < 0,80 pede revisão na primeira tentativa; se continuar assim após a revisão, usa mensagem segura.
+   - correctable_error pede revisão independentemente da confidence; se continuar corrigível após a revisão, usa mensagem segura.
+   - critical_error usa mensagem segura imediatamente, independentemente da confidence.
+
+2. Só após no_error com confidence >= 0,80, o Python faz uma segunda chamada Jev com os critérios adicionais:
+   - Noul facts_supported >= 0,80. A SDK retorna a probabilidade no campo noul; não há outro campo confidence para Noul.
+   - Noul relevant >= 0,60.
+   - Score quality diferente da primeira categoria, “A candidata é inadequada ou contém falhas materiais relevantes.” Essa categoria corresponde a score 0.
+
+A candidata é publicada somente quando passa pelos dois gates. Se algum subcritério falhar, a primeira tentativa pede revisão com os sinais reprovados; depois da única revisão, qualquer falha resulta em mensagem segura.
 
 | Avaliação | Primeira tentativa | Depois da única revisão |
 | --- | --- | --- |
-| Todos os gates passam e a Choice indica sem erro | Publicar | Publicar |
-| Choice corrigível ou algum gate falha | Pedir revisão com os sinais que falharam | Mensagem segura se Choice continuar corrigível ou algum gate falhar |
-| Choice de erro crítico | Mensagem segura imediatamente | Mensagem segura imediatamente |
-| Avaliador indisponível ou resultado inválido | Mensagem segura | Mensagem segura |
+| Choice no_error, confidence >= 0,80 e todos os subcritérios passam | Publicar | Publicar |
+| Choice no_error, confidence < 0,80 | Pedir revisão; não consulta Noul/Score | Mensagem segura se continuar abaixo do limite |
+| Choice correctable_error, qualquer confidence | Pedir revisão; não consulta Noul/Score | Mensagem segura se continuar corrigível |
+| Choice critical_error, qualquer confidence | Mensagem segura imediatamente; não consulta Noul/Score | Mensagem segura imediatamente |
+| Choice passa, mas algum subcritério falha | Pedir revisão com os sinais que falharam | Mensagem segura se algum subcritério continuar falhando |
+| Jev indisponível ou resultado inválido | Mensagem segura | Mensagem segura |
 
-Os limites de 0,80 e 0,60 são inclusivos. Um ou mais sinais abaixo do limite, ou score 0 impedem a publicação e geram códigos e justificativa em Python. Depois da única revisão, qualquer falha mantém a mensagem segura. Erro crítico tem prioridade sobre os demais sinais e bloqueia imediatamente.
-
-Choice confidence mede a confiança na categoria de gravidade. Os valores Noul são probabilidades das respostas “sim” para suporte factual e relevância. Score seleciona o nível ordinal de qualidade. Nenhum desses valores comprova sozinho a taxa de acerto do Juiz.
+Os limites são inclusivos: confidence 0,80, Noul facts_supported 0,80 e Noul relevant 0,60 passam. Choice confidence mede a confiança na categoria de gravidade; os valores Noul são probabilidades das respostas “sim”. Score seleciona o nível ordinal de qualidade. Esses valores não comprovam sozinhos a taxa de acerto do Juiz.
 
 ## Fluxo
 
@@ -59,7 +67,7 @@ Os códigos da implementação são:
 | FACTS_UNSUPPORTED | Noul facts_supported abaixo de 0,80. |
 | LOW_RELEVANCE | Noul relevant abaixo de 0,60. |
 | QUALITY_INADEQUATE | Score 0, correspondente à categoria inadequada. |
-| CORRECTABLE_ISSUE | Choice indica erro corrigível na primeira tentativa. |
+| CORRECTABLE_ISSUE | Choice indica erro corrigível, independentemente da confidence. |
 | CRITICAL_ISSUE | Choice indica erro crítico em qualquer tentativa. |
 | REVIEW_EXHAUSTED | A revisão única ainda falha em um ou mais critérios. |
 | JUDGE_CONFIGURATION_INVALID / JUDGE_PROVIDER_UNAVAILABLE / JUDGE_PROVIDER_ERROR / JUDGE_SCHEMA_INVALID / JUDGE_INPUT_INVALID | A avaliação não pôde ser obtida ou interpretada com segurança. |
@@ -102,11 +110,11 @@ Execute na raiz deste repositório com o Python do ambiente que contém as depen
 
 Use um usuário e dados autorizados do seu ambiente. O ID informado no teste manual não substitui autenticação. As consultas particulares precisam de PostgreSQL/MongoDB; o caminho RAG precisa de Gemini embeddings/Qdrant; o roteador e especialistas dependem dos respectivos provedores. A validação completa pode requerer todos esses componentes.
 
-O runner mostra a resposta final, os sinais Noul/Score, o resultado de cada gate, a gravidade e as justificativas Python. Candidatas bloqueadas não são apresentadas como resposta final. Sem --no-history, turnos liberados são gravados no MongoDB. Com essa opção, as gravações são puladas; leituras de contexto e ferramentas continuam no fluxo. --session-id permite continuar uma sessão do mesmo usuário. Se a gravação falhar, o runner avisa e ainda mostra a resposta que já passou pelos gates.
+O runner mostra a decisão principal e só mostra Noul/Score quando o gate da Choice passa. Candidatas bloqueadas não são apresentadas como resposta final. Sem --no-history, turnos liberados são gravados no MongoDB. Com essa opção, as gravações são puladas; leituras de contexto e ferramentas continuam no fluxo. --session-id permite continuar uma sessão do mesmo usuário. Se a gravação falhar, o runner avisa e ainda mostra a resposta que já passou pelos gates.
 
 ## O que foi verificado
 
-Nesta revisão, a compilação e a importação do workflow passaram. Os casos simulados cobriram os limites 0,80 e 0,60, Score 0, erro corrigível, erro crítico, segunda tentativa e timeout. Não houve chamadas aos provedores. Isso não comprova a qualidade semântica do Jev, a disponibilidade dos provedores, os bancos remotos ou a configuração do ambiente de demonstração.
+Nesta revisão, a compilação e a importação do workflow passaram. Os casos simulados cobriram a ordem das chamadas, limites 0,80 e 0,60, Score 0, correctable_error em diferentes confidences, erro crítico, revisão e timeout. Não houve chamadas aos provedores. Isso não comprova a qualidade semântica do Jev, a disponibilidade dos provedores, os bancos remotos ou a configuração do ambiente de demonstração.
 
 O teste real fica disponível no runner manual, para execução pela pessoa responsável. Não foi adicionada uma suíte persistente de testes ao repositório.
 

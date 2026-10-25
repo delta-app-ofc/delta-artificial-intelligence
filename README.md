@@ -120,14 +120,15 @@ qualidade semântica das respostas precisam de verificação própria.
 
 O `JudgeAgent` usa Jev pela integração `langchain-typesafe`. A candidata
 composta é avaliada junto com as ferramentas e fontes dos especialistas.
-A liberação exige todos os critérios:
+A avaliação é sequencial:
 
-- Choice sem erro e confidence >= 80%;
-- Noul facts_supported >= 80% e Noul relevant >= 60%;
-- Score diferente da categoria inadequada.
+- Choice no_error com confidence >= 80% passa ao segundo gate;
+- Choice no_error abaixo de 80% pede revisão;
+- qualquer correctable_error pede revisão, independentemente da confidence;
+- critical_error bloqueia com mensagem segura;
+- somente após passar o gate da Choice, uma segunda chamada Jev verifica Noul facts_supported >= 80%, Noul relevant >= 60% e Score diferente da categoria inadequada.
 
-Erro corrigível ou qualquer critério reprovado pede uma revisão com justificativa Python. Após a revisão, só publica se todos passarem. Erro crítico ou avaliador indisponível gera mensagem segura. O runner manual mostra os sinais e o resultado de cada gate.
-
+Se um subcritério falhar, pede revisão; após a única revisão, qualquer falha gera mensagem segura. O runner manual mostra quais verificações foram executadas e seus resultados.
 O Juiz não gera texto livre: os códigos e as justificativas vêm do Python.
 Configure `TYPESAFE_API_KEY`, `JEV_MODEL` e `JEV_TIMEOUT_SECONDS` conforme
 [.env.example](.env.example). Detalhes, tabela de decisão e funcionamento das

@@ -69,9 +69,7 @@ def _run_question(user_id: int, session_id: str, question: str, no_history: bool
                     str(int(quality["score"])), str(quality["score"])
                 )
                 print(
-                    "   Gates Jev: "
-                    f"gravidade={'passou' if checks['severity'] else 'falhou'}; "
-                    f"confidence={'passou' if checks['confidence'] else 'falhou'}; "
+                    "   Subcritérios Jev: "
                     f"suporte factual={diagnostics['facts_supported']:.0%} "
                     f"({'passou' if checks['facts_supported'] else 'falhou'}); "
                     f"relevância={diagnostics['relevant']:.0%} "
@@ -79,6 +77,8 @@ def _run_question(user_id: int, session_id: str, question: str, no_history: bool
                     f"qualidade={quality_label} "
                     f"({'passou' if checks['quality'] else 'falhou'})"
                 )
+            elif judge.get("status") == "evaluated":
+                print("   Noul/Score não consultados: o gate principal não passou.")
             print("   Códigos Python: " + ", ".join(judge["reason_codes"]))
             print("   Justificativa Python: " + judge["justification"])
         final_judge = history[-1]["judge"]
