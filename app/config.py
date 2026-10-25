@@ -47,6 +47,7 @@ class Settings:
     db_query_timeout_seconds: int
     qdrant_url: str | None = field(repr=False)
     qdrant_api_key: str | None = field(repr=False)
+    rag_document_path: str | None = field(default=None, repr=False)
     _parse_errors: tuple[tuple[str, str], ...] = field(default=(), repr=False)
 
 
@@ -162,6 +163,7 @@ def load_settings(
         db_query_timeout_seconds=parsed_numbers["DB_QUERY_TIMEOUT_SECONDS"],
         qdrant_url=values.get("QDRANT_URL"),
         qdrant_api_key=values.get("QDRANT_API_KEY"),
+        rag_document_path=values.get("RAG_DOCUMENT_PATH"),
         _parse_errors=tuple(parse_errors),
     )
 
