@@ -28,6 +28,7 @@ class AgentResult:
     response: str
     tool_calls: list[ToolCall] = field(default_factory=list)
     chart_data: dict | None = None
+    sources: list[str] = field(default_factory=list)
 
     def readable_log(self) -> str:
         if not self.tool_calls:
