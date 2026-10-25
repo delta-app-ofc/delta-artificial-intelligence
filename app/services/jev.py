@@ -2,11 +2,14 @@
 
 from __future__ import annotations
 
+from functools import lru_cache
+
 from app.config import get_settings, validate_jev_config
 
 
+@lru_cache(maxsize=1)
 def create_jev_classifier():
-    """Cria o cliente Jev depois de validar as configurações locais."""
+    """Reutiliza o cliente Jev após validar a configuração no primeiro uso."""
     settings = get_settings()
     validate_jev_config(settings=settings)
 

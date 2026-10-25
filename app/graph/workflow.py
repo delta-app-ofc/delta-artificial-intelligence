@@ -20,6 +20,44 @@ _REVISION_FALLBACK = (
 )
 
 
+def _redact_judge_context_text(value: object) -> str | None:
+    if not isinstance(value, str) or not value.strip():
+        return None
+
+    from app.guardrails.input import anonymize
+    from app.guardrails.output import validate_output
+
+    anonymized, pii_map = anonymize(value)
+    checked = validate_output(anonymized, pii_map=pii_map)
+    return checked["response"] if checked.get("ok") else None
+
+
+def _safe_recent_messages(messages: object) -> list[dict[str, str]]:
+    if not isinstance(messages, list):
+        return []
+
+    safe_messages: list[dict[str, str]] = []
+    for message in messages:
+        if not isinstance(message, dict) or not isinstance(message.get("role"), str):
+            continue
+        content = _redact_judge_context_text(message.get("content"))
+        if content is not None:
+            safe_messages.append({"role": message["role"], "content": content})
+    return safe_messages
+
+
+def _safe_relevant_memory(items: object) -> list[str]:
+    if not isinstance(items, list):
+        return []
+
+    safe_items: list[str] = []
+    for item in items:
+        content = _redact_judge_context_text(item)
+        if content is not None:
+            safe_items.append(content)
+    return safe_items
+
+
 def _context_node(state: GraphState) -> GraphState:
     ctx = build_context(state["user_id"], state["session_id"], state["question"])
     return {
@@ -203,8 +241,12 @@ def _judge_node(state: GraphState) -> GraphState:
             for result in agent_results
             if result.get("status") != "success"
         ],
-        "recent_messages": state.get("recent_messages", [])[-4:],
-        "relevant_memory": state.get("relevant_memory", [])[:2],
+        "recent_messages": _safe_recent_messages(
+            state.get("recent_messages", [])[-4:]
+        ),
+        "relevant_memory": _safe_relevant_memory(
+            state.get("relevant_memory", [])[:2]
+        ),
         "warnings": state.get("warnings", []),
         "revision_count": revision_count,
         "previous_candidate": state.get("previous_candidate"),
