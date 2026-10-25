@@ -273,16 +273,21 @@ def get_weather_daily(city: str, state: str, country: str, days: int) -> list[di
     hours (array de observações horárias), samples e timestamps.
     Lista vazia quando não há registros para o período.
     """
+    settings = get_settings()
+    validate_mongo_config("app", settings=settings)
+    query_timeout_ms = settings.db_query_timeout_seconds * 1000
+    since = datetime.now(timezone.utc) - timedelta(days=days)
+
     def read() -> list[dict]:
-        collection = _app()["weather_daily"]
+        collection = get_app_client()[settings.mongo_db_app]["weather_daily"]
         cursor = collection.find(
             {
                 "location.city": city,
                 "location.state": state,
                 "location.country": country,
-                "weather_date": {"$gte": _since(days)},
+                "weather_date": {"$gte": since},
             },
-            max_time_ms=_query_timeout_ms("app"),
+            max_time_ms=query_timeout_ms,
         )
         try:
             docs = list(cursor.sort("weather_date", DESCENDING))
