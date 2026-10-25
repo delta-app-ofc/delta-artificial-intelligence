@@ -1,11 +1,12 @@
 from fastapi import APIRouter
 
+from app.config import get_settings
+
 router = APIRouter(tags=["health"])
 
 
 @router.get("/health")
 def health():
-    from app.config import get_settings
     issues = []
     try:
         get_settings()
