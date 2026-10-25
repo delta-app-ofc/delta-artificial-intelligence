@@ -3,7 +3,7 @@ from __future__ import annotations
 from typing import Any
 
 from app.agents._runtime import AgentResult, ToolCall, run_agent
-from app.services.prompts import HABITOS_PROMPT_COMPLETO
+from app.services.prompts import habitos_prompt_completo
 from app.tools.habits.tools import build_tools
 
 
@@ -55,7 +55,7 @@ class HabitsAgent:
     def run(self, question: str) -> AgentResult:
         result = run_agent(
             llm=self.llm,
-            system_prompt=HABITOS_PROMPT_COMPLETO,
+            system_prompt=habitos_prompt_completo(),
             tools=self.tools,
             question=question,
         )

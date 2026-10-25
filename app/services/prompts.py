@@ -665,6 +665,11 @@ HABITOS_PROMPT_COMPLETO = (
 )
 
 
+def habitos_prompt_completo() -> str:
+    """Prompt de hábitos com data/hora calculada no momento da chamada."""
+    return HABITOS_PROMPT_COMPLETO.replace(_CONTEXTO_TEMPORAL, _contexto_temporal_atual(), 1)
+
+
 # ==============================================================================
 # AGENTE 3 — PERFIL
 # ==============================================================================
