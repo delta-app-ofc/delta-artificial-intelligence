@@ -72,15 +72,16 @@ delta-artificial-intelligence/
 ├── app/
 │   ├── agents/              # ConsumptionAgent, ForecastAgent, LeakAgent e runtime
 │   ├── data/                # Acesso PostgreSQL e MongoDB
-│   ├── graph/               # Reservado para estado e workflow LangGraph
+│   ├── graph/               # Estado, roteador e workflow LangGraph
 │   ├── guardrails/          # Reservado para validações de entrada e saída
 │   ├── memory/              # Reservado para memória
 │   ├── observability/       # Reservado para métricas
-│   ├── routes/              # Reservado para rotas HTTP
+│   ├── routes/              # Chat, sessoes, health e console de testes
 │   ├── services/            # LLMs, prompts e segmentação/recuperação documental RAG
 │   ├── tools/               # consumption/, forecast/, leak/, modelos e exceções
 │   ├── config.py
-│   └── main.py              # Vazio na main inspecionada
+│   └── main.py              # Aplicacao FastAPI e registro de rotas
+├── frontend/                # Console HTML/CSS/JS com abas dos agentes
 ├── db/
 │   ├── postgres-init/       # Cópias locais de bootstrap PostgreSQL, arquivos 01 a 09
 │   └── README.md
@@ -190,3 +191,30 @@ Durante esta execução, as orientações diretas da pessoa usuária prevalecem 
 - Evite tentativas repetidas de recuperação de infraestrutura. Testes automatizados necessários continuam obrigatórios; valide cada alteração com os testes pertinentes e faça regressão completa quando o conjunto estiver pronto.
 
 A pasta agrupadora e os repositórios irmãos continuam fora do escopo de edição. Os worktrees não têm os mesmos caminhos relativos do checkout principal: consulte schemas oficiais usando o caminho confirmado da pasta agrupadora, sem criar cópias para simular schema ausente.
+
+## 11. Console de testes dos agentes
+
+A API FastAPI, o roteador e o workflow LangGraph estão implementados no código
+atual; descrições históricas de espaços reservados acima devem ser confrontadas
+com a implementação. O grafo registra Consumo, Previsão, Vazamento, Hábitos e RAG.
+
+frontend/ contém o console servido em /playground/, com a identidade visual
+do delta-web-app. Cada arquivo de frontend/tabs/ descreve uma aba; app.js
+mantém estados independentes e shared.js renderiza texto, gráficos e diagnósticos.
+app/routes/playground.py fixa o usuário 12345679 e o nome teste_agentes_25_10.
+As rotas não criam usuário, dados sintéticos ou perfil.
+
+O Juiz permanece pendente de integração por decisão explícita da pessoa usuária.
+Sua aba apenas informa skipped; não presuma uma interface futura do agente e
+não execute um juiz fictício. Um componente implementado que falha deve aparecer
+como erro, separado de componentes ainda pendentes.
+
+app/observability/diagnostics.py registra chamadas efetivas, ferramentas e etapas
+com contexto isolado por requisição. Preserve a separação entre modelos configurados
+e executados, o rastreamento de fallback e a remoção de credenciais/URIs dos
+diagnósticos. A busca de memória não cria nem recria coleções ao consultar.
+
+O console é habilitado por padrão em development/test e desabilitado em
+staging/production, com override DELTA_PLAYGROUND_ENABLED. Não exponha esse
+console interno com identidade fixa sem restrição de acesso. Testes de contrato
+com modelos substitutos não validam bancos ou provedores reais.
