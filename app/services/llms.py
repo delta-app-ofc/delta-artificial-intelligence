@@ -19,6 +19,7 @@ from langchain_google_genai.chat_models import ChatGoogleGenerativeAIError
 from langchain_groq import ChatGroq
 
 from app.config import ConfigurationError, get_settings, validate_llm_config
+from app.observability.diagnostics import ModelDiagnostics, current_trace, fallback_call
 
 __all__ = [
     "EMBEDDING_MODEL_NAME",
@@ -135,9 +136,13 @@ class _FallbackLLM:
             if self._fallback is None:
                 raise LLMUnavailableError(_PUBLIC_UNAVAILABLE_MESSAGE) from None
 
+        if trace := current_trace():
+            trace.warnings.append("O modelo principal falhou; o fallback foi acionado.")
+
         try:
             # O fallback recebe a mesma lista, inclusive as ToolMessages anteriores.
-            return self._fallback.invoke(messages, **invoke_kwargs)
+            with fallback_call():
+                return self._fallback.invoke(messages, **invoke_kwargs)
         except _PROVIDER_REQUEST_ERRORS as error:
             request_error = _request_error_cause(error)
             if request_error is None:
@@ -155,6 +160,7 @@ def _get_llm_gemini() -> ChatGoogleGenerativeAI:
     # do SDK Google. Somamos a chamada inicial ao limite de retries da aplicação.
     return ChatGoogleGenerativeAI(
         model=settings.gemini_model,
+        callbacks=[ModelDiagnostics("google", settings.gemini_model)],
         temperature=0.3,
         top_p=0.95,
         api_key=settings.gemini_api_key,
@@ -170,6 +176,7 @@ def _get_llm_groq_especialista() -> ChatGroq:
     settings = get_settings()
     return ChatGroq(
         model=settings.groq_specialist_model,
+        callbacks=[ModelDiagnostics("groq", settings.groq_specialist_model)],
         temperature=0.3,
         api_key=settings.groq_api_key,
         max_retries=settings.llm_max_retries,
@@ -194,6 +201,7 @@ def _get_llm_rapido() -> ChatGroq:
     settings = get_settings()
     return ChatGroq(
         model=settings.groq_fast_model,
+        callbacks=[ModelDiagnostics("groq", settings.groq_fast_model)],
         temperature=0.0,
         api_key=settings.groq_api_key,
         max_retries=settings.llm_max_retries,

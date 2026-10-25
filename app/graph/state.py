@@ -1,13 +1,14 @@
 from __future__ import annotations
 
-from typing import Literal, TypedDict
+from typing import Literal
 
+from langgraph.graph import MessagesState
 from pydantic import BaseModel, Field
 
 
 class AgentOutput(BaseModel):
     agent: str
-    status: Literal["success", "error"]
+    status: Literal["success", "error", "skipped"]
     answer: str
     data: dict = Field(default_factory=dict)
     sources: list[str] = Field(default_factory=list)
@@ -17,15 +18,23 @@ class AgentOutput(BaseModel):
     tool_calls: list[dict] = Field(default_factory=list)
 
 
-class _GraphStateRequired(TypedDict):
+class GraphState(MessagesState, total=False):
+    """`messages` (herdado) acumula a conversa entre as perguntas da mesma sessão."""
+
     user_id: int
     session_id: str
     question: str
-
-
-class GraphState(_GraphStateRequired, total=False):
-    recent_messages: list[dict]
     relevant_memory: list[str]
+    recent_messages: list[dict]
+    _persist_session: bool
+    candidate: str
+    previous_candidate: str | None
+    previous_agent_results: list[dict]
+    revision_feedback: str
+    revision_count: int
+    judge_history: list[dict]
+    judge_action: Literal["approve", "correct", "block"] | str
+    composition_status: Literal["ready", "no_agents", "no_success", "bypass"] | str
     intent: str
     complexity: str
     selected_agents: list[str]
@@ -34,11 +43,5 @@ class GraphState(_GraphStateRequired, total=False):
     response: str
     agent_used: str
     chart_data: dict | None
-    candidate: str
-    previous_candidate: str | None
-    previous_agent_results: list[dict]
-    revision_feedback: str
-    revision_count: int
-    judge_history: list[dict]
-    judge_action: Literal["approve", "correct", "block"] | str
-    composition_status: Literal["ready", "no_agents", "no_success"] | str
+    pii_map: dict
+    _blocked: bool

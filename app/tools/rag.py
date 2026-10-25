@@ -3,6 +3,7 @@
 from langchain_core.tools import tool
 
 from app.config import get_settings
+from app.observability.diagnostics import current_trace
 from app.services.rag import (
     create_embeddings, create_qdrant, ensure_document_indexed, load_document, search_document,
 )
@@ -54,7 +55,9 @@ def search_knowledge_base(question: str) -> dict:
             "status": "ok" if chunks else "insufficient_data",
             "chunks": chunks,
         }
-    except Exception:
+    except Exception as error:
+        if trace := current_trace():
+            trace.error("rag", error)
         return {
             "status": "unavailable",
             "message": (

@@ -44,7 +44,7 @@ def _run_question(user_id: int, session_id: str, question: str, no_history: bool
         return
 
     try:
-        state = run_workflow(user_id, session_id, guard["message"])
+        state = run_workflow(user_id, session_id, guard["message"], persist_session=False)
     except Exception:
         print("Fluxo indisponível. Resposta segura: " + SAFE_RESPONSE)
         return

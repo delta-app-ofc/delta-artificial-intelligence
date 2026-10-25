@@ -52,6 +52,7 @@ class Settings:
     qdrant_url: str | None = field(repr=False)
     qdrant_api_key: str | None = field(repr=False)
     rag_document_path: str | None = field(default=None, repr=False)
+    playground_enabled: bool = False
     _parse_errors: tuple[tuple[str, str], ...] = field(default=(), repr=False)
 
 
@@ -87,6 +88,15 @@ def load_settings(
     app_env = (raw_app_env or "development").casefold()
     if ("APP_ENV" in values and raw_app_env is None) or app_env not in _ENVIRONMENTS:
         parse_errors.append(("APP_ENV", "use development, test, staging ou production"))
+
+    raw_playground = values.get("DELTA_PLAYGROUND_ENABLED")
+    playground_enabled = app_env in {"development", "test"}
+    if "DELTA_PLAYGROUND_ENABLED" in values:
+        if raw_playground is None or raw_playground.casefold() not in {"true", "false"}:
+            parse_errors.append(("DELTA_PLAYGROUND_ENABLED", "use true ou false"))
+            playground_enabled = False
+        else:
+            playground_enabled = raw_playground.casefold() == "true"
 
     defaults = app_env == "development"
     if "DATABASE_URL" not in values and defaults:
@@ -156,6 +166,7 @@ def load_settings(
         typesafe_api_key=values.get("TYPESAFE_API_KEY"),
         jev_model=values.get("JEV_MODEL", "jev-1.14.0") or "",
         jev_timeout_seconds=parsed_numbers["JEV_TIMEOUT_SECONDS"],
+        playground_enabled=playground_enabled,
         gemini_api_key=values.get("GEMINI_API_KEY"),
         groq_api_key=values.get("GROQ_API_KEY"),
         database_url=database_url,
