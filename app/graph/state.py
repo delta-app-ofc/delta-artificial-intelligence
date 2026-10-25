@@ -1,7 +1,8 @@
 from __future__ import annotations
 
-from typing import Literal, TypedDict
+from typing import Literal
 
+from langgraph.graph import MessagesState
 from pydantic import BaseModel
 
 
@@ -16,14 +17,12 @@ class AgentOutput(BaseModel):
     chart_data: dict | None = None
 
 
-class _GraphStateRequired(TypedDict):
+class GraphState(MessagesState, total=False):
+    """`messages` (herdado) acumula a conversa entre as perguntas da mesma sessão."""
+
     user_id: int
     session_id: str
     question: str
-
-
-class GraphState(_GraphStateRequired, total=False):
-    recent_messages: list[dict]
     relevant_memory: list[str]
     intent: str
     complexity: str
