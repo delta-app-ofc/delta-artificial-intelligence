@@ -43,7 +43,13 @@ class ConsumptionAgent:
             timezone_name=self.timezone_name,
         )
 
-    def run(self, question: str) -> AgentResult:
+    def run(
+        self,
+        question: str,
+        *,
+        revision_feedback: str | None = None,
+        revision_context: dict | None = None,
+    ) -> AgentResult:
         run_now = self._clock()
         run_tools = build_tools(
             self.user_id,
@@ -58,4 +64,6 @@ class ConsumptionAgent:
             ),
             tools=run_tools,
             question=question,
+            revision_feedback=revision_feedback,
+            revision_context=revision_context,
         )

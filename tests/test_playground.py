@@ -67,14 +67,26 @@ def test_invalid_inputs_do_not_execute(client, monkeypatch, payload):
     assert client.post("/playground/chat", json=payload).status_code == 422
 
 
-def test_judge_is_skipped_without_guardrails_or_models(client, monkeypatch):
-    monkeypatch.setattr(pg, "validate_input", lambda *a: pytest.fail("Juiz não deve executar"))
+def test_judge_tab_runs_the_guarded_workflow_and_returns_decisions(client, approved, monkeypatch):
+    seen = []
+    def workflow(user_id, session_id, message, *, persist_session=True):
+        seen.append((user_id, session_id, message, persist_session))
+        return {
+            "response": "Resposta aprovada.",
+            "agent_results": [],
+            "judge_history": [{"judge": {
+                "decision": "approve", "status": "evaluated", "severity": "no_error",
+                "confidence": 0.91, "reason_codes": ["ANSWER_APPROVED"],
+                "justification": "A candidata passou pelos critérios.",
+                "assessment": {"subcriteria_checked": True, "diagnostics": {"relevant": 0.9}},
+            }}],
+        }
+    monkeypatch.setattr(pg, "run_workflow", workflow)
     response = client.post("/playground/agents/judge", json={"message": "teste"}).json()
-    assert response["status"] == "skipped"
-    diag = response["diagnostics"]
-    assert diag["skipped_agents"] == ["judge"]
-    assert diag["models"] == diag["executed_agents"] == []
-    assert diag["user_id"] == 12345679
+    assert seen == [(12345679, response["session_id"], "teste", False)]
+    assert response["response"] == "Resposta aprovada."
+    assert response["judge_results"][0]["decision"] == "approve"
+    assert response["judge_results"][0]["assessment"]["diagnostics"] == {"relevant": 0.9}
 
 
 def test_individual_agent_uses_real_contract_and_fixed_identity(client, approved, monkeypatch):
@@ -171,7 +183,7 @@ def test_guardrail_rejection_prevents_agent(client, monkeypatch):
 
 
 def test_chat_preserves_response_when_session_save_fails(client, approved, monkeypatch):
-    def workflow(*args):
+    def workflow(*args, **kwargs):
         trace = current_trace()
         trace.executed_agents.append("consumption")
         trace.selected_agents.append("consumption")
@@ -184,7 +196,7 @@ def test_chat_preserves_response_when_session_save_fails(client, approved, monke
     result = client.post("/playground/chat", json={"message": "teste"}).json()
     assert result["status"] == "partial"
     assert result["response"] == "Resposta do fluxo."
-    assert "judge" in result["diagnostics"]["skipped_agents"]
+    assert "judge" not in result["diagnostics"]["skipped_agents"]
     assert any(e["stage"] == "session_save" for e in result["diagnostics"]["errors"])
     assert "private" not in str(result)
 

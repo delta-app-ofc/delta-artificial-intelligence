@@ -39,7 +39,8 @@ class PlaygroundRequest(BaseModel):
 
 def agent_status(name: str) -> dict:
     if name == "judge":
-        return {"id": name, "status": "pending", "message": "Integração do Juiz adiada; etapa ignorada."}
+        return {"id": name, "status": "available",
+                "message": "Executa o fluxo completo do chat e inclui a avaliação Jev."}
     path = AGENT_REGISTRY[name]
     module_path, class_name = path.rsplit(".", 1)
     try:
@@ -56,7 +57,8 @@ def config():
             "agents": [agent_status(name) for name in (*AGENT_REGISTRY, "judge")]}
 
 
-def envelope(trace, session_id, response="", chart_data=None, results=None, skipped=False):
+def envelope(trace, session_id, response="", chart_data=None, results=None, skipped=False,
+             judge_results=None):
     statuses = [r.get("status") for r in results or []]
     if skipped or (statuses and all(s == "skipped" for s in statuses)):
         status = "skipped"
@@ -70,18 +72,35 @@ def envelope(trace, session_id, response="", chart_data=None, results=None, skip
         status = "success"
     return public_data({"status": status, "response": response, "session_id": session_id,
                         "chart_data": chart_data, "agent_results": results or [],
+                        "judge_results": judge_results or [],
                         "diagnostics": trace.snapshot()})
+
+
+def _judge_results(state: dict) -> list[dict]:
+    summaries = []
+    for entry in state.get("judge_history", []):
+        judge = entry.get("judge", {})
+        assessment = judge.get("assessment", {})
+        summaries.append({
+            "decision": judge.get("decision"),
+            "status": judge.get("status"),
+            "severity": judge.get("severity"),
+            "confidence": judge.get("confidence"),
+            "reason_codes": judge.get("reason_codes", []),
+            "justification": judge.get("justification", ""),
+            "assessment": {
+                "subcriteria_checked": assessment.get("subcriteria_checked", False),
+                "diagnostics": assessment.get("diagnostics", {}),
+            },
+        })
+    return summaries
 
 
 def run_test(req: PlaygroundRequest, mode: str):
     session_id = req.session_id or str(uuid.uuid4())
     trace = Trace(mode=mode, user_id=USER_ID, test_label=TEST_LABEL)
-    response, chart, results = "", None, []
+    response, chart, results, judge_results = "", None, [], []
     with capture(trace):
-        if mode == "judge":
-            trace.skipped_agents.append("judge")
-            trace.warnings.append("Integração do Juiz adiada; nenhuma avaliação foi executada.")
-            return envelope(trace, session_id, "O Juiz está pendente de integração.", skipped=True)
         try:
             with component("input_guard"):
                 guard = validate_input(USER_ID, req.message)
@@ -90,13 +109,14 @@ def run_test(req: PlaygroundRequest, mode: str):
                                          "message": guard["reason"]})
                     return envelope(trace, session_id)
             message = guard["message"]
-            if mode == "chat":
+            if mode in {"chat", "judge"}:
                 state = run_workflow(USER_ID, session_id, message, persist_session=False)
                 response, chart = state["response"], state.get("chart_data")
                 results = state.get("agent_results", [])
+                judge_results = _judge_results(state)
                 trace.warnings.extend(state.get("warnings", []))
-                trace.skipped_agents.append("judge")
-                trace.warnings.append("Juiz pendente de integração; fluxo executado sem avaliação do Juiz.")
+                if mode == "judge" and not judge_results:
+                    trace.warnings.append("O fluxo não produziu uma candidata para avaliação Jev.")
             elif mode == "router":
                 from app.graph.context import build_context
                 with component("context"):
@@ -121,7 +141,7 @@ def run_test(req: PlaygroundRequest, mode: str):
                         response, chart = "", None
                     else:
                         response = out["response"]
-                if mode == "chat" and response:
+                if mode in {"chat", "judge"} and response:
                     try:
                         with component("session_save"):
                             append_turn(session_id, USER_ID, "human", req.message)
@@ -133,7 +153,7 @@ def run_test(req: PlaygroundRequest, mode: str):
             # Erros de etapas já instrumentadas estão registrados uma única vez.
             if not any(e["code"] == type(error).__name__ for e in trace.errors):
                 trace.error(mode, error)
-    return envelope(trace, session_id, response, chart, results)
+    return envelope(trace, session_id, response, chart, results, judge_results=judge_results)
 
 
 @router.post("/chat")

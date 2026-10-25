@@ -6,7 +6,7 @@ from typing import Any
 from langchain.agents import create_agent
 from langchain_core.messages import AIMessage, ToolMessage
 
-from app.agents._runtime import AgentResult, ToolCall
+from app.agents._runtime import AgentResult, ToolCall, build_revision_messages
 from app.config import ConfigurationError
 from app.observability.diagnostics import current_trace
 from app.services.prompts import RAG_PROMPT_COMPLETO
@@ -31,9 +31,19 @@ class RagAgent:
             system_prompt=RAG_PROMPT_COMPLETO,
         )
 
-    def run(self, question: str) -> AgentResult:
+    def run(
+        self,
+        question: str,
+        *,
+        revision_feedback: str | None = None,
+        revision_context: dict | None = None,
+    ) -> AgentResult:
+        previous_result = (revision_context or {}).get("agent_result") or {}
+        messages = build_revision_messages(revision_feedback, revision_context)
+        messages.append({"role": "user", "content": question})
+
         state = self.agent.invoke(
-            {"messages": [{"role": "user", "content": question}]},
+            {"messages": messages},
             config={"recursion_limit": 12},
         )
         calls = {}
@@ -50,7 +60,9 @@ class RagAgent:
                 except json.JSONDecodeError:
                     output = {"status": "unavailable", "chunks": []}
 
-                call = calls[message.tool_call_id]
+                call = calls.get(message.tool_call_id)
+                if call is None:
+                    continue
                 result.tool_calls.append(ToolCall(call["name"], call["args"], output))
                 if trace := current_trace():
                     trace.tool("rag", call["name"], call["args"], output)
@@ -58,11 +70,14 @@ class RagAgent:
                 if output.get("status") == "ok":
                     result.sources.extend(chunk["citation"] for chunk in output["chunks"])
 
-        result.sources = list(dict.fromkeys(result.sources))
+
+        result.sources = list(dict.fromkeys(previous_result.get("sources", []) + result.sources))
+        if not result.response.strip() and previous_result.get("answer"):
+            result.response = previous_result["answer"]
 
         if not result.sources or not result.response.strip():
             unavailable = any(
-                call.output.get("status") == "unavailable"
+                isinstance(call.output, dict) and call.output.get("status") == "unavailable"
                 for call in result.tool_calls
             )
             result.response = (
@@ -75,8 +90,9 @@ class RagAgent:
             )
             return result
 
-        result.response += "\n\nFontes consultadas:\n" + "\n".join(
-            f"- {source}" for source in result.sources
-        )
+        if "Fontes consultadas:" not in result.response:
+            result.response += "\n\nFontes consultadas:\n" + "\n".join(
+                f"- {source}" for source in result.sources
+            )
 
         return result

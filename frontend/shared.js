@@ -118,6 +118,16 @@ export function renderDiagnostics(target, result, busy = false) {
     result.agent_results.forEach(agent => results.append(details(`${agent.agent || agent.agent_id || agent.id || 'Agente'} · ${agent.status || 'resultado'}`, [['Resultado retornado', agent]])));
     target.append(results);
   }
+  if (result.judge_results?.length) {
+    const judgments = section('Decisões do Juiz Jev');
+    result.judge_results.forEach((judge, index) => judgments.append(details(
+      `Avaliação ${index + 1} · ${judge.decision || judge.status || 'resultado'}`,
+      [['Status', judge.status], ['Gravidade', judge.severity],
+        ['Confiança', judge.confidence], ['Códigos Python', judge.reason_codes],
+        ['Justificativa Python', judge.justification], ['Sinais adicionais', judge.assessment]],
+    )));
+    target.append(judgments);
+  }
   const metadata = section('Requisição');
   metadata.append(row('ID', diagnostics.request_id), row('Modo', diagnostics.mode), row('Usuário', diagnostics.user_id), row('Teste', diagnostics.test_label));
   target.append(metadata);

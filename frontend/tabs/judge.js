@@ -1,15 +1,15 @@
 export default {
   id: 'judge',
   label: 'Juiz',
-  title: 'Juiz · integração pendente',
+  title: 'Juiz · revisão Jev',
   description:
-    'A avaliação de respostas ainda não foi implementada. Esta aba está preparada como espaço reservado para uma integração futura.',
-  placeholder: 'Integração pendente: o Juiz ainda não executa avaliações.',
+    'Executa o fluxo completo do chatbot e mostra as decisões do Agente Juiz com Jev antes da resposta final.',
+  placeholder: 'Pergunte algo sobre o Delta para testar especialistas e Juiz.',
   examples: [],
   mode: 'judge',
   notes: [
-    'Nenhuma avaliação é executada nesta aba. As solicitações retornam como ignoradas (skipped), sem chamadas a modelos de linguagem ou bancos de dados.',
-    'O chat completo ainda não aciona o Juiz.',
-    'O contrato de evidências e resultados precisa ser definido antes da futura integração.',
+    'Esta aba executa os especialistas, suas ferramentas e o Juiz Jev; configure as credenciais e os bancos necessários.',
+    'A decisão e as justificativas são geradas pelo Python a partir dos sinais tipados do Jev.',
+    'Sem candidata elegível, o fluxo informa que não houve avaliação. Uma revisão do especialista é limitada a uma tentativa.',
   ],
 };

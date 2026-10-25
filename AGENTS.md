@@ -12,9 +12,15 @@ Os repositórios Delta são independentes. Faça alterações e operações Git 
 
 ## 2. Contexto e estado atual deste repositório
 
-O `delta-artificial-intelligence` contém agentes Python de consumo, previsão, vazamento, hábitos e RAG, além de uma API FastAPI, um workflow LangGraph, guardrails, memória, ferramentas de dados e testes. O Juiz permanece pendente; confirme o estado de cada integração no código.
+O `delta-artificial-intelligence` contém agentes Python de consumo, previsão,
+vazamento, hábitos e RAG, além da API FastAPI, do workflow LangGraph, guardrails,
+memória, ferramentas de dados e Agente Juiz com Jev. O grafo revisa a candidata
+antes da publicação e limita a uma correção por solicitação. Testes isolados não
+comprovam conexão real ou qualidade semântica dos provedores.
 
-A stack declarada inclui Python, FastAPI/Uvicorn, Pydantic, LangChain/LangGraph, integrações Gemini e Groq, PostgreSQL (`psycopg2`), MongoDB (`pymongo`) e Redis. No código atual, FastAPI e LangGraph implementam o chat e as rotas de sessão; LangChain, Gemini/Groq, PostgreSQL, MongoDB e Qdrant apoiam agentes e memória. Redis consta nas dependências, sem fluxo de aplicação implementado.
+A stack inclui Python, FastAPI/Uvicorn, Pydantic, LangChain/LangGraph, Gemini/Groq,
+PostgreSQL, MongoDB, Qdrant e langchain-typesafe. Redis consta nas dependências,
+sem fluxo de aplicação implementado.
 
 ### Componentes implementados
 
@@ -38,6 +44,7 @@ A stack declarada inclui Python, FastAPI/Uvicorn, Pydantic, LangChain/LangGraph,
 - `app/services/llms.py` configura modelos sob demanda a partir dos settings. O especialista mantém `bind_tools` nos dois provedores e usa Groq como fallback apenas para falhas transitórias; erros permanentes recebem mensagens públicas seguras e erros de programação propagam. O histórico de ferramentas é preservado sem repetir sua execução.
 - `delta-handbook/DADOS/IA/agentes/llm-models.md` registra papéis, modelos, parâmetros, retries e fontes oficiais. A disponibilidade de um modelo depende da conta; testes com clientes substituídos não comprovam acesso real nem qualidade das respostas.
 - `tests/` contém testes com modelo falso e ferramentas substituídas; os testes não precisam de banco nem de chamadas reais a provedores de LLM.
+- `manual_chat_judge.py` permite exercitar o fluxo integrado com guardrails, especialistas, Jev, eventual revisão e saída. A entrada manual não comprova integração remota sem execução com credenciais e dados reais.
 - `manual_chat.py` permite exercitar manualmente consumo, previsão e vazamento quando ambiente, bancos e chaves necessários estão configurados. Os IDs fixos são demonstrativos; uma futura integração deve fornecer o usuário autenticado pelo backend.
 
 ### Componentes implementados na branch `feat/langgraph-orquestracao`
@@ -58,15 +65,14 @@ Os componentes abaixo foram implementados e têm cobertura de testes:
 
 ### Componentes ainda sem implementação
 
-Os componentes abaixo continuam reservados. Não descreva seu comportamento como
-funcional nem os preencha fora do escopo da tarefa:
+- Agente `profile`.
+- Métricas em `app/observability/`.
 
-- Agente `judge`;
-- métricas em `app/observability/`.
+API, grafo, guardrails, memória e agentes registrados têm código. Verifique
+o comportamento e as dependências reais antes de descrevê-los como validados.
 
 A fonte documental é `app/knowledge/delta-main-source.md`, caminho padrão de `RAG_DOCUMENT_PATH`, incluída também na imagem Docker. O `RagAgent` usa `app/tools/rag.py` para recuperar trechos de `rag_documents` com fonte, revisão, modelo e linhas, e está registrado no roteador. O modelo de embedding vem de `GEMINI_EMBEDDING_MODEL`; a tool verifica a completude da revisão atual e chama `index_document()` automaticamente quando necessário, antes de consultar. A coleção deve existir previamente com dimensão compatível. O identificador de payload `delta-product-reference` permanece estável ao renomear o arquivo, cuja revisão depende do conteúdo. Testes com Qdrant em memória e embeddings controlados não comprovam Gemini/Qdrant remoto ou qualidade semântica.
 
-O Judge permanece sem implementação.
 Redis aparece nas dependências, mas não há integração de aplicação implementada aqui.
 A ingestão e a consulta documental compartilham `app/services/rag.py`. A tool chama
 `ensure_document_indexed()` antes de `search_document()`, sem CLI manual. A preparação
@@ -74,10 +80,16 @@ verifica fonte, revisão e modelo e indexa apenas se faltar conteúdo. IDs está
 preservam a idempotência, e um lock evita gerações simultâneas no mesmo processo.
 Revisões anteriores são preservadas e excluídas da consulta. Uma falha retorna
 indisponibilidade, e a próxima chamada tenta completar a revisão automaticamente.
-`tests/test_rag.py` verifica esse fluxo com Qdrant em memória e modelos controlados;
-não comprova integração remota nem fidelidade de um LLM real.
+Acesso ao Qdrant remoto e fidelidade do modelo precisam de validação real;
+este checkout não contém a antiga suíte RAG versionada.
 
-O Judge permanece sem implementação.
+O `JudgeAgent` recebe pergunta, candidata composta e evidências reais.
+A política usa `choices.severity.confidence`, com limite inclusivo de 0,80:
+erro crítico bloqueia sempre; erro corrigível ou baixa confiança pede uma
+revisão; depois dela só publica sem erro com confiança suficiente. Python
+gera códigos e justificativas. Veja `docs/judge-agent.md` e
+`manual_chat_judge.py`; o runner permite `--no-history` e não imprime
+candidatas bloqueadas. `manual_jev.py` continua sendo o experimento isolado.
 
 ### Estrutura atual
 
@@ -85,14 +97,14 @@ O Judge permanece sem implementação.
 delta-artificial-intelligence/
 ├── .github/workflows/       # Verificações organizacionais de Pull Request
 ├── app/
-│   ├── agents/              # ConsumptionAgent, ForecastAgent, LeakAgent, HabitsAgent e runtime
+│   ├── agents/              # Especialistas, JudgeAgent e runtime
 │   ├── data/                # Acesso PostgreSQL e MongoDB
-│   ├── graph/               # Workflow LangGraph, router, state, context
+│   ├── graph/               # Workflow LangGraph, router, state, context e revisão do Juiz
 │   ├── guardrails/          # Validações de entrada e saída (PII, injeção)
 │   ├── memory/              # Sessão (MongoDB) e longo prazo (Qdrant)
 │   ├── observability/       # Reservado para métricas
 │   ├── routes/              # API HTTP: chat, health, sessions e playground
-│   ├── services/            # LLMs, prompts e segmentação/recuperação documental RAG
+│   ├── services/            # LLMs, Jev, prompts e segmentação/recuperação documental RAG
 │   ├── tools/               # consumption/, forecast/, leak/, habits/, modelos e exceções
 │   ├── config.py
 │   └── main.py              # FastAPI app com CORS e routers registrados
@@ -100,12 +112,14 @@ delta-artificial-intelligence/
 ├── db/
 │   ├── postgres-init/       # Cópias locais de bootstrap PostgreSQL, arquivos 01 a 09
 │   └── README.md
-├── tests/                   # Testes RAG isolados com Qdrant em memória e modelos controlados
+├── docs/                    # Guias técnicos, inclusive do Agente Juiz
+├── tests/                   # Testes com provedores, bancos e ferramentas substituídos
 ├── .env.example
 ├── AGENTS.md
 ├── docker-compose.dev.yml   # PostgreSQL e MongoDB locais para desenvolvimento manual
 ├── LICENSE
 ├── manual_chat.py
+├── manual_chat_judge.py      # Fluxo manual com guardrails e revisão
 ├── requirements.txt
 ├── requirements-dev.txt
 └── README.md
@@ -159,15 +173,21 @@ O nível atual representa o conhecimento que a equipe aplica com autonomia; o li
 
 ## 6. Testes e execução local
 
-As dependências de aplicação estão em `requirements.txt`; `requirements-dev.txt` inclui as dependências de desenvolvimento e testes. Os testes registrados no `README.md` são executados com:
+Instale as dependências de `requirements.txt`. A entrada manual do fluxo com
+Juiz é:
 
-```bash
-python -m pytest -q
-```
+~~~powershell
+python manual_chat_judge.py --user-id 1 --no-history
+~~~
 
-Eles usam fakes e stubs e não validam conexão real com PostgreSQL, MongoDB, Gemini ou Groq. O ambiente local de desenvolvimento manual usa `docker-compose.dev.yml`; ele não transforma os testes automatizados em testes de integração. Só declare um fluxo como validado após executar a verificação correspondente e informar seus limites.
+Use um ID autorizado. Sem `--no-history`, turnos liberados são gravados no
+MongoDB. Bancos, ferramentas e provedores continuam reais no runner. Os
+checks isolados de política e grafo usam substitutos; não declare integração
+remota validada por esses resultados.
 
-O workflow `.github/workflows/trigger_actions.yml` chama as verificações compartilhadas da organização para Pull Requests. Ele não executa a suíte pytest. Não altere ou duplique esse workflow sem solicitação explícita.
+Não foi adicionada suíte persistente nesta entrega, conforme a solicitação.
+O workflow organizacional de PR continua separado desta validação; não o
+altere sem solicitação explícita.
 
 ## 7. Branches e commits
 
@@ -191,9 +211,9 @@ Ao documentar, diferencie o que está implementado, planejado, exemplificado e v
 
 Revise a seção **Estrutura atual** periodicamente nesta conversa após commits oficiais que alterem arquivos ou responsabilidades do repositório. Antes de usar este guia, compare as informações com a árvore, o `README.md`, o `TASK.md` e os workflows atuais.
 
-## 10. Execução orquestrada das TASK-01 a TASK-05
+## 10. Execução histórica das TASK-01 a TASK-05
 
-Durante esta execução, as orientações diretas da pessoa usuária prevalecem sobre o fluxo sequencial antigo do `TASK.md`:
+As regras abaixo descrevem a execução anterior das TASK-01 a TASK-05. Não as aplique automaticamente a tarefas novas; siga o escopo atual solicitado pela pessoa usuária:
 
 - Há um subagente independente por tarefa, todos em `gpt-6-luna` com esforço `xhigh`, cada um em worktree e branch exclusivos.
 - Antes de implementar, leia integralmente nesta ordem: `AGENTS.md` → `TASK.md` → `TASK-<número>.md`. Não altere o checkout ou arquivos de outro agente.

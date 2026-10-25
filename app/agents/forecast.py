@@ -20,12 +20,20 @@ class ForecastAgent:
         self.llm = llm
         self.tools = build_tools(self.user_id, self.today)
 
-    def run(self, question: str) -> AgentResult:
+    def run(
+        self,
+        question: str,
+        *,
+        revision_feedback: str | None = None,
+        revision_context: dict | None = None,
+    ) -> AgentResult:
         result = run_agent(
             llm=self.llm,
             system_prompt=previsao_prompt_completo(),
             tools=self.tools,
             question=question,
+            revision_feedback=revision_feedback,
+            revision_context=revision_context,
         )
         result.chart_data = build_forecast_chart(result.tool_calls)
         return result

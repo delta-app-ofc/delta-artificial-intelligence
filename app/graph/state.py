@@ -3,19 +3,19 @@ from __future__ import annotations
 from typing import Literal
 
 from langgraph.graph import MessagesState
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 
 class AgentOutput(BaseModel):
     agent: str
     status: Literal["success", "error", "skipped"]
     answer: str
-    data: dict = {}
-    sources: list[str] = []
+    data: dict = Field(default_factory=dict)
+    sources: list[str] = Field(default_factory=list)
     confidence: float | None = None
-    warnings: list[str] = []
+    warnings: list[str] = Field(default_factory=list)
     chart_data: dict | None = None
-    tool_calls: list[dict] = []
+    tool_calls: list[dict] = Field(default_factory=list)
 
 
 class GraphState(MessagesState, total=False):
@@ -27,6 +27,14 @@ class GraphState(MessagesState, total=False):
     relevant_memory: list[str]
     recent_messages: list[dict]
     _persist_session: bool
+    candidate: str
+    previous_candidate: str | None
+    previous_agent_results: list[dict]
+    revision_feedback: str
+    revision_count: int
+    judge_history: list[dict]
+    judge_action: Literal["approve", "correct", "block"] | str
+    composition_status: Literal["ready", "no_agents", "no_success", "bypass"] | str
     intent: str
     complexity: str
     selected_agents: list[str]
