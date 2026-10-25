@@ -8,6 +8,7 @@ from pydantic import BaseModel
 from app.services.prompts import ROUTER_PROMPT
 
 AGENT_REGISTRY: dict[str, str] = {
+    "consumption": "app.agents.consumption.ConsumptionAgent",
     "forecast": "app.agents.forecast.ForecastAgent",
     "leak": "app.agents.leak.LeakAgent",
     "habits": "app.agents.habits.HabitsAgent",
