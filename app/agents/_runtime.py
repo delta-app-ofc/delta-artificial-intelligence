@@ -68,7 +68,10 @@ def _run_tool(tool: BaseTool | None, name: str, args: dict) -> Any:
     try:
         return tool.invoke(args)
     except Exception as exc:
-        return {"status": "error", "message": str(exc)}
+        return {
+            "status": "error",
+            "message": f"Falha ao executar a ferramenta ({type(exc).__name__}).",
+        }
 
 
 def run_agent(
