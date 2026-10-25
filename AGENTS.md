@@ -40,20 +40,36 @@ A stack declarada inclui Python, FastAPI/Uvicorn, Pydantic, LangChain/LangGraph,
 - `tests/` contém testes com modelo falso e ferramentas substituídas; os testes não precisam de banco nem de chamadas reais a provedores de LLM.
 - `manual_chat.py` permite exercitar manualmente consumo, previsão e vazamento quando ambiente, bancos e chaves necessários estão configurados. Os IDs fixos são demonstrativos; uma futura integração deve fornecer o usuário autenticado pelo backend.
 
+### Componentes implementados na branch `feat/langgraph-orquestracao`
+
+Os componentes abaixo foram implementados e têm cobertura de testes:
+
+- API e rotas: `app/main.py` (CORS, registro de routers), `app/routes/chat.py`,
+  `app/routes/health.py`, `app/routes/sessions.py`, `app/schemas.py`.
+- Fluxo LangGraph: `app/graph/workflow.py` (grafo completo com guardrails,
+  context-passing, síntese), `app/graph/state.py`, `app/graph/router.py`,
+  `app/graph/context.py`.
+- Agente `habits`: `app/agents/habits.py`, `app/tools/habits/tools.py`
+  (inclui consulta ao histórico de clima no MongoDB `weather_daily`).
+- Guardrails: `app/guardrails/input.py` (anonimização PII, detecção de injeção),
+  `app/guardrails/output.py` (redação de PII na saída).
+- Memória de sessão: `app/memory/session.py` (MongoDB, ownership validado).
+- Memória de longo prazo: `app/memory/long_term.py` (Qdrant + embeddings Gemini).
+
 ### Componentes ainda sem implementação
 
-Os componentes abaixo continuam reservados no código revisado. Não descreva seu comportamento como funcional nem os preencha fora do escopo da tarefa:
+Os componentes abaixo continuam reservados. Não descreva seu comportamento como
+funcional nem os preencha fora do escopo da tarefa:
 
-- API e rotas: `app/main.py`, `app/routes/`, `app/schemas.py`;
-- fluxo LangGraph: `app/graph/workflow.py` e `app/graph/state.py`;
-- agentes `habits`, `judge`, `profile` e `rag`;
-- guardrails de entrada e saída em `app/guardrails/`;
-- memória de sessão ou de longo prazo em `app/memory/`;
+- Agentes `judge` e `rag`;
 - métricas em `app/observability/`.
 
 O serviço documental RAG em `app/services/rag.py` segmenta Markdown por títulos, indexa embeddings Gemini em `rag_documents` e recupera trechos com fonte, revisão e linhas. `scripts/rag.py` oferece inspeção offline, indexação e busca explícitas; não gera respostas nem está integrado ao agente/grafo. Veja `docs/rag-retrieval.md`. Os testes usam Qdrant em memória e embeddings controlados; não comprovam Gemini/Qdrant remoto ou qualidade semântica.
 
 O agente RAG e o Judge permanecem fora do escopo desta primeira etapa documental.
+Redis aparece nas dependências, mas não há integração de aplicação implementada aqui.
+`ConsumptionAgent` ainda não está no `AGENT_REGISTRY` do router — não é roteável
+pelo workflow LangGraph (task separada).
 
 ### Estrutura atual
 
@@ -61,17 +77,17 @@ O agente RAG e o Judge permanecem fora do escopo desta primeira etapa documental
 delta-artificial-intelligence/
 ├── .github/workflows/       # Verificações organizacionais de Pull Request
 ├── app/
-│   ├── agents/              # ConsumptionAgent, ForecastAgent, LeakAgent e runtime
+│   ├── agents/              # ConsumptionAgent, ForecastAgent, LeakAgent, HabitsAgent e runtime
 │   ├── data/                # Acesso PostgreSQL e MongoDB
-│   ├── graph/               # Reservado para estado e workflow LangGraph
-│   ├── guardrails/          # Reservado para validações de entrada e saída
-│   ├── memory/              # Reservado para memória
+│   ├── graph/               # Workflow LangGraph, router, state, context
+│   ├── guardrails/          # Validações de entrada e saída (PII, injeção)
+│   ├── memory/              # Sessão (MongoDB) e longo prazo (Qdrant)
 │   ├── observability/       # Reservado para métricas
-│   ├── routes/              # Reservado para rotas HTTP
+│   ├── routes/              # API HTTP: chat, health, sessions
 │   ├── services/            # LLMs, prompts e segmentação/recuperação documental RAG
-│   ├── tools/               # consumption/, forecast/, leak/, modelos e exceções
+│   ├── tools/               # consumption/, forecast/, leak/, habits/, modelos e exceções
 │   ├── config.py
-│   └── main.py              # Vazio na main inspecionada
+│   └── main.py              # FastAPI app com CORS e routers registrados
 ├── db/
 │   ├── postgres-init/       # Cópias locais de bootstrap PostgreSQL, arquivos 01 a 09
 │   └── README.md
