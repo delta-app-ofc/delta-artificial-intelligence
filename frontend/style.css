@@ -465,6 +465,22 @@ h1 {
   display:none;
 }
 
+.message-tools {
+  margin:12px 0 8px;
+}
+
+.message-tools > strong {
+  display:block;
+  margin-bottom:8px;
+  color:var(--muted);
+  font-size:10px;
+  letter-spacing:.5px;
+  text-transform:uppercase;
+}
+
+.message-tools .neutral-message {
+  font-size:11px;
+}
 .message-context {
   font-size:11px;
   color:var(--muted);

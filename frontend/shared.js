@@ -138,6 +138,15 @@ export function renderMessages(target, messages, tab) {
     node.append(meta, element('div', 'message-body', message.text));
     if (message.context) node.append(details('Ver entrada da avaliação', [['Resposta e evidências enviadas', message.context]]));
     if (message.result) {
+      const tools = message.result.diagnostics?.tools || [];
+      const usedTools = element('section', 'message-tools');
+      usedTools.append(element('strong', '', 'Ferramentas usadas · ' + tools.length));
+      if (!tools.length) usedTools.append(element('p', 'neutral-message', 'Nenhuma ferramenta registrada nesta resposta.'));
+      else tools.forEach(tool => usedTools.append(details(
+        `${tool.name || 'Ferramenta'} · ${tool.status || 'não informado'}`,
+        [['Agente', tool.agent], ['Entrada', tool.input], ['Saída', tool.output]],
+      )));
+      node.append(usedTools);
       const inspect = element('button', 'button button-quiet', 'Inspecionar esta execução');
       inspect.type = 'button'; inspect.addEventListener('click', () => message.inspect(message.result));
       node.append(inspect);
