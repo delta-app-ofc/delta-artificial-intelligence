@@ -1,7 +1,10 @@
 from __future__ import annotations
 
-# Palavras que indicam que o usuário quer contexto de sessões anteriores.
-# Apenas nesse caso vale o custo de embedding + busca Qdrant.
+from app.memory.session import load_history_validated
+from app.observability.diagnostics import current_trace
+
+RECENT_TURNS = 6
+
 _MEMORY_TRIGGERS = {
     "antes", "anterior", "anteriormente", "última vez", "últimas semanas", "últimos meses",
     "semana passada", "mês passado", "na semana passada", "no mês passado", "na última",
@@ -13,17 +16,33 @@ _MEMORY_TRIGGERS = {
 
 
 def find_relevant_memory(user_id: int, question: str) -> list[str]:
-    """Busca resumos de sessões anteriores, só se a pergunta se refere ao passado.
-
-    Evita embedding + busca vetorial em todo request sem necessidade.
-    """
+    """Busca resumos de sessões anteriores quando a pergunta pede contexto do passado."""
     question_lower = question.lower()
     if not any(trigger in question_lower for trigger in _MEMORY_TRIGGERS):
         return []
-
     try:
         from app.memory.long_term import search_memory
-
         return search_memory(user_id, question)
-    except Exception:
+    except Exception as error:
+        if trace := current_trace():
+            trace.error("long_term_memory", error)
         return []
+
+
+def build_context(user_id: int, session_id: str, question: str) -> dict:
+    """Monta histórico validado da sessão e memória de longo prazo para o roteador."""
+    try:
+        history = load_history_validated(user_id, session_id)
+    except Exception as error:
+        if trace := current_trace():
+            trace.error("session_history", error)
+        history = []
+    recent = [
+        {"role": item["role"], "content": item["content"]}
+        for item in history[-RECENT_TURNS:]
+        if item.get("role") in ("human", "assistant")
+    ]
+    return {
+        "recent_messages": recent,
+        "relevant_memory": find_relevant_memory(user_id, question),
+    }

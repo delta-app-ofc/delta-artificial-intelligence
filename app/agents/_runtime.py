@@ -12,6 +12,7 @@ from langchain_core.messages import (
     ToolMessage,
 )
 from langchain_core.tools import BaseTool
+from app.observability.diagnostics import current_component, current_trace, safe_error
 
 DEFAULT_MAX_ITERATIONS = 6
 
@@ -65,14 +66,15 @@ def _message_text(msg: BaseMessage) -> str:
 
 def _run_tool(tool: BaseTool | None, name: str, args: dict) -> Any:
     if tool is None:
-        return {"status": "error", "message": f"ferramenta desconhecida: {name}"}
-    try:
-        return tool.invoke(args)
-    except Exception as exc:
-        return {
-            "status": "error",
-            "message": f"Falha ao executar a ferramenta ({type(exc).__name__}).",
-        }
+        output = {"status": "error", "message": f"ferramenta desconhecida: {name}"}
+    else:
+        try:
+            output = tool.invoke(args)
+        except Exception as exc:
+            output = {"status": "error", "message": safe_error(exc)}
+    if trace := current_trace():
+        trace.tool(current_component(), name, args, output)
+    return output
 
 
 def run_agent(

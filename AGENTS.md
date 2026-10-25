@@ -12,13 +12,13 @@ Os repositórios Delta são independentes. Faça alterações e operações Git 
 
 ## 2. Contexto e estado atual deste repositório
 
-O `delta-artificial-intelligence` contém código Python para agentes especialistas de consumo, previsão e vazamento, ferramentas de acesso a dados, cálculos determinísticos, prompts e testes. A API HTTP e a orquestração geral continuam como espaço reservado: a presença de dependências ou arquivos vazios não comprova que estejam implementadas.
+O `delta-artificial-intelligence` contém agentes Python de consumo, previsão, vazamento, hábitos e RAG, além de uma API FastAPI, um workflow LangGraph, guardrails, memória, ferramentas de dados e testes. O Juiz permanece pendente; confirme o estado de cada integração no código.
 
-A stack declarada inclui Python, FastAPI/Uvicorn, Pydantic, LangChain/LangGraph, integrações Gemini e Groq, PostgreSQL (`psycopg2`), MongoDB (`pymongo`) e Redis. No código atual, os agentes usam LangChain, Gemini/Groq e acessos PostgreSQL/MongoDB; FastAPI, LangGraph e Redis não têm fluxo de aplicação implementado.
+A stack declarada inclui Python, FastAPI/Uvicorn, Pydantic, LangChain/LangGraph, integrações Gemini e Groq, PostgreSQL (`psycopg2`), MongoDB (`pymongo`) e Redis. No código atual, FastAPI e LangGraph implementam o chat e as rotas de sessão; LangChain, Gemini/Groq, PostgreSQL, MongoDB e Qdrant apoiam agentes e memória. Redis consta nas dependências, sem fluxo de aplicação implementado.
 
 ### Componentes implementados
 
-- `ConsumptionAgent`, `ForecastAgent` e `LeakAgent` funcionam de forma independente, sem depender de uma API FastAPI ou do grafo LangGraph.
+- `ConsumptionAgent`, `ForecastAgent`, `LeakAgent`, `HabitsAgent` e `RagAgent` estão implementados e podem ser usados diretamente; os agentes disponíveis também são registrados no workflow LangGraph.
 - `app/tools/consumption/analysis.py` resolve períodos e calcula totais, médias, comparações e picos em Python. `app/tools/consumption/tools.py` entrega resumos com série diária e metadados, vinculados ao usuário confiável; não usa elegibilidade de previsão para bloquear consumo observado.
 - Consumo prioriza o vínculo residencial e lê janelas Mongo pelo usuário. No caminho organizacional, resolve unidades autorizadas antes de consultar a view diária SQL; nomes ambíguos não consultam consumo, e `unit_id` nunca dispensa autorização. A fonte residencial não permite segmentar por imóvel.
 - Cada `ConsumptionAgent.run()` captura uma referência temporal única para prompt e tools, renovada na próxima execução. O default é `America/Sao_Paulo`; timestamps Mongo são consultados em UTC. Períodos usam [início, fim), datas customizadas são inclusivas na entrada e o limite é 366 dias.
@@ -61,15 +61,13 @@ Os componentes abaixo foram implementados e têm cobertura de testes:
 Os componentes abaixo continuam reservados. Não descreva seu comportamento como
 funcional nem os preencha fora do escopo da tarefa:
 
-- Agentes `judge` e `rag`;
+- Agente `judge`;
 - métricas em `app/observability/`.
 
 A fonte documental é `app/knowledge/delta-main-source.md`, caminho padrão de `RAG_DOCUMENT_PATH`, incluída também na imagem Docker. O `RagAgent` usa `app/tools/rag.py` para recuperar trechos de `rag_documents` com fonte, revisão, modelo e linhas, e está registrado no roteador. O modelo de embedding vem de `GEMINI_EMBEDDING_MODEL`; a tool verifica a completude da revisão atual e chama `index_document()` automaticamente quando necessário, antes de consultar. A coleção deve existir previamente com dimensão compatível. O identificador de payload `delta-product-reference` permanece estável ao renomear o arquivo, cuja revisão depende do conteúdo. Testes com Qdrant em memória e embeddings controlados não comprovam Gemini/Qdrant remoto ou qualidade semântica.
 
-O agente RAG e o Judge permanecem fora do escopo desta primeira etapa documental.
+O Judge permanece sem implementação.
 Redis aparece nas dependências, mas não há integração de aplicação implementada aqui.
-`ConsumptionAgent` ainda não está no `AGENT_REGISTRY` do router — não é roteável
-pelo workflow LangGraph (task separada).
 A ingestão e a consulta documental compartilham `app/services/rag.py`. A tool chama
 `ensure_document_indexed()` antes de `search_document()`, sem CLI manual. A preparação
 verifica fonte, revisão e modelo e indexa apenas se faltar conteúdo. IDs estáveis
@@ -93,11 +91,12 @@ delta-artificial-intelligence/
 │   ├── guardrails/          # Validações de entrada e saída (PII, injeção)
 │   ├── memory/              # Sessão (MongoDB) e longo prazo (Qdrant)
 │   ├── observability/       # Reservado para métricas
-│   ├── routes/              # API HTTP: chat, health, sessions
+│   ├── routes/              # API HTTP: chat, health, sessions e playground
 │   ├── services/            # LLMs, prompts e segmentação/recuperação documental RAG
 │   ├── tools/               # consumption/, forecast/, leak/, habits/, modelos e exceções
 │   ├── config.py
 │   └── main.py              # FastAPI app com CORS e routers registrados
+├── frontend/                # Console de testes com abas por agente e roteador
 ├── db/
 │   ├── postgres-init/       # Cópias locais de bootstrap PostgreSQL, arquivos 01 a 09
 │   └── README.md

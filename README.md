@@ -299,6 +299,84 @@ de saída são configuráveis. A disponibilidade depende da conta e do identific
 os testes não medem qualidade em português. Justificativas, parâmetros e
 fontes oficiais estão em [provedores e modelos](https://github.com/delta-app-ofc/delta-handbook/blob/main/DADOS/IA/agentes/llm-models.md).
 
+## Console de testes dos agentes
+
+O console usa HTML, CSS e JavaScript servidos pelo FastAPI, com as cores,
+fontes e identidade visual do **delta-web-app**. Inicie na raiz deste repositório:
+
+~~~bash
+python -m pip install -r requirements.txt -r requirements-dev.txt
+python -m uvicorn app.main:app --host 127.0.0.1 --port 8000
+~~~
+
+Acesse **http://127.0.0.1:8000/playground/**. O console usa o
+**user_id 12345679** e o nome de teste **teste_agentes_25_10**, definidos no
+servidor. Ele não cadastra esse usuário ou dados de exemplo e não oferece
+configuração de perfil. O usuário precisa existir e ter os vínculos/dados
+necessários nos bancos configurados.
+
+- **Chat completo:** guardrails, contexto, roteador e especialistas reais,
+  com persistência da conversa no MongoDB. Falha de persistência preserva a
+  resposta na tela e aparece no painel de erros.
+- **Roteador:** classifica a pergunta com contexto real, sem executar os
+  especialistas. Selecionar um agente não significa que ele foi executado.
+- **Consumo, Previsão, Vazamento, Hábitos e RAG:** executam diretamente o
+  mesmo especialista usado pelo grafo, preservando os guardrails. Consumo
+  também está registrado no roteador.
+- **Juiz:** placeholder pendente, sem avaliação, modelo ou banco acionado.
+  Sua integração foi adiada; o chat informa explicitamente que o ignora.
+
+Cada aba mantém seu rascunho, histórico e sessão separados enquanto a página
+estiver aberta. A opção **Nova sessão** gera uma nova conversa na próxima
+mensagem; não encerra nem resume a anterior. O chat envia a mesma mensagem
+pelo fluxo real do aplicativo, enquanto as abas individuais testam apenas o
+especialista. O histórico recente alimenta a classificação e os especialistas
+continuam recebendo a pergunta atual conforme o contrato existente.
+
+Não há modo demonstrativo. Configure o arquivo .env a partir de
+[.env.example](.env.example): Groq para guardrails/roteador/RAG, Gemini e fallback
+Groq para os especialistas, PostgreSQL e MongoDB para os dados, Qdrant e Gemini
+embeddings para o RAG. O RAG pode indexar a revisão documental antes da primeira
+consulta. Ausência de dados não comprova falha de conexão, e erro de conexão
+não vira consumo zero.
+
+Os painéis exibem erros, avisos, etapas, agentes selecionados/executados/ignorados,
+ferramentas com entradas e resultados e chamadas reais aos modelos, inclusive
+fallback e embeddings. Uma configuração de modelo, sozinha, não aparece como
+chamada executada. Os diagnósticos são isolados por requisição e não armazenam
+prompts nem credenciais. Dados das ferramentas pertencem ao usuário fixo do teste.
+O gráfico usa a biblioteca Plotly instalada no servidor, sem script de CDN.
+
+O console e seus assets ficam habilitados por padrão apenas em **development**
+e **test**. Em **staging** e **production** ficam desativados. A variável
+**DELTA_PLAYGROUND_ENABLED=true|false**, no processo ou .env, altera essa escolha.
+Este é um console interno com usuário fixo, sem autenticação própria: se precisar
+habilitá-lo fora do desenvolvimento, restrinja o acesso na infraestrutura.
+
+Rotas de teste (também descritas no Swagger em /docs):
+
+| Método | Caminho | Finalidade |
+| --- | --- | --- |
+| GET | /playground/config | Identidade fixa e implementação dos agentes |
+| POST | /playground/chat | Fluxo completo |
+| POST | /playground/router | Classificação sem executar especialistas |
+| POST | /playground/agents/{name} | Teste individual ou Juiz ignorado |
+
+As requisições aceitam **message** (1 a 2000 caracteres) e **session_id** opcional;
+não aceitam sobrescrever o usuário. A resposta inclui status, response,
+session_id, chart_data, agent_results e diagnostics. Os estados são
+success, partial, error e skipped.
+
+~~~bash
+python -m pytest -q --basetemp .pytest_cache/tmp
+~~~
+
+[tests/test_playground.py](tests/test_playground.py) verifica contratos HTTP,
+isolamento de usuário e diagnósticos, guardrails, falhas parciais, componentes
+pendentes, callbacks de modelos/fallback e proteção do console por ambiente.
+Usa substitutos controlados: essa suíte não comprova acesso remoto aos
+bancos/provedores nem qualidade semântica.
+
 ## Agente de Hábitos
 
 Analisa hábitos de consumo registrados, estima seu impacto hídrico e relaciona
