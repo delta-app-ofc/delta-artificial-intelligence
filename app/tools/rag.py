@@ -28,10 +28,17 @@ def search_knowledge_base(question: str) -> dict:
     """
     settings = get_settings()
 
-    if not settings.gemini_api_key or not settings.qdrant_url or not settings.rag_document_path:
+    if (
+        not settings.gemini_api_key
+        or not settings.qdrant_url
+        or not settings.rag_document_path
+    ):
         return {
             "status": "unavailable",
-            "message": "Configure GEMINI_API_KEY, QDRANT_URL e RAG_DOCUMENT_PATH para consultar a base.",
+            "message": (
+                "Configure GEMINI_API_KEY, QDRANT_URL e RAG_DOCUMENT_PATH "
+                "para consultar a base."
+            ),
             "chunks": [],
         }
 
@@ -57,7 +64,10 @@ def search_knowledge_base(question: str) -> dict:
         if not client.collection_exists(COLLECTION):
             return {
                 "status": "unavailable",
-                "message": "A coleção rag_documents precisa existir e estar indexada antes da consulta.",
+                "message": (
+                    "A coleção rag_documents precisa existir e estar indexada "
+                    "antes da consulta."
+                ),
                 "chunks": [],
             }
 
