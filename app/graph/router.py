@@ -9,6 +9,7 @@ AGENT_REGISTRY: dict[str, str] = {
     "forecast": "app.agents.forecast.ForecastAgent",
     "leak": "app.agents.leak.LeakAgent",
     "habits": "app.agents.habits.HabitsAgent",
+    "rag": "app.agents.rag.RagAgent",
 }
 
 _ROUTER_PROMPT = """Você é o roteador do Delta AI, assistente de monitoramento de consumo de água.
@@ -18,11 +19,17 @@ Agentes disponíveis:
 - forecast: previsão de consumo, estimativa da próxima conta, tendência, risco de meta
 - leak: possíveis vazamentos, consumo anormal, alertas de comportamento atípico
 - habits: hábitos cadastrados, frequência, dias da semana, impacto hídrico, clima para hábitos ao ar livre
+- rag: explicações da documentação oficial do Delta, cadastro, vínculo do hidrômetro,
+  significado de indicadores, regras de metas, alertas, privacidade e funcionalidades
+
+Use rag para explicar como o produto funciona. Consultas sobre dados particulares
+da conta devem ir aos especialistas; combine rag e especialista quando a pergunta
+pedir tanto uma explicação geral quanto uma análise dos registros do usuário.
 
 Complexidade:
 - simple: 1 agente, pergunta direta
 - medium: 2 agentes, análise cruzada
-- complex: 3 agentes ou cruzamento profundo
+- complex: 3 ou mais agentes ou cruzamento profundo
 
 Retorne JSON exatamente neste formato (sem markdown, sem texto antes ou depois):
 {"intent": "<string>", "complexity": "<simple|medium|complex>", "agents": ["<nome>", ...]}
@@ -33,6 +40,9 @@ Exemplos:
 - "Tenho vazamento e minha conta está alta?" → {"intent": "leak_and_forecast", "complexity": "medium", "agents": ["leak", "forecast"]}
 - "Analise tudo: consumo, hábitos e vazamento." → {"intent": "full_analysis", "complexity": "complex", "agents": ["forecast", "leak", "habits"]}
 - "Como vai o Brasil?" → {"intent": "unknown", "complexity": "simple", "agents": []}
+- "Como vinculo meu hidrômetro?" → {"intent": "product_help", "complexity": "simple", "agents": ["rag"]}
+- "O que é um indício de vazamento?" → {"intent": "product_help", "complexity": "simple", "agents": ["rag"]}
+- "O que é um alerta e tenho algum ativo?" → {"intent": "alert_help", "complexity": "medium", "agents": ["rag", "leak"]}
 """
 
 
