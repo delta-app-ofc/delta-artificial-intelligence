@@ -14,9 +14,6 @@ from app.memory.session import append_turn
 
 def _guardrail_input_node(state: GraphState) -> GraphState:
     """Valida a entrada antes de qualquer processamento (defesa em profundidade)."""
-    if state.get("skip_guardrail_input"):
-        return {**state, "pii_map": state.get("pii_map") or {}, "_blocked": False}
-
     result = validate_input(state["user_id"], state["question"])
     if not result["ok"]:
         return {
@@ -34,7 +31,7 @@ def _guardrail_input_node(state: GraphState) -> GraphState:
 
 
 def _after_guardrail_input(state: GraphState) -> str:
-    return "END" if state.get("_blocked") else "context"
+    return END if state.get("_blocked") else "context"
 
 
 def _context_node(state: GraphState) -> GraphState:
@@ -197,7 +194,7 @@ _graph.set_entry_point("guardrail_input")
 _graph.add_conditional_edges(
     "guardrail_input",
     _after_guardrail_input,
-    {"END": END, "context": "context"},
+    {END: END, "context": "context"},
 )
 _graph.add_edge("context", "route")
 _graph.add_edge("route", "execute")
@@ -210,14 +207,7 @@ _memory = MemorySaver()
 workflow = _graph.compile(checkpointer=_memory)
 
 
-def run_workflow(
-    user_id: int,
-    session_id: str,
-    question: str,
-    *,
-    skip_guardrail_input: bool = False,
-    pii_map: dict | None = None,
-) -> GraphState:
+def run_workflow(user_id: int, session_id: str, question: str) -> GraphState:
     initial: GraphState = {
         "user_id": user_id,
         "session_id": session_id,
@@ -232,9 +222,6 @@ def run_workflow(
         "intent": "",
         "complexity": "",
         "selected_agents": [],
-        "pii_map": pii_map or {},
-        "_blocked": False,
-        "skip_guardrail_input": skip_guardrail_input,
     }
     return workflow.invoke(
         initial,
