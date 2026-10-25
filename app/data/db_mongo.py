@@ -70,24 +70,6 @@ def close_clients() -> None:
         raise DatabaseConnectionError("MongoDB") from close_error
 
 
-def _telemetry():
-    return get_telemetry_client()[get_settings().mongo_db_telemetry]
-
-
-def _app():
-    return get_app_client()[get_settings().mongo_db_app]
-
-
-def _since(days: int) -> datetime:
-    return datetime.now(timezone.utc) - timedelta(days=days)
-
-
-def _query_timeout_ms(component: str) -> int:
-    settings = get_settings()
-    validate_mongo_config(component, settings=settings)
-    return settings.db_query_timeout_seconds * 1000
-
-
 def _run_query(action: Callable[[], _T]) -> _T:
     """Converte falhas do driver e documentos inválidos em erros seguros."""
     try:
@@ -164,10 +146,19 @@ def _read_many(
     converter: Callable[[dict], _T],
 ) -> list[_T]:
     """Lê e converte documentos mantendo limite de tempo no servidor."""
+    settings = get_settings()
+    validate_mongo_config(component, settings=settings)
+    query_timeout_ms = settings.db_query_timeout_seconds * 1000
+
     def read() -> list[_T]:
-        database = _telemetry() if component == "telemetry" else _app()
-        collection = database[collection_name]
-        cursor = collection.find(query, max_time_ms=_query_timeout_ms(component))
+        if component == "telemetry":
+            database = get_telemetry_client()[settings.mongo_db_telemetry]
+        else:
+            database = get_app_client()[settings.mongo_db_app]
+        cursor = database[collection_name].find(
+            query,
+            max_time_ms=query_timeout_ms,
+        )
         try:
             return [
                 converter(document)
@@ -181,14 +172,22 @@ def _read_many(
 
 def _read_one(component: str, collection_name: str, query: dict) -> dict | None:
     """Lê um documento com limite de execução no servidor."""
-    def read() -> dict | None:
-        database = _telemetry() if component == "telemetry" else _app()
-        return database[collection_name].find_one(
-            query,
-            max_time_ms=_query_timeout_ms(component),
-        )
+    settings = get_settings()
+    validate_mongo_config(component, settings=settings)
+    query_timeout_ms = settings.db_query_timeout_seconds * 1000
 
-    return _run_query(read)
+    if component == "telemetry":
+        client = get_telemetry_client()
+        database_name = settings.mongo_db_telemetry
+    else:
+        client = get_app_client()
+        database_name = settings.mongo_db_app
+    return _run_query(
+        lambda: client[database_name][collection_name].find_one(
+            query,
+            max_time_ms=query_timeout_ms,
+        )
+    )
 
 
 # Tools do Agente de Previsão (app/tools/forecast/tools.py)
@@ -196,7 +195,12 @@ def get_consumption_history(user_id: int, days: int) -> list[ConsumptionPoint]:
     return _read_many(
         "telemetry",
         "consumption_summary",
-        {"user_id": user_id, "window_started_at": {"$gte": _since(days)}},
+        {
+            "user_id": user_id,
+            "window_started_at": {
+                "$gte": datetime.now(timezone.utc) - timedelta(days=days)
+            },
+        },
         "window_started_at",
         ASCENDING,
         _to_point,
@@ -252,7 +256,9 @@ def get_anomalous_consumption_windows(user_id: int, days: int) -> list[Consumpti
         {
             "user_id": user_id,
             "anomaly_detected": True,
-            "window_started_at": {"$gte": _since(days)},
+            "window_started_at": {
+                "$gte": datetime.now(timezone.utc) - timedelta(days=days)
+            },
         },
         "window_started_at",
         ASCENDING,
@@ -265,7 +271,9 @@ def get_alerts_history(
 ) -> list[Alert]:
     query: dict = {
         "user_id": user_id,
-        "triggered_at": {"$gte": _since(days)},
+        "triggered_at": {
+            "$gte": datetime.now(timezone.utc) - timedelta(days=days)
+        },
     }
     if only_active:
         query["resolved_at"] = None

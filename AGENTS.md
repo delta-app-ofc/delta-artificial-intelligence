@@ -51,7 +51,9 @@ Os componentes abaixo continuam reservados no código revisado. Não descreva se
 - memória de sessão ou de longo prazo em `app/memory/`;
 - métricas em `app/observability/`.
 
-LangGraph está listado nas dependências, mas o fluxo em `app/graph/` ainda não foi implementado. Os prompts para RAG existem, mas não há retriever implementado neste repositório. Redis aparece nas dependências, mas não há integração de aplicação implementada aqui.
+O serviço documental RAG em `app/services/rag.py` segmenta Markdown por títulos, indexa embeddings Gemini em `rag_documents` e recupera trechos com fonte, revisão e linhas. `scripts/rag.py` oferece inspeção offline, indexação e busca explícitas; não gera respostas nem está integrado ao agente/grafo. Veja `docs/rag-retrieval.md`. Os testes usam Qdrant em memória e embeddings controlados; não comprovam Gemini/Qdrant remoto ou qualidade semântica.
+
+O agente RAG e o Judge permanecem fora do escopo desta primeira etapa documental.
 
 ### Estrutura atual
 
@@ -66,7 +68,7 @@ delta-artificial-intelligence/
 │   ├── memory/              # Reservado para memória
 │   ├── observability/       # Reservado para métricas
 │   ├── routes/              # Reservado para rotas HTTP
-│   ├── services/            # Configuração de LLMs e prompts
+│   ├── services/            # LLMs, prompts e segmentação/recuperação documental RAG
 │   ├── tools/               # consumption/, forecast/, leak/, modelos e exceções
 │   ├── config.py
 │   └── main.py              # Vazio na main inspecionada
@@ -74,7 +76,7 @@ delta-artificial-intelligence/
 │   ├── postgres-init/       # Cópias locais de bootstrap PostgreSQL, arquivos 01 a 09
 │   └── README.md
 ├── docs/                    # Configuração e guias técnicos das integrações
-├── scripts/                 # Verificações explícitas de conectividade, sem clientes LLM
+├── scripts/                 # Conectividade e CLI RAG (inspect offline; index/search com embeddings)
 ├── tests/                   # Testes pytest; conftest isola ambiente e cache de settings
 ├── .env.example
 ├── AGENTS.md

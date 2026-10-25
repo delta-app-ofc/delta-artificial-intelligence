@@ -14,11 +14,6 @@ _MEMORY_TRIGGERS = {
 }
 
 
-def _needs_long_term_memory(question: str) -> bool:
-    q = question.lower()
-    return any(trigger in q for trigger in _MEMORY_TRIGGERS)
-
-
 def build_context(user_id: int, session_id: str, question: str) -> dict:
     """Monta contexto consolidado para o Router.
 
@@ -34,7 +29,9 @@ def build_context(user_id: int, session_id: str, question: str) -> dict:
         recent = []
 
     relevant: list[str] = []
-    if _needs_long_term_memory(question):
+    question_lower = question.lower()
+
+    if any(trigger in question_lower for trigger in _MEMORY_TRIGGERS):
         try:
             from app.memory.long_term import search_memory
             relevant = search_memory(user_id, question)

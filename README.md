@@ -66,6 +66,20 @@ Detalhes: [settings e ambientes](docs/settings.md),
 [conector PostgreSQL](docs/postgres-connection.md) e
 [conector MongoDB](docs/mongo-connection.md).
 
+## Base documental RAG: primeira etapa
+
+`app/services/rag.py` segmenta o documento Markdown por `#`, `##` e `###`,
+preservando capítulos, subtópicos e linhas da fonte. Gera embeddings textuais
+Gemini e consulta os trechos por similaridade no Qdrant, na coleção separada
+`rag_documents`. A busca retorna conteúdo, fonte, revisão e score; ainda não
+gera respostas nem está ligada ao chatbot.
+
+O comando `python -m scripts.rag inspect <documento.md>` inspeciona os trechos
+sem rede. `index` e `search --question "..."` exigem `GEMINI_API_KEY` e
+`QDRANT_URL`. Veja [configuração, comandos e limites](docs/rag-retrieval.md).
+Os testes cobrem Qdrant em memória com embeddings controlados; a integração
+Gemini/Qdrant remoto e a qualidade temática ainda precisam de validação real.
+
 ## Testes
 
 ```bash
