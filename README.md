@@ -66,19 +66,21 @@ Detalhes: [settings e ambientes](docs/settings.md),
 [conector PostgreSQL](docs/postgres-connection.md) e
 [conector MongoDB](docs/mongo-connection.md).
 
-## Base documental RAG: primeira etapa
+## Base documental RAG
 
-`app/services/rag.py` segmenta o documento Markdown por `#`, `##` e `###`,
-preservando capítulos, subtópicos e linhas da fonte. Gera embeddings textuais
-Gemini e consulta os trechos por similaridade no Qdrant, na coleção separada
-`rag_documents`. A busca retorna conteúdo, fonte, revisão e score; ainda não
-gera respostas nem está ligada ao chatbot.
+A fonte do produto é [delta-main-source.md](app/knowledge/delta-main-source.md),
+incluída neste repositório e na imagem Docker. Esse é o caminho padrão de
+`RAG_DOCUMENT_PATH`; caminhos relativos partem da raiz do projeto.
 
-O comando `python -m scripts.rag inspect <documento.md>` inspeciona os trechos
-sem rede. `index` e `search --question "..."` exigem `GEMINI_API_KEY` e
-`QDRANT_URL`. Veja [configuração, comandos e limites](docs/rag-retrieval.md).
-Os testes cobrem Qdrant em memória com embeddings controlados; a integração
-Gemini/Qdrant remoto e a qualidade temática ainda precisam de validação real.
+O `RagAgent` usa `app/tools/rag.py` para consultar a coleção `rag_documents`
+no Qdrant. A busca usa `GEMINI_EMBEDDING_MODEL`, vetores de 3072 dimensões
+e filtros de fonte, revisão do documento e modelo. O agente recebe trechos
+com capítulos, subtópicos e linhas para citar nas respostas.
+
+A coleção precisa estar previamente indexada. Alterar o conteúdo da fonte,
+o modelo ou a dimensão exige atualizar a indexação; a consulta não faz isso
+automaticamente. Renomear ou mover o arquivo sem alterar seu conteúdo não
+muda a revisão. A integração remota e a qualidade temática exigem validação real.
 
 ## Testes
 

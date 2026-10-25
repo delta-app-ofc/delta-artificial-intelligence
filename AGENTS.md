@@ -51,9 +51,9 @@ Os componentes abaixo continuam reservados no código revisado. Não descreva se
 - memória de sessão ou de longo prazo em `app/memory/`;
 - métricas em `app/observability/`.
 
-O serviço documental RAG em `app/services/rag.py` segmenta Markdown por títulos, indexa embeddings Gemini em `rag_documents` e recupera trechos com fonte, revisão e linhas. `scripts/rag.py` oferece inspeção offline, indexação e busca explícitas; não gera respostas nem está integrado ao agente/grafo. Veja `docs/rag-retrieval.md`. Os testes usam Qdrant em memória e embeddings controlados; não comprovam Gemini/Qdrant remoto ou qualidade semântica.
+A fonte documental é `app/knowledge/delta-main-source.md`, caminho padrão de `RAG_DOCUMENT_PATH`, incluída também na imagem Docker. O `RagAgent` usa `app/tools/rag.py` para recuperar trechos de `rag_documents` com fonte, revisão, modelo e linhas, e está registrado no roteador. O modelo de embedding vem de `GEMINI_EMBEDDING_MODEL`; a consulta exige indexação prévia compatível e não indexa o documento. O identificador de payload `delta-product-reference` permanece estável ao renomear o arquivo, cuja revisão depende do conteúdo. Testes com Qdrant em memória e embeddings controlados não comprovam Gemini/Qdrant remoto ou qualidade semântica.
 
-O agente RAG e o Judge permanecem fora do escopo desta primeira etapa documental.
+O Judge permanece sem implementação.
 
 ### Estrutura atual
 

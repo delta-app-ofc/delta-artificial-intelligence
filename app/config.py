@@ -168,7 +168,9 @@ def load_settings(
         db_query_timeout_seconds=parsed_numbers["DB_QUERY_TIMEOUT_SECONDS"],
         qdrant_url=values.get("QDRANT_URL"),
         qdrant_api_key=values.get("QDRANT_API_KEY"),
-        rag_document_path=values.get("RAG_DOCUMENT_PATH"),
+        rag_document_path=values.get(
+            "RAG_DOCUMENT_PATH", "app/knowledge/delta-main-source.md"
+        ),
         _parse_errors=tuple(parse_errors),
     )
 
