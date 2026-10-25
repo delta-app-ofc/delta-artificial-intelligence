@@ -37,6 +37,7 @@ class Settings:
     mongo_db_app: str
     mongo_db_telemetry: str
     gemini_model: str
+    gemini_embedding_model: str
     groq_specialist_model: str
     groq_fast_model: str
     llm_fallback_enabled: bool
@@ -103,6 +104,9 @@ def load_settings(
     mongo_db_app = values.get("MONGO_DB_APP", "db_delta_app")
     mongo_db_telemetry = values.get("MONGO_DB_TELEMETRY", "db_delta_telemetry")
     gemini_model = values.get("GEMINI_MODEL", "gemini-2.5-flash")
+    gemini_embedding_model = values.get(
+        "GEMINI_EMBEDDING_MODEL", "gemini-embedding-2-preview"
+    )
     groq_specialist_model = values.get(
         "GROQ_SPECIALIST_MODEL", "openai/gpt-oss-120b"
     )
@@ -153,6 +157,7 @@ def load_settings(
         mongo_db_app=mongo_db_app or "",
         mongo_db_telemetry=mongo_db_telemetry or "",
         gemini_model=gemini_model or "",
+        gemini_embedding_model=gemini_embedding_model or "",
         groq_specialist_model=groq_specialist_model or "",
         groq_fast_model=groq_fast_model or "",
         llm_fallback_enabled=fallback_enabled,
