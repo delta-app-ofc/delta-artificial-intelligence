@@ -1,10 +1,11 @@
 # delta-artificial-intelligence
 
 Chatbot de IA do Projeto Delta — plataforma de monitoramento inteligente de
-consumo residencial de água. Este repositório reúne os agentes especialistas
-e as tools de acesso a dados; a API HTTP (FastAPI), o roteamento entre
-agentes (LangGraph), guardrails e memória de sessão ainda são só o esqueleto
-de pastas, sem implementação.
+consumo de água. Este repositório reúne especialistas, ferramentas de acesso
+a dados, API FastAPI, roteamento LangGraph, guardrails e memória. O Agente
+Juiz com Jev revisa a candidata antes da publicação e permite uma única
+correção. Código implementado e verificações isoladas não comprovam
+integração com provedores e bancos reais.
 
 O motor de detecção de vazamento (regras que calculam `anomaly_detected` e
 criam alertas) não usa LLM e por isso mora em outro repositório,
@@ -111,28 +112,53 @@ revisão antiga. Uma nova chamada tenta completar a revisão automaticamente. A 
 não cria nem recria a coleção; coleção ausente ou dimensão incompatível exige ajuste
 da infraestrutura. A dimensão permanece fixa em 3072.
 
-Os testes em `tests/test_rag.py` cobrem primeira carga automática, reutilização do
-índice, edição, inclusão, remoção, renomeação, troca de modelo, consultas simultâneas
-e recuperação após falha. Usam Qdrant em memória, embeddings controlados e um modelo
-de resposta controlado; o acesso remoto e a qualidade semântica exigem validação própria.
+A validação de primeira carga, reutilização do índice, atualização e recuperação
+após falha deve considerar a revisão e o modelo efetivos. Acesso remoto e
+qualidade semântica das respostas precisam de verificação própria.
 
-## Testes
+## Agente Juiz e revisão
 
-```bash
-pip install -r requirements.txt -r requirements-dev.txt
-python -m pytest -q
-```
+O `JudgeAgent` usa Jev pela integração `langchain-typesafe`. A candidata
+composta é avaliada junto com as ferramentas e fontes dos especialistas.
+A decisão usa a `confidence` da Choice de gravidade:
 
-A suíte versionada em `tests/test_rag.py` verifica o ciclo documental RAG com
-Qdrant em memória e modelos controlados. O próprio arquivo isola o ambiente e
-o cache de settings; os testes não leem `.env` nem chamam bancos ou provedores remotos.
+- sem erro e confidence de pelo menos 80%: publica;
+- erro corrigível ou sem erro abaixo de 80%: pede uma revisão com justificativa Python;
+- erro crítico: bloqueia imediatamente, independentemente da confidence;
+- depois da revisão, só publica sem erro e com pelo menos 80%;
+- falha do avaliador: mensagem segura, sem liberar a candidata ou o gráfico.
 
-Esses testes não comprovam acesso real, disponibilidade do modelo para a
-conta ou qualidade da redação. Na validação local deste conjunto, Docker
-Engine e serviços de banco estavam indisponíveis e não havia credenciais
-LLM. Os checks reais de PostgreSQL/Mongo falharam com diagnósticos seguros;
-a avaliação ponta a ponta continua pendente. O workflow organizacional de
-PR não executa pytest: rode a suíte antes de enviar alterações.
+Noul e Score são diagnósticos e não substituem essa regra. O Juiz não gera
+texto livre: os códigos e as justificativas vêm de mensagens no Python.
+Configure `TYPESAFE_API_KEY`, `JEV_MODEL` e `JEV_TIMEOUT_SECONDS` conforme
+[.env.example](.env.example). Detalhes, tabela de decisão e funcionamento das
+justificativas: [Agente Juiz](docs/judge-agent.md).
+
+## Validação manual
+
+O arquivo `manual_chat_judge.py` executa guardrails, roteador, especialistas,
+tools, Jev, eventual revisão e saída, sem iniciar um servidor HTTP:
+
+~~~powershell
+.\.venv\Scripts\python.exe -m pip install -r requirements.txt
+.\.venv\Scripts\python.exe manual_chat_judge.py --user-id 1 --no-history
+~~~
+
+Troque `1` pelo usuário autorizado do seu ambiente. Com `--no-history`,
+nenhum turno é gravado; leituras de contexto e consultas das ferramentas
+continuam sendo reais. Sem essa opção, o runner salva os turnos liberados
+no MongoDB. Use `--session-id` para continuar uma sessão do mesmo usuário;
+uma linha vazia encerra.
+
+O console mostra a resposta final, as decisões, confidence, justificativas
+Python e quantidade de revisões. Ele não imprime candidatas bloqueadas.
+As dependências e credenciais devem estar configuradas para cada caminho
+usado. Não execute em `APP_ENV=test` esperando carregar o `.env`.
+
+As verificações isoladas da implementação cobriram a política, o transporte
+com HTTP simulado e o grafo sem consumir crédito. O runner permite validar
+os provedores e dados reais; esse teste não foi executado automaticamente.
+Não há uma nova suíte persistente de testes nesta entrega.
 
 ## Estrutura de `app/data/` e `app/tools/`
 
