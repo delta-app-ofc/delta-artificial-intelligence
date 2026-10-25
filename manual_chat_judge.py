@@ -61,6 +61,16 @@ def _run_question(user_id: int, session_id: str, question: str, no_history: bool
                 f"{number}. decisão={judge['decision']}; status={judge['status']}; "
                 f"confiança da gravidade={confidence_text}; gravidade={judge['severity']}"
             )
+            diagnostics = judge.get("assessment", {}).get("diagnostics", {})
+            if diagnostics:
+                quality = diagnostics["quality"]
+                print(
+                    "   Sinais Jev: "
+                    f"suporte factual={diagnostics['facts_supported']:.0%}; "
+                    f"relevância={diagnostics['relevant']:.0%}; "
+                    f"qualidade={quality['score']}/2 "
+                    f"(confidence={quality['confidence']:.0%})"
+                )
             print("   Códigos Python: " + ", ".join(judge["reason_codes"]))
             print("   Justificativa Python: " + judge["justification"])
         final_judge = history[-1]["judge"]

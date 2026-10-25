@@ -16,8 +16,8 @@ Esta implementação usa a seguinte política de decisão:
 
 O limite inclui exatamente 0,80: uma candidata sem erro nessa confiança pode ser publicada. A avaliação crítica tem prioridade: mesmo com confidence baixo, ela não entra na tentativa de correção.
 
-O Jev responde uma única **Choice de gravidade**. O fluxo compara o confidence dessa classificação, entre 0 e 1, com o limite 0,80.
-Confidence representa a concentração da classificação; não comprova a taxa de acerto do Juiz.
+O Jev retorna uma **Choice de gravidade**, duas medidas Noul de suporte factual e relevância, e um Score de qualidade.
+A Choice e seu confidence, entre 0 e 1, governam a política de liberação. Noul e Score são diagnósticos exibidos no runner, mas não mudam essa política. Confidence representa a concentração da classificação; não comprova a taxa de acerto do Juiz.
 
 ## Fluxo
 
@@ -38,7 +38,7 @@ A candidata e o gráfico rejeitados não se tornam resposta pública. O históri
 
 ## Como o Python gera a justificativa
 
-O Jev retorna uma classificação tipada. **O Python não pede ao modelo para escrever uma justificativa livre.** Ele aplica a tabela de decisão e seleciona mensagens em português associadas aos motivos encontrados.
+O Jev retorna decisões tipadas. **O Python não pede ao modelo para escrever uma justificativa livre.** Ele aplica a tabela de decisão e seleciona mensagens em português associadas aos motivos encontrados.
 
 - **Sem erro, baixa confiança:** a mensagem informa que a classificação ficou abaixo de 80% e pede conferência usando as evidências disponíveis. Ela não afirma que o conteúdo está errado.
 - **Erro corrigível:** a mensagem informa a classificação e solicita ajuste da candidata com base nas ferramentas e fontes. Ela não inventa qual número, frase ou fonte específica está errada.
@@ -99,7 +99,7 @@ O runner deve mostrar a resposta final e os metadados de revisão, como gravidad
 
 ## O que foi verificado
 
-Nesta revisão, a compilação e a importação do workflow passaram. Cinco casos simulados cobriram o limite 0,80, baixa confiança, erro corrigível, erro crítico e revisão esgotada; um timeout simulado confirmou o bloqueio seguro. Não houve chamadas aos provedores. Isso não comprova a qualidade semântica do Jev, a disponibilidade dos provedores, os bancos remotos ou a configuração do ambiente de demonstração.
+Nesta revisão, a compilação e a importação do workflow passaram. Cinco casos simulados cobriram o limite 0,80, baixa confiança, erro corrigível, erro crítico e revisão esgotada; um timeout simulado confirmou o bloqueio seguro. As respostas simuladas também confirmaram a leitura dos sinais Noul e Score. Não houve chamadas aos provedores. Isso não comprova a qualidade semântica do Jev, a disponibilidade dos provedores, os bancos remotos ou a configuração do ambiente de demonstração.
 
 O teste real fica disponível no runner manual, para execução pela pessoa responsável. Não foi adicionada uma suíte persistente de testes ao repositório.
 
@@ -107,4 +107,4 @@ O teste real fica disponível no runner manual, para execução pela pessoa resp
 
 - [Integração TypeSafe no LangChain](https://docs.langchain.com/oss/python/integrations/providers/typesafe).
 - [Probabilidade e confidence](https://docs.typesafe.ai/confidence).
-- [Choice](https://docs.typesafe.ai/primitives/choice).
+- [Choice](https://docs.typesafe.ai/primitives/choice), [Noul](https://docs.typesafe.ai/primitives/noul) e [Score](https://docs.typesafe.ai/primitives/score).

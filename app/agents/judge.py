@@ -11,10 +11,17 @@ from pydantic import BaseModel, Field
 
 from app.config import ConfigurationError
 from app.services.prompts import (
+    JUIZ_FACTS_SUPPORTED_CRITERIA,
+    JUIZ_FACTS_SUPPORTED_INSTRUCTIONS,
     JUIZ_PROMPT_COMPLETO,
+    JUIZ_QUALITY_CRITERIA,
+    JUIZ_QUALITY_INSTRUCTIONS,
+    JUIZ_RELEVANT_CRITERIA,
+    JUIZ_RELEVANT_INSTRUCTIONS,
     JUIZ_SEVERITY_CRITERIA,
     JUIZ_SEVERITY_INSTRUCTIONS,
 )
+from langchain_typesafe import Choice, Noul, Score
 
 SAFE_RESPONSE = (
     "Não foi possível validar a resposta com segurança. Tente novamente mais tarde."
@@ -81,14 +88,25 @@ class JudgeAgent:
             return _unavailable("JUDGE_INPUT_INVALID")
 
         try:
-            from langchain_typesafe import Choice
-
-            question = Choice(
-                instructions=(
-                    f"{JUIZ_PROMPT_COMPLETO}\n\n{JUIZ_SEVERITY_INSTRUCTIONS}"
+            rubric = f"{JUIZ_PROMPT_COMPLETO}\n\n"
+            questions = {
+                "severity": Choice(
+                    instructions=rubric + JUIZ_SEVERITY_INSTRUCTIONS,
+                    criteria=JUIZ_SEVERITY_CRITERIA,
                 ),
-                criteria=JUIZ_SEVERITY_CRITERIA,
-            )
+                "facts_supported": Noul(
+                    instructions=rubric + JUIZ_FACTS_SUPPORTED_INSTRUCTIONS,
+                    criteria=JUIZ_FACTS_SUPPORTED_CRITERIA,
+                ),
+                "relevant": Noul(
+                    instructions=rubric + JUIZ_RELEVANT_INSTRUCTIONS,
+                    criteria=JUIZ_RELEVANT_CRITERIA,
+                ),
+                "quality": Score(
+                    instructions=rubric + JUIZ_QUALITY_INSTRUCTIONS,
+                    criteria=JUIZ_QUALITY_CRITERIA,
+                ),
+            }
         except ImportError:
             return _unavailable("JUDGE_PROVIDER_UNAVAILABLE")
         except Exception:
@@ -120,9 +138,7 @@ class JudgeAgent:
             return _unavailable("JUDGE_INPUT_INVALID")
 
         try:
-            response = classifier.invoke(
-                {"state": state, "questions": {"severity": question}}
-            )
+            response = classifier.invoke({"state": state, "questions": questions})
         except Exception:
             return _unavailable("JUDGE_PROVIDER_ERROR")
 
@@ -130,6 +146,9 @@ class JudgeAgent:
             answer = response.choices["severity"]
             severity = answer.choice
             confidence = answer.confidence
+            facts_supported = response.nouls["facts_supported"].noul
+            relevant = response.nouls["relevant"].noul
+            quality = response.scores["quality"]
             if (
                 severity not in SEVERITIES
                 or not math.isfinite(confidence)
@@ -190,5 +209,10 @@ class JudgeAgent:
                 "rubric_version": RUBRIC_VERSION,
                 "confidence_source": "choices.severity.confidence",
                 "revision_count": revision_count,
+                "diagnostics": {
+                    "facts_supported": facts_supported,
+                    "relevant": relevant,
+                    "quality": quality.model_dump(mode="json"),
+                },
             },
         )

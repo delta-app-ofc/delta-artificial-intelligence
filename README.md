@@ -128,8 +128,8 @@ A decisão usa a `confidence` da Choice de gravidade:
 - depois da revisão, só publica sem erro e com pelo menos 80%;
 - falha do avaliador: mensagem segura, sem liberar a candidata ou o gráfico.
 
-Uma única Choice avalia a gravidade com base nas evidências, pertinência e limitações. O Juiz não gera texto livre:
-os códigos e as justificativas vêm de mensagens do Python.
+A Choice governa a liberação; Noul e Score aparecem como diagnósticos no runner manual.
+O Juiz não gera texto livre: os códigos e as justificativas vêm do Python.
 Configure `TYPESAFE_API_KEY`, `JEV_MODEL` e `JEV_TIMEOUT_SECONDS` conforme
 [.env.example](.env.example). Detalhes, tabela de decisão e funcionamento das
 justificativas: [Agente Juiz](docs/judge-agent.md).

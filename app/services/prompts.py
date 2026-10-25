@@ -1308,8 +1308,9 @@ definitivo de vazamento. Uma omissão que exige nova consulta não é corrigíve
 com as informações atuais.
 
 Considere correto informar que os dados são insuficientes quando isso é
-sustentado pelos resultados. A decisão depende da categoria e da confidence
-da Choice de gravidade, combinadas pela política Python.
+sustentado pelos resultados. Noul e Score complementam a avaliação como sinais
+diagnósticos. A política Python de liberação usa a categoria e a confidence da
+Choice de gravidade.
 """
 
 JUIZ_SEVERITY_INSTRUCTIONS = (
@@ -1330,3 +1331,31 @@ JUIZ_SEVERITY_CRITERIA = {
         "certeza indevida em previsão ou diagnóstico definitivo de vazamento."
     ),
 }
+JUIZ_FACTS_SUPPORTED_INSTRUCTIONS = (
+    "As afirmações factuais da candidata são sustentadas pelos outputs das ferramentas "
+    "e trechos/fontes recuperados presentes em agent_results? A pergunta, a candidata "
+    "e o contexto não comprovam fatos da conta."
+)
+JUIZ_FACTS_SUPPORTED_CRITERIA = {
+    "true": (
+        "As afirmações feitas correspondem aos outputs das ferramentas e às fontes "
+        "recuperadas disponíveis em agent_results."
+    ),
+    "false": (
+        "Existe afirmação factual sem suporte ou contradita por outputs/fontes; "
+        "question, candidate e context não suprem evidência ausente."
+    ),
+}
+JUIZ_RELEVANT_INSTRUCTIONS = "A candidata responde diretamente ao pedido atual?"
+JUIZ_RELEVANT_CRITERIA = {
+    "true": "A candidata trata do que o usuário pediu.",
+    "false": "A candidata não trata do pedido ou o substitui por outro assunto.",
+}
+JUIZ_QUALITY_INSTRUCTIONS = (
+    "Qual nível descreve a adequação geral da candidata ao pedido e às evidências?"
+)
+JUIZ_QUALITY_CRITERIA = [
+    "A candidata é inadequada ou contém falhas materiais relevantes.",
+    "A candidata atende parcialmente, com limitações ou omissões.",
+    "A candidata é adequada, sustentada e completa para o pedido atual.",
+]
