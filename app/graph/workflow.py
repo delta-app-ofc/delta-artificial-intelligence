@@ -3,28 +3,35 @@ from __future__ import annotations
 from langgraph.checkpoint.memory import MemorySaver
 from langgraph.graph import END, StateGraph
 
+from app.graph.context import find_relevant_memory
+from app.graph.router import AGENT_REGISTRY, classify, load_agent
 from app.graph.state import AgentOutput, GraphState
-from app.graph.context import build_context
-from app.graph.router import AGENT_REGISTRY, RoutingDecision, classify, load_agent
 from app.graph.synthesis import synthesize
 from app.guardrails.input import validate_input
 from app.guardrails.output import validate_output
-from app.memory.session import append_turn
+from app.memory.session import append_turn, load_history_validated
+
+RECENT_TURNS = 6
 
 
-def _guardrail_input_node(state: GraphState) -> GraphState:
+def _recent_messages(state: GraphState) -> list[dict]:
+    """Últimas mensagens da conversa, sem a pergunta atual (a última da lista)."""
+    previous = state.get("messages", [])[:-1]
+    return [{"role": m.type, "content": m.content} for m in previous[-RECENT_TURNS:]]
+
+
+def _guardrail_input_node(state: GraphState) -> dict:
     """Valida a entrada antes de qualquer processamento (defesa em profundidade)."""
     result = validate_input(state["user_id"], state["question"])
     if not result["ok"]:
         return {
-            **state,
             "response": result.get("reason", "Mensagem bloqueada."),
             "pii_map": {},
             "_blocked": True,
         }
     return {
-        **state,
         "question": result["message"],
+        "messages": [{"role": "human", "content": result["message"]}],
         "pii_map": result.get("pii_map") or {},
         "_blocked": False,
     }
@@ -34,23 +41,17 @@ def _after_guardrail_input(state: GraphState) -> str:
     return END if state.get("_blocked") else "context"
 
 
-def _context_node(state: GraphState) -> GraphState:
-    ctx = build_context(state["user_id"], state["session_id"], state["question"])
-    return {
-        **state,
-        "recent_messages": ctx["recent_messages"],
-        "relevant_memory": ctx["relevant_memory"],
-    }
+def _context_node(state: GraphState) -> dict:
+    return {"relevant_memory": find_relevant_memory(state["user_id"], state["question"])}
 
 
-def _route_node(state: GraphState) -> GraphState:
+def _route_node(state: GraphState) -> dict:
     ctx = {
-        "recent_messages": state.get("recent_messages", []),
+        "recent_messages": _recent_messages(state),
         "relevant_memory": state.get("relevant_memory", []),
     }
     decision = classify(state["question"], ctx)
     return {
-        **state,
         "intent": decision.intent,
         "complexity": decision.complexity,
         "selected_agents": decision.agents,
@@ -58,32 +59,32 @@ def _route_node(state: GraphState) -> GraphState:
     }
 
 
-def _execute_node(state: GraphState) -> GraphState:
+def _execute_node(state: GraphState) -> dict:
     selected = state.get("selected_agents", [])
     user_id = state["user_id"]
+
     question = state["question"]
+    history = "\n".join(f"{m['role']}: {m['content']}" for m in _recent_messages(state))
+    if history:
+        question += f"\n\nConversa recente:\n{history}"
 
     results: list[dict] = []
     warnings: list[str] = list(state.get("warnings", []))
 
-    for i, name in enumerate(selected):
+    for name in selected:
         if name not in AGENT_REGISTRY:
             warnings.append(f"Agente desconhecido ignorado: {name}")
             continue
         try:
             agent = load_agent(name, user_id)
-            if i == 0:
-                agent_question = question
-            else:
-                prior = "\n".join(
-                    f"- {r['agent']}: {r['answer'][:300]}"
-                    for r in results
-                    if r.get("status") == "success" and r.get("answer")
-                )
-                agent_question = (
-                    f"{question}\n\nContexto dos agentes anteriores:\n{prior}"
-                    if prior else question
-                )
+            prior = "\n".join(
+                f"- {r['agent']}: {r['answer'][:300]}"
+                for r in results
+                if r.get("status") == "success" and r.get("answer")
+            )
+            agent_question = (
+                f"{question}\n\nContexto dos agentes anteriores:\n{prior}" if prior else question
+            )
             internal = agent.run(agent_question)
             output = AgentOutput(
                 agent=name,
@@ -101,25 +102,23 @@ def _execute_node(state: GraphState) -> GraphState:
             warnings.append(f"Erro no agente {name}: {type(exc).__name__}")
         results.append(output.model_dump())
 
-    return {**state, "agent_results": results, "warnings": warnings}
+    return {"agent_results": results, "warnings": warnings}
 
 
-def _synthesize_node(state: GraphState) -> GraphState:
+def _synthesize_node(state: GraphState) -> dict:
     """Une respostas de múltiplos agentes num texto coeso via LLM rápido."""
     results = state.get("agent_results", [])
     successes = [r for r in results if r.get("status") == "success" and r.get("answer")]
 
     if len(successes) < 2:
-        return state
+        return {}
 
-    unified = synthesize(state["question"], successes)
-    return {**state, **unified} if unified else state
+    return synthesize(state["question"], successes) or {}
 
 
-def _respond_node(state: GraphState) -> GraphState:
+def _respond_node(state: GraphState) -> dict:
     if state.get("intent") == "privacy_violation":
         return {
-            **state,
             "response": (
                 "Não tenho acesso a dados de outros usuários. "
                 "Posso ajudar apenas com informações da sua conta."
@@ -128,14 +127,13 @@ def _respond_node(state: GraphState) -> GraphState:
         }
 
     if state.get("response"):
-        return state
+        return {}
 
     results = state.get("agent_results", [])
     selected = state.get("selected_agents", [])
 
     if not selected:
         return {
-            **state,
             "response": (
                 "Não entendi o que você gostaria de saber. Posso ajudar com "
                 "previsão de consumo, detecção de vazamentos ou seus hábitos de água."
@@ -147,26 +145,21 @@ def _respond_node(state: GraphState) -> GraphState:
 
     if not successes:
         return {
-            **state,
             "response": "Não foi possível obter uma resposta neste momento. Tente novamente.",
             "chart_data": None,
         }
 
     if len(successes) == 1:
         r = successes[0]
-        return {**state, "response": r["answer"], "chart_data": r.get("chart_data")}
+        return {"response": r["answer"], "chart_data": r.get("chart_data")}
 
     parts = [r["answer"] for r in successes]
     chart_data = next((r["chart_data"] for r in successes if r.get("chart_data")), None)
-    return {
-        **state,
-        "response": "\n\n---\n\n".join(parts),
-        "chart_data": chart_data,
-    }
+    return {"response": "\n\n---\n\n".join(parts), "chart_data": chart_data}
 
 
-def _guardrail_output_node(state: GraphState) -> GraphState:
-    """Sanitiza a resposta e persiste o histórico de sessão."""
+def _guardrail_output_node(state: GraphState) -> dict:
+    """Sanitiza a resposta e grava a conversa no Mongo ao final."""
     response = state.get("response") or ""
     result = validate_output(response, state.get("pii_map") or {})
     safe = result["response"] if result.get("ok") else "Não foi possível processar a resposta."
@@ -177,7 +170,7 @@ def _guardrail_output_node(state: GraphState) -> GraphState:
     except Exception:
         pass
 
-    return {**state, "response": safe}
+    return {"response": safe, "messages": [{"role": "assistant", "content": safe}]}
 
 
 _graph = StateGraph(GraphState)
@@ -203,11 +196,26 @@ _graph.add_edge("synthesize", "respond")
 _graph.add_edge("respond", "guardrail_output")
 _graph.add_edge("guardrail_output", END)
 
-_memory = MemorySaver()
-workflow = _graph.compile(checkpointer=_memory)
+workflow = _graph.compile(checkpointer=MemorySaver())
+
+
+def _history_from_mongo(user_id: int, session_id: str) -> list[dict]:
+    """Recupera a conversa gravada, para retomar após reinício do servidor."""
+    try:
+        history = load_history_validated(user_id, session_id)
+    except Exception:
+        return []
+    return [
+        {"role": m["role"], "content": m["content"]}
+        for m in history[-RECENT_TURNS:]
+        if m.get("role") in ("human", "assistant")
+    ]
 
 
 def run_workflow(user_id: int, session_id: str, question: str) -> GraphState:
+    config = {"configurable": {"thread_id": f"{user_id}:{session_id}"}}
+
+    # Todo campo, exceto `messages`, é reiniciado a cada pergunta.
     initial: GraphState = {
         "user_id": user_id,
         "session_id": session_id,
@@ -217,13 +225,12 @@ def run_workflow(user_id: int, session_id: str, question: str) -> GraphState:
         "chart_data": None,
         "agent_results": [],
         "warnings": [],
-        "recent_messages": [],
         "relevant_memory": [],
         "intent": "",
         "complexity": "",
         "selected_agents": [],
     }
-    return workflow.invoke(
-        initial,
-        config={"configurable": {"thread_id": f"{user_id}:{session_id}"}},
-    )
+    if not workflow.get_state(config).values.get("messages"):
+        initial["messages"] = _history_from_mongo(user_id, session_id)
+
+    return workflow.invoke(initial, config=config)
