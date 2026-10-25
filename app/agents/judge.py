@@ -21,13 +21,14 @@ from app.services.prompts import (
     JUIZ_SEVERITY_CRITERIA,
     JUIZ_SEVERITY_INSTRUCTIONS,
 )
-from langchain_typesafe import Choice, Noul, Score
 
 SAFE_RESPONSE = (
     "Não foi possível validar a resposta com segurança. Tente novamente mais tarde."
 )
 CONFIDENCE_THRESHOLD = 0.80
-RUBRIC_VERSION = "delta-judge-choice-v1"
+FACTS_SUPPORTED_THRESHOLD = 0.80
+RELEVANCE_THRESHOLD = 0.60
+RUBRIC_VERSION = "delta-judge-multi-signal-v2"
 SEVERITIES = {"no_error", "correctable_error", "critical_error"}
 
 logger = logging.getLogger(__name__)
@@ -69,7 +70,7 @@ def _unavailable(reason_code: str) -> JudgeResult:
 
 
 class JudgeAgent:
-    """Avalia com Jev; a aplicação decide conforme gravidade e confidence."""
+    """Avalia com Jev; a aplicação decide conforme gravidade e sinais de qualidade."""
 
     def __init__(self, classifier: Any | None = None) -> None:
         self.classifier = classifier
@@ -88,6 +89,8 @@ class JudgeAgent:
             return _unavailable("JUDGE_INPUT_INVALID")
 
         try:
+            from langchain_typesafe import Choice, Noul, Score
+
             rubric = f"{JUIZ_PROMPT_COMPLETO}\n\n"
             questions = {
                 "severity": Choice(
@@ -153,49 +156,88 @@ class JudgeAgent:
                 severity not in SEVERITIES
                 or not math.isfinite(confidence)
                 or not 0 <= confidence <= 1
+                or not math.isfinite(facts_supported)
+                or not 0 <= facts_supported <= 1
+                or not math.isfinite(relevant)
+                or not 0 <= relevant <= 1
+                or not math.isfinite(quality.score)
+                or quality.score not in (0, 1, 2)
             ):
                 raise ValueError
         except (AttributeError, KeyError, TypeError, ValueError, OverflowError):
             return _unavailable("JUDGE_SCHEMA_INVALID")
 
+        checks = {
+            "severity": severity == "no_error",
+            "confidence": confidence >= CONFIDENCE_THRESHOLD,
+            "facts_supported": facts_supported >= FACTS_SUPPORTED_THRESHOLD,
+            "relevant": relevant >= RELEVANCE_THRESHOLD,
+            "quality": quality.score != 0,
+        }
+        approved = all(checks.values())
+
         if severity == "critical_error":
             decision = "reject"
-            reason_code = "CRITICAL_ISSUE"
+            reason_codes = ["CRITICAL_ISSUE"]
             justification = "A candidata foi classificada com um problema crítico."
-        elif severity == "no_error" and confidence >= CONFIDENCE_THRESHOLD:
+        elif approved:
             decision = "approve"
-            reason_code = "ANSWER_APPROVED"
+            reason_codes = ["ANSWER_APPROVED"]
             justification = (
-                "A candidata não apresentou erro material e atingiu a confiança "
-                "mínima definida."
+                "A candidata passou pelos critérios de gravidade, confidence, "
+                "suporte factual, relevância e qualidade."
             )
-        elif revision_count == 0:
-            decision = "correct"
+        else:
+            failures: list[tuple[str, str]] = []
             if severity == "correctable_error":
-                reason_code = "CORRECTABLE_ISSUE"
+                failures.append(
+                    ("CORRECTABLE_ISSUE", "a Choice identificou um erro corrigível")
+                )
+            if not checks["confidence"]:
+                failures.append(
+                    ("LOW_CONFIDENCE", "a confidence da gravidade ficou abaixo de 0,80")
+                )
+            if not checks["facts_supported"]:
+                failures.append(
+                    ("FACTS_UNSUPPORTED", "o suporte factual ficou abaixo de 0,80")
+                )
+            if not checks["relevant"]:
+                failures.append(
+                    ("LOW_RELEVANCE", "a relevância ficou abaixo de 0,60")
+                )
+            if not checks["quality"]:
+                failures.append(
+                    (
+                        "QUALITY_INADEQUATE",
+                        "o Score retornou: " + JUIZ_QUALITY_CRITERIA[0],
+                    )
+                )
+
+            if revision_count == 0:
+                decision = "correct"
+                reason_codes = [code for code, _ in failures]
                 justification = (
-                    "Confira a candidata usando apenas os resultados e fontes "
-                    "fornecidos. Reformule somente o que puder ser sustentado e "
-                    "indique limitações ou dados ausentes; não invente informações."
+                    "Revise a candidata: "
+                    + "; ".join(message for _, message in failures)
+                    + ". Use somente as ferramentas e fontes já fornecidas; "
+                    "não invente dados."
                 )
             else:
-                reason_code = "LOW_CONFIDENCE"
+                decision = "reject"
+                reason_codes = ["REVIEW_EXHAUSTED"] + [
+                    code for code, _ in failures
+                ]
                 justification = (
-                    f"A avaliação teve confiança de {confidence * 100}%, abaixo do "
-                    "mínimo de 80%. Revise a candidata usando apenas os resultados "
-                    "e fontes fornecidos; baixa confiança não confirma, por si só, "
-                    "um erro material."
+                    "A revisão única ainda não atingiu os critérios: "
+                    + "; ".join(message for _, message in failures)
+                    + "."
                 )
-        else:
-            decision = "reject"
-            reason_code = "REVIEW_EXHAUSTED"
-            justification = "A revisão única não atingiu os critérios de liberação."
 
         return JudgeResult(
             decision=decision,
             status="evaluated",
             justification=justification,
-            reason_codes=[reason_code],
+            reason_codes=reason_codes,
             confidence=confidence,
             severity=severity,
             assessment={
@@ -213,6 +255,7 @@ class JudgeAgent:
                     "facts_supported": facts_supported,
                     "relevant": relevant,
                     "quality": quality.model_dump(mode="json"),
+                    "checks": checks,
                 },
             },
         )

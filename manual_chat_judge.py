@@ -63,13 +63,21 @@ def _run_question(user_id: int, session_id: str, question: str, no_history: bool
             )
             diagnostics = judge.get("assessment", {}).get("diagnostics", {})
             if diagnostics:
+                checks = diagnostics["checks"]
                 quality = diagnostics["quality"]
+                quality_label = quality["legend"].get(
+                    str(int(quality["score"])), str(quality["score"])
+                )
                 print(
-                    "   Sinais Jev: "
-                    f"suporte factual={diagnostics['facts_supported']:.0%}; "
-                    f"relevância={diagnostics['relevant']:.0%}; "
-                    f"qualidade={quality['score']}/2 "
-                    f"(confidence={quality['confidence']:.0%})"
+                    "   Gates Jev: "
+                    f"gravidade={'passou' if checks['severity'] else 'falhou'}; "
+                    f"confidence={'passou' if checks['confidence'] else 'falhou'}; "
+                    f"suporte factual={diagnostics['facts_supported']:.0%} "
+                    f"({'passou' if checks['facts_supported'] else 'falhou'}); "
+                    f"relevância={diagnostics['relevant']:.0%} "
+                    f"({'passou' if checks['relevant'] else 'falhou'}); "
+                    f"qualidade={quality_label} "
+                    f"({'passou' if checks['quality'] else 'falhou'})"
                 )
             print("   Códigos Python: " + ", ".join(judge["reason_codes"]))
             print("   Justificativa Python: " + judge["justification"])
