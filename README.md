@@ -77,10 +77,44 @@ no Qdrant. A busca usa `GEMINI_EMBEDDING_MODEL`, vetores de 3072 dimensões
 e filtros de fonte, revisão do documento e modelo. O agente recebe trechos
 com capítulos, subtópicos e linhas para citar nas respostas.
 
-A coleção precisa estar previamente indexada. Alterar o conteúdo da fonte,
-o modelo ou a dimensão exige atualizar a indexação; a consulta não faz isso
-automaticamente. Renomear ou mover o arquivo sem alterar seu conteúdo não
-muda a revisão. A integração remota e a qualidade temática exigem validação real.
+### Indexação automática antes da consulta
+
+A coleção `rag_documents` precisa existir no Qdrant, com vetores de 3072 dimensões.
+Configure `GEMINI_API_KEY`, `GEMINI_EMBEDDING_MODEL`, `QDRANT_URL` e, quando exigido,
+`QDRANT_API_KEY` com permissão de leitura e escrita nessa coleção. A fonte vem de
+`RAG_DOCUMENT_PATH`; o agente não aceita caminhos de arquivo fornecidos pelo LLM.
+
+Em cada chamada a `search_knowledge_base`, a aplicação executa este fluxo:
+
+1. Lê e segmenta o documento por `#`, `##` e `###`, preservando hierarquia e linhas.
+2. Calcula a revisão SHA-256 e verifica se todos os trechos dessa fonte, revisão e
+   modelo já estão indexados.
+3. Se a revisão estiver ausente ou incompleta, chama `index_document()` e aguarda
+   a gravação. Confirma a quantidade de trechos antes de continuar.
+4. Gera o embedding da pergunta, recupera os trechos atuais e entrega as fontes
+   para o `RagAgent` elaborar a resposta.
+
+A primeira consulta e a primeira consulta após uma alteração da fonte ou do modelo
+podem levar mais tempo, pois também geram os embeddings do documento. Com a revisão
+completa, as próximas consultas reutilizam os vetores existentes. A atualização
+acontece durante a chamada da tool, sem comando manual ou decisão adicional do LLM.
+
+Os IDs derivam da fonte, revisão, modelo e posição do trecho. Uma tentativa repetida
+sobrescreve os mesmos pontos, sem duplicá-los. Renomear ou mover o arquivo sem alterar
+seu conteúdo não muda a revisão. Revisões anteriores permanecem como histórico,
+excluídas da recuperação pelo filtro de revisão atual; trechos removidos deixam de
+ser recuperados. Um lock evita indexações simultâneas no mesmo processo; processos
+diferentes mantêm a idempotência pelos IDs, mas podem gerar embeddings em paralelo.
+
+Se a preparação ou consulta falhar, a tool retorna `unavailable` sem recuperar a
+revisão antiga. Uma nova chamada tenta completar a revisão automaticamente. A tool
+não cria nem recria a coleção; coleção ausente ou dimensão incompatível exige ajuste
+da infraestrutura. A dimensão permanece fixa em 3072.
+
+Os testes em `tests/test_rag.py` cobrem primeira carga automática, reutilização do
+índice, edição, inclusão, remoção, renomeação, troca de modelo, consultas simultâneas
+e recuperação após falha. Usam Qdrant em memória, embeddings controlados e um modelo
+de resposta controlado; o acesso remoto e a qualidade semântica exigem validação própria.
 
 ## Testes
 
@@ -89,10 +123,9 @@ pip install -r requirements.txt -r requirements-dev.txt
 python -m pytest -q
 ```
 
-Os testes usam cálculos puros, LLM roteirizado e clientes/leitores substituídos.
-Cobrem settings, provedores/fallback, recursos e erros dos conectores, os três
-agentes e seus cálculos. Nenhum depende de Postgres/Mongo ou de uma chamada
-real de LLM. `tests/conftest.py` isola o ambiente e o cache de settings.
+A suíte versionada em `tests/test_rag.py` verifica o ciclo documental RAG com
+Qdrant em memória e modelos controlados. O próprio arquivo isola o ambiente e
+o cache de settings; os testes não leem `.env` nem chamam bancos ou provedores remotos.
 
 Esses testes não comprovam acesso real, disponibilidade do modelo para a
 conta ou qualidade da redação. Na validação local deste conjunto, Docker
