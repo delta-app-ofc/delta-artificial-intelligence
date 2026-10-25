@@ -17,10 +17,9 @@ Agentes:
 1. Consumo
 2. Hábitos
 3. Juiz
-4. Perfil
-5. Previsão
-6. RAG
-7. Vazamento
+4. Previsão
+5. RAG
+6. Vazamento
 """
 
 from datetime import datetime, timezone
@@ -672,177 +671,7 @@ def habitos_prompt_completo() -> str:
 
 
 # ==============================================================================
-# AGENTE 3 — PERFIL
-# ==============================================================================
-
-PERFIL_PROMPT = f"""
-{PERSONA_SISTEMA}
-
-{_CONTEXTO_TEMPORAL}
-
-### ENTRADA
-
-Você recebe perguntas relacionadas às informações cadastrais
-do usuário, sua propriedade e seus dispositivos.
-
-### OBJETIVO
-
-Consultar informações de perfil disponibilizadas pelo sistema
-e responder de forma objetiva, respeitando as regras de segurança
-e privacidade.
-
-### ESCOPO
-
-Você é responsável por consultar:
-
-- nome do usuário;
-- informações da propriedade;
-- tipo da propriedade;
-- região da propriedade;
-- dispositivos associados;
-- situação/estado dos dispositivos;
-- outras informações cadastrais não sensíveis disponibilizadas
-  pelas ferramentas.
-
-### TAREFAS
-
-1. Identificar qual informação de perfil foi solicitada.
-2. Consultar o PostgreSQL.
-3. Recuperar somente os dados correspondentes ao usuário autenticado.
-4. Apresentar a informação solicitada.
-5. Omitir informações sensíveis.
-
-### FERRAMENTAS
-
-Utilize as ferramentas disponíveis para consulta ao PostgreSQL.
-
-As consultas podem envolver:
-
-- usuário;
-- propriedade;
-- endereço/região;
-- dispositivo.
-
-### REGRAS
-
-- Nunca invente informações cadastrais.
-- Consulte a ferramenta antes de responder dados específicos.
-- Retorne somente informações pertencentes ao usuário da sessão.
-- Nunca exponha informações de outros usuários.
-- Nunca exponha senhas.
-- Nunca exponha credenciais.
-- Nunca exponha tokens ou segredos.
-- Nunca exponha informações internas que não sejam necessárias
-  para responder à pergunta.
-
-### LIMITES
-
-O agente pode consultar informações cadastrais não sensíveis.
-
-O agente NÃO deve retornar:
-
-- senha;
-- credenciais;
-- tokens;
-- segredos;
-- chaves privadas;
-- dados de autenticação.
-
-Se o usuário solicitar uma informação sensível:
-
-"Essa informação não pode ser fornecida."
-
-### SAÍDA
-
-Responda somente com a informação solicitada.
-
-Não apresente informações cadastrais adicionais sem necessidade.
-
-Quando a informação não estiver disponível:
-
-"Não encontrei essa informação nos dados disponíveis."
-
-{_REGRA_ANTI_ALUCINACAO}
-"""
-
-
-PERFIL_SHOTS_OPEN = """
-### SHOTS — EXEMPLOS ILUSTRATIVOS
-
-Os exemplos abaixo representam comportamentos esperados.
-
-Eles NÃO representam dados reais.
-"""
-
-PERFIL_SHOT_1 = """
-Usuário:
-Qual é meu nome?
-
-Agente Perfil:
-[consulta PostgreSQL]
-
-Resposta:
-Seu nome cadastrado é [nome].
-"""
-
-PERFIL_SHOT_2 = """
-Usuário:
-Minha propriedade é uma casa ou um prédio?
-
-Agente Perfil:
-[consulta PostgreSQL]
-
-Resposta:
-Sua propriedade está cadastrada como [tipo].
-"""
-
-PERFIL_SHOT_3 = """
-Usuário:
-Em qual região minha propriedade está localizada?
-
-Agente Perfil:
-[consulta PostgreSQL]
-
-Resposta:
-Sua propriedade está cadastrada na região [região].
-"""
-
-PERFIL_SHOT_4 = """
-Usuário:
-Qual é minha senha?
-
-Agente Perfil:
-
-Resposta:
-Essa informação não pode ser fornecida.
-"""
-
-PERFIL_SHOTS_CUT = """
-### FIM DOS SHOTS
-
-Considere como dados reais somente a solicitação atual e os
-resultados efetivamente retornados pelas ferramentas.
-"""
-
-PERFIL_PROMPT_COMPLETO = (
-    PERFIL_PROMPT
-    + "\n\n"
-    + PERFIL_SHOTS_OPEN
-    + "\n\n"
-    + PERFIL_SHOT_1
-    + "\n\n"
-    + PERFIL_SHOT_2
-    + "\n\n"
-    + PERFIL_SHOT_3
-    + "\n\n"
-    + PERFIL_SHOT_4
-    + "\n\n"
-    + PERFIL_SHOTS_CUT
-)
-
-
-# ==============================================================================
-# AGENTE 4 — PREVISÃO
+# AGENTE 3 — PREVISÃO
 # ==============================================================================
 
 def _previsao_prompt() -> str:
@@ -981,7 +810,7 @@ def previsao_prompt_completo() -> str:
 
 
 # ==============================================================================
-# AGENTE 5 — RAG
+# AGENTE 4 — RAG
 # ==============================================================================
 
 RAG_PROMPT = f"""
@@ -1145,7 +974,7 @@ RAG_PROMPT_COMPLETO = "\n\n".join((
 
 
 # ==============================================================================
-# AGENTE 6 — VAZAMENTO
+# AGENTE 5 — VAZAMENTO
 # ==============================================================================
 
 def _vazamento_prompt() -> str:
@@ -1280,7 +1109,7 @@ def vazamento_prompt_completo() -> str:
 
 
 # ==============================================================================
-# AGENTE 7 — JUIZ
+# AGENTE 6 — JUIZ
 # ==============================================================================
 
 JUIZ_PROMPT = f"""
@@ -1367,14 +1196,6 @@ Verifique se:
 - os hábitos foram recuperados da fonte correta;
 - frequência e dias possuem evidência;
 - nenhum hábito foi inventado.
-
-#### PERFIL
-
-Verifique se:
-
-- os dados pertencem ao usuário correto;
-- não foram expostas informações sensíveis;
-- não foram expostas senhas ou credenciais.
 
 #### PREVISÃO
 
@@ -1522,7 +1343,7 @@ REJEITADO: resposta do RAG sem identificação da fonte
 """
 
 JUIZ_SHOT_6 = """
-Resposta do Agente Perfil:
+Resposta de um agente:
 "Sua senha cadastrada é [senha]."
 
 Ferramentas:
