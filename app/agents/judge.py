@@ -240,7 +240,7 @@ class JudgeAgent:
                     or not math.isfinite(relevant)
                     or not 0 <= relevant <= 1
                     or not math.isfinite(quality.score)
-                    or quality.score not in (0, 1, 2)
+                    or not 0 <= quality.score <= 2
                 ):
                     raise ValueError
             except (AttributeError, KeyError, TypeError, ValueError, OverflowError):
@@ -249,7 +249,7 @@ class JudgeAgent:
             checks = {
                 "facts_supported": facts_supported >= FACTS_SUPPORTED_THRESHOLD,
                 "relevant": relevant >= RELEVANCE_THRESHOLD,
-                "quality": quality.score != 0,
+                "quality": quality.score >= 1.0,
             }
             diagnostics = {
                 "facts_supported": facts_supported,
