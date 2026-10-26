@@ -25,10 +25,11 @@ from app.services.prompts import (
 SAFE_RESPONSE = (
     "Não foi possível validar a resposta com segurança. Tente novamente mais tarde."
 )
-CONFIDENCE_THRESHOLD = 0.80
-FACTS_SUPPORTED_THRESHOLD = 0.80
+CONFIDENCE_THRESHOLD = 0.50
+PROBABILITY_THRESHOLD = 0.70
+FACTS_SUPPORTED_THRESHOLD = 0.70
 RELEVANCE_THRESHOLD = 0.60
-RUBRIC_VERSION = "delta-judge-staged-v3"
+RUBRIC_VERSION = "delta-judge-staged-v5"
 SEVERITIES = {"no_error", "correctable_error", "critical_error"}
 
 logger = logging.getLogger(__name__)
@@ -138,10 +139,13 @@ class JudgeAgent:
             answer = primary_response.choices["severity"]
             severity = answer.choice
             confidence = answer.confidence
+            selected_probability = answer.probabilities[severity]
             if (
                 severity not in SEVERITIES
                 or not math.isfinite(confidence)
                 or not 0 <= confidence <= 1
+                or not math.isfinite(selected_probability)
+                or not 0 <= selected_probability <= 1
             ):
                 raise ValueError
         except (AttributeError, KeyError, TypeError, ValueError, OverflowError):
@@ -155,6 +159,11 @@ class JudgeAgent:
                 "usage": primary_response.usage.model_dump(mode="json"),
             }
         ]
+        tool_calls = [
+            call for result in state["agent_results"]
+            if isinstance(result.get("tool_calls"), list)
+            for call in result["tool_calls"] if isinstance(call, dict)
+        ]
         assessment = {
             "provider": "typesafe",
             "model": primary_response.model,
@@ -163,6 +172,17 @@ class JudgeAgent:
             "requests": requests,
             "rubric_version": RUBRIC_VERSION,
             "confidence_source": "choices.severity.confidence",
+            "confidence_threshold": CONFIDENCE_THRESHOLD,
+            "probability_threshold": PROBABILITY_THRESHOLD,
+            "severity_probabilities": answer.probabilities,
+            "selected_probability": selected_probability,
+            "input_summary": {
+                "tools": [
+                    {"name": call.get("name"),
+                     "output_type": type(call.get("output")).__name__}
+                    for call in tool_calls
+                ],
+            },
             "revision_count": revision_count,
             "subcriteria_checked": False,
         }
@@ -185,20 +205,29 @@ class JudgeAgent:
                 justification = (
                     "A revisão única ainda foi classificada com erro corrigível."
                 )
-        elif confidence < CONFIDENCE_THRESHOLD:
+        elif confidence < CONFIDENCE_THRESHOLD or selected_probability < PROBABILITY_THRESHOLD:
+            reason_codes = []
+            if confidence < CONFIDENCE_THRESHOLD:
+                reason_codes.append("LOW_CONFIDENCE")
+            if selected_probability < PROBABILITY_THRESHOLD:
+                reason_codes.append("LOW_PROBABILITY")
+            justification = (
+                f"A Choice indicou no_error com confidence {confidence:.2%} "
+                f"(mínimo {CONFIDENCE_THRESHOLD:.0%}) e probabilidade "
+                f"{selected_probability:.2%} (mínimo {PROBABILITY_THRESHOLD:.0%}). "
+            )
             if revision_count == 0:
                 decision = "correct"
-                reason_codes = ["LOW_CONFIDENCE"]
-                justification = (
-                    f"A Choice indicou no_error, mas sua confidence foi {confidence}, "
-                    "abaixo de 0,80. Revise a candidata usando as evidências fornecidas."
+                justification += (
+                    "Isso indica incerteza na classificação, não um erro "
+                    "específico comprovado. Confira a correspondência com as evidências "
+                    "e explicite unidades, período e caráter estimado quando aplicável. "
+                    "Preserve os valores sustentados e não invente dados."
                 )
             else:
                 decision = "reject"
-                reason_codes = ["REVIEW_EXHAUSTED", "LOW_CONFIDENCE"]
-                justification = (
-                    "A revisão única ainda não atingiu confidence de 0,80 na Choice."
-                )
+                reason_codes.insert(0, "REVIEW_EXHAUSTED")
+                justification += "A revisão única ainda não atingiu os limites da Choice."
         else:
             try:
                 from langchain_typesafe import Noul, Score

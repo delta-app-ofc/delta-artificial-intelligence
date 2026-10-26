@@ -69,6 +69,7 @@ def test_invalid_inputs_do_not_execute(client, monkeypatch, payload):
 
 def test_judge_tab_runs_the_guarded_workflow_and_returns_decisions(client, approved, monkeypatch):
     seen = []
+    monkeypatch.setattr(pg, "append_turn", lambda *args: None)
     def workflow(user_id, session_id, message, *, persist_session=True):
         seen.append((user_id, session_id, message, persist_session))
         return {
@@ -78,7 +79,16 @@ def test_judge_tab_runs_the_guarded_workflow_and_returns_decisions(client, appro
                 "decision": "approve", "status": "evaluated", "severity": "no_error",
                 "confidence": 0.91, "reason_codes": ["ANSWER_APPROVED"],
                 "justification": "A candidata passou pelos critérios.",
-                "assessment": {"subcriteria_checked": True, "diagnostics": {"relevant": 0.9}},
+                "assessment": {
+                    "subcriteria_checked": True, "diagnostics": {"relevant": 0.9},
+                    "confidence_threshold": 0.5, "probability_threshold": 0.75,
+                    "selected_probability": 0.94,
+                    "severity_probabilities": {"no_error": 0.94, "correctable_error": 0.04,
+                                               "critical_error": 0.02},
+                    "input_summary": {"tools": [
+                        {"name": "calculate_forecast", "output_type": "dict"}
+                    ]},
+                },
             }}],
         }
     monkeypatch.setattr(pg, "run_workflow", workflow)
@@ -87,6 +97,14 @@ def test_judge_tab_runs_the_guarded_workflow_and_returns_decisions(client, appro
     assert response["response"] == "Resposta aprovada."
     assert response["judge_results"][0]["decision"] == "approve"
     assert response["judge_results"][0]["assessment"]["diagnostics"] == {"relevant": 0.9}
+    assessment = response["judge_results"][0]["assessment"]
+    assert assessment["confidence_threshold"] == 0.5
+    assert assessment["probability_threshold"] == 0.75
+    assert assessment["selected_probability"] == 0.94
+    assert assessment["severity_probabilities"]["no_error"] == 0.94
+    assert assessment["input_summary"]["tools"] == [
+        {"name": "calculate_forecast", "output_type": "dict"}
+    ]
 
 
 def test_individual_agent_uses_real_contract_and_fixed_identity(client, approved, monkeypatch):
@@ -161,6 +179,41 @@ def test_router_failure_is_visible(monkeypatch):
         result = routing.classify("teste", {})
     assert result.agents == []
     assert trace.errors[0]["stage"] == "router"
+
+
+@pytest.mark.parametrize("intent, prefix", [("greeting", "Oi!"), ("unknown", "Não entendi")])
+def test_greeting_workflow_keeps_guards_without_specialists_or_judge(monkeypatch, intent, prefix):
+    checked = []
+    monkeypatch.setattr(graph, "_history_from_mongo", lambda *args: [])
+    monkeypatch.setattr(graph, "build_context", lambda *args: {})
+    monkeypatch.setattr(graph, "validate_input", lambda uid, text: {
+        "ok": True, "message": text, "pii_map": {},
+    })
+    monkeypatch.setattr(graph, "classify", lambda *args: routing.RoutingDecision(
+        intent=intent, complexity="simple", agents=[],
+    ))
+    monkeypatch.setattr(graph, "load_agent", lambda *args: pytest.fail("Sem especialista para saudação."))
+    monkeypatch.setattr(graph, "JudgeAgent", lambda: pytest.fail("Sem candidata factual para julgar."))
+    def output_guard(text, pii_map):
+        checked.append(text)
+        return {"ok": True, "response": text}
+    monkeypatch.setattr(graph, "validate_output", output_guard)
+    state = graph.run_workflow(12345679, f"greeting-{intent}", "oi", persist_session=False)
+    assert state["response"].startswith(prefix)
+    assert checked == [state["response"]]
+    assert state["selected_agents"] == []
+    assert state["judge_history"] == []
+
+
+def test_greeting_with_request_keeps_specialist_answer():
+    state = {
+        "question": "Oi, quanto consumi esta semana?", "intent": "consumption_history",
+        "selected_agents": ["consumption"],
+        "agent_results": [{"agent": "consumption", "status": "success", "answer": "Foram 1200 litros."}],
+    }
+    response = graph._respond_node(state)
+    assert response["response"] == "Foram 1200 litros."
+    assert graph._compose_node(state | response)["composition_status"] == "ready"
 
 
 def test_router_tab_classifies_without_running_specialists(client, approved, monkeypatch):

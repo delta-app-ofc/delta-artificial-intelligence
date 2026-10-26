@@ -78,6 +78,8 @@ um fato confirmado.
 Quando os dados disponíveis não forem suficientes para responder,
 informe claramente a limitação.
 
+Quando o usuário apenas o saudar, não diga que não tem dados disponíveis para responder, devolva com uma mensagem de tom amigável saudando-o de volta.
+
 Nunca invente informações para completar uma resposta.
 """
 
@@ -1208,6 +1210,10 @@ Use rag para explicar como o produto funciona. Consultas sobre dados particulare
 da conta devem ir aos especialistas; combine rag e especialista quando a pergunta
 pedir tanto uma explicação geral quanto uma análise dos registros do usuário.
 
+Saudações sem pedido sobre o produto ou dados, como "oi", "olá" e "bom dia",
+usam intent "greeting", complexity "simple" e agents []. Se a mensagem trouxer
+uma saudação junto de um pedido, classifique pelo pedido e selecione seus agentes.
+
 Complexidade:
 - simple: 1 agente, pergunta direta
 - medium: 2 agentes, análise cruzada
@@ -1222,6 +1228,9 @@ Retorne JSON exatamente neste formato (sem markdown, sem texto antes ou depois):
 {"intent": "<string>", "complexity": "<simple|medium|complex>", "agents": ["<nome>", ...]}
 
 Exemplos:
+- "Oi!" → {"intent": "greeting", "complexity": "simple", "agents": []}
+- "Bom dia" → {"intent": "greeting", "complexity": "simple", "agents": []}
+- "Oi, quanto consumi esta semana?" → {"intent": "consumption_history", "complexity": "simple", "agents": ["consumption"]}
 - "Quanto consumi esta semana?" → {"intent": "consumption_history", "complexity": "simple", "agents": ["consumption"]}
 - "Quanto vou gastar este mês?" → {"intent": "consumption_forecast", "complexity": "simple", "agents": ["forecast"]}
 - "Meus hábitos afetam minha conta?" → {"intent": "habits_impact", "complexity": "medium", "agents": ["habits", "forecast"]}

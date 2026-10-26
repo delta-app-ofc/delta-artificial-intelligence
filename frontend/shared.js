@@ -123,7 +123,13 @@ export function renderDiagnostics(target, result, busy = false) {
     result.judge_results.forEach((judge, index) => judgments.append(details(
       `Avaliação ${index + 1} · ${judge.decision || judge.status || 'resultado'}`,
       [['Status', judge.status], ['Gravidade', judge.severity],
-        ['Confiança', judge.confidence], ['Códigos Python', judge.reason_codes],
+        ['Confiança da classificação', judge.confidence],
+        ['Limiar de confiança', judge.assessment?.confidence_threshold],
+        ['Probabilidade da categoria escolhida', judge.assessment?.selected_probability],
+        ['Limiar de probabilidade', judge.assessment?.probability_threshold],
+        ['Probabilidades por categoria', judge.assessment?.severity_probabilities],
+        ['Resumo da entrada enviada', judge.assessment?.input_summary],
+        ['Códigos Python', judge.reason_codes],
         ['Justificativa Python', judge.justification], ['Sinais adicionais', judge.assessment]],
     )));
     target.append(judgments);
