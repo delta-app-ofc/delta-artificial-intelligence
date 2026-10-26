@@ -126,6 +126,7 @@ export function renderDiagnostics(target, result, busy = false) {
         ['Confiança da classificação', judge.confidence],
         ['Limiar de confiança', judge.assessment?.confidence_threshold],
         ['Probabilidade da categoria escolhida', judge.assessment?.selected_probability],
+        ['Limiar de probabilidade', judge.assessment?.probability_threshold],
         ['Probabilidades por categoria', judge.assessment?.severity_probabilities],
         ['Resumo da entrada enviada', judge.assessment?.input_summary],
         ['Códigos Python', judge.reason_codes],

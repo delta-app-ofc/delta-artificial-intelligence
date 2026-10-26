@@ -122,8 +122,8 @@ O `JudgeAgent` usa Jev pela integração `langchain-typesafe`. A candidata
 composta é avaliada junto com as ferramentas e fontes dos especialistas.
 A avaliação é sequencial:
 
-- Choice no_error com confidence >= 80% passa ao segundo gate;
-- Choice no_error abaixo de 80% pede revisão;
+- Choice no_error com confidence >= 50% e probabilidade da escolha >= 75% passa ao segundo gate;
+- Choice no_error abaixo de qualquer um desses limites pede revisão;
 - qualquer correctable_error pede revisão, independentemente da confidence;
 - critical_error bloqueia com mensagem segura;
 - somente após passar o gate da Choice, uma segunda chamada Jev verifica Noul facts_supported >= 80%, Noul relevant >= 60% e Score diferente da categoria inadequada.
@@ -135,8 +135,9 @@ Isso permite distinguir uma entrada sem evidências de uma classificação
 incerta. Esses metadados não incluem o texto da candidata bloqueada.
 
 `confidence` resume a distribuição da Choice; não é uma nota de correção factual.
-Com três categorias, o limiar de confidence 0,80 equivale a aproximadamente 86,7%
-de probabilidade para a categoria escolhida. Uma decisão `no_error` pode pedir revisão
+O gate exige simultaneamente confidence >= 0,50 e probabilidade da escolha >= 0,75.
+Com a fórmula atual da Choice e três categorias, probabilidade de 75% corresponde
+a confidence de 62,5%. Uma decisão `no_error` pode pedir revisão
 por incerteza, sem que o Jev tenha apontado um erro específico.
 Veja a [definição de confidence](https://docs.typesafe.ai/confidence).
 

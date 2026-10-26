@@ -81,7 +81,8 @@ def test_judge_tab_runs_the_guarded_workflow_and_returns_decisions(client, appro
                 "justification": "A candidata passou pelos critérios.",
                 "assessment": {
                     "subcriteria_checked": True, "diagnostics": {"relevant": 0.9},
-                    "confidence_threshold": 0.8, "selected_probability": 0.94,
+                    "confidence_threshold": 0.5, "probability_threshold": 0.75,
+                    "selected_probability": 0.94,
                     "severity_probabilities": {"no_error": 0.94, "correctable_error": 0.04,
                                                "critical_error": 0.02},
                     "input_summary": {"tools": [
@@ -97,7 +98,8 @@ def test_judge_tab_runs_the_guarded_workflow_and_returns_decisions(client, appro
     assert response["judge_results"][0]["decision"] == "approve"
     assert response["judge_results"][0]["assessment"]["diagnostics"] == {"relevant": 0.9}
     assessment = response["judge_results"][0]["assessment"]
-    assert assessment["confidence_threshold"] == 0.8
+    assert assessment["confidence_threshold"] == 0.5
+    assert assessment["probability_threshold"] == 0.75
     assert assessment["selected_probability"] == 0.94
     assert assessment["severity_probabilities"]["no_error"] == 0.94
     assert assessment["input_summary"]["tools"] == [
