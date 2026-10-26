@@ -69,6 +69,7 @@ def test_invalid_inputs_do_not_execute(client, monkeypatch, payload):
 
 def test_judge_tab_runs_the_guarded_workflow_and_returns_decisions(client, approved, monkeypatch):
     seen = []
+    monkeypatch.setattr(pg, "append_turn", lambda *args: None)
     def workflow(user_id, session_id, message, *, persist_session=True):
         seen.append((user_id, session_id, message, persist_session))
         return {
@@ -78,7 +79,15 @@ def test_judge_tab_runs_the_guarded_workflow_and_returns_decisions(client, appro
                 "decision": "approve", "status": "evaluated", "severity": "no_error",
                 "confidence": 0.91, "reason_codes": ["ANSWER_APPROVED"],
                 "justification": "A candidata passou pelos critérios.",
-                "assessment": {"subcriteria_checked": True, "diagnostics": {"relevant": 0.9}},
+                "assessment": {
+                    "subcriteria_checked": True, "diagnostics": {"relevant": 0.9},
+                    "confidence_threshold": 0.8, "selected_probability": 0.94,
+                    "severity_probabilities": {"no_error": 0.94, "correctable_error": 0.04,
+                                               "critical_error": 0.02},
+                    "input_summary": {"tool_count": 1, "tools": [
+                        {"name": "calculate_forecast", "output_type": "dict"}
+                    ]},
+                },
             }}],
         }
     monkeypatch.setattr(pg, "run_workflow", workflow)
@@ -87,6 +96,13 @@ def test_judge_tab_runs_the_guarded_workflow_and_returns_decisions(client, appro
     assert response["response"] == "Resposta aprovada."
     assert response["judge_results"][0]["decision"] == "approve"
     assert response["judge_results"][0]["assessment"]["diagnostics"] == {"relevant": 0.9}
+    assessment = response["judge_results"][0]["assessment"]
+    assert assessment["confidence_threshold"] == 0.8
+    assert assessment["selected_probability"] == 0.94
+    assert assessment["severity_probabilities"]["no_error"] == 0.94
+    assert assessment["input_summary"]["tools"] == [
+        {"name": "calculate_forecast", "output_type": "dict"}
+    ]
 
 
 def test_individual_agent_uses_real_contract_and_fixed_identity(client, approved, monkeypatch):

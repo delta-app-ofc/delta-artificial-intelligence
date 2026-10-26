@@ -129,6 +129,17 @@ A avaliação é sequencial:
 - somente após passar o gate da Choice, uma segunda chamada Jev verifica Noul facts_supported >= 80%, Noul relevant >= 60% e Score diferente da categoria inadequada.
 
 Se um subcritério falhar, pede revisão; após a única revisão, qualquer falha gera mensagem segura. O runner manual mostra quais verificações foram executadas e seus resultados.
+O console mostra também as probabilidades de cada categoria, o limiar aplicado
+e o tamanho da entrada, com nomes e tipos dos resultados de ferramentas recebidos
+pelo Juiz. Isso permite distinguir uma entrada sem evidências de uma classificação
+incerta. Esses metadados não incluem o texto da candidata bloqueada.
+
+`confidence` resume a distribuição da Choice; não é uma nota de correção factual.
+Com três categorias, o limiar de confidence 0,80 equivale a aproximadamente 86,7%
+de probabilidade para a categoria escolhida. Uma decisão `no_error` pode pedir revisão
+por incerteza, sem que o Jev tenha apontado um erro específico.
+Veja a [definição de confidence](https://docs.typesafe.ai/confidence).
+
 O Juiz não gera texto livre: os códigos e as justificativas vêm do Python.
 Configure `TYPESAFE_API_KEY`, `JEV_MODEL` e `JEV_TIMEOUT_SECONDS` conforme
 [.env.example](.env.example). Detalhes, tabela de decisão e funcionamento das

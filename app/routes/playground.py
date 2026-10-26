@@ -89,6 +89,10 @@ def _judge_results(state: dict) -> list[dict]:
             "reason_codes": judge.get("reason_codes", []),
             "justification": judge.get("justification", ""),
             "assessment": {
+                "confidence_threshold": assessment.get("confidence_threshold"),
+                "severity_probabilities": assessment.get("severity_probabilities", {}),
+                "selected_probability": assessment.get("selected_probability"),
+                "input_summary": assessment.get("input_summary", {}),
                 "subcriteria_checked": assessment.get("subcriteria_checked", False),
                 "diagnostics": assessment.get("diagnostics", {}),
             },

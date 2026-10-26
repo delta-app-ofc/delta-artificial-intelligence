@@ -116,14 +116,13 @@ class JudgeAgent:
                 return _unavailable("JUDGE_CONFIGURATION_INVALID")
 
         try:
-            state = json.loads(
-                json.dumps(
-                    judge_input.model_dump(mode="json"),
-                    ensure_ascii=False,
-                    default=str,
-                    allow_nan=False,
-                )
+            serialized_state = json.dumps(
+                judge_input.model_dump(mode="json"),
+                ensure_ascii=False,
+                default=str,
+                allow_nan=False,
             )
+            state = json.loads(serialized_state)
         except (TypeError, ValueError, OverflowError):
             return _unavailable("JUDGE_INPUT_INVALID")
 
@@ -155,6 +154,11 @@ class JudgeAgent:
                 "usage": primary_response.usage.model_dump(mode="json"),
             }
         ]
+        tool_calls = [
+            call for result in state["agent_results"]
+            if isinstance(result.get("tool_calls"), list)
+            for call in result["tool_calls"] if isinstance(call, dict)
+        ]
         assessment = {
             "provider": "typesafe",
             "model": primary_response.model,
@@ -163,6 +167,20 @@ class JudgeAgent:
             "requests": requests,
             "rubric_version": RUBRIC_VERSION,
             "confidence_source": "choices.severity.confidence",
+            "confidence_threshold": CONFIDENCE_THRESHOLD,
+            "severity_probabilities": answer.probabilities,
+            "selected_probability": answer.probabilities.get(severity),
+            "input_summary": {
+                "state_characters": len(serialized_state),
+                "candidate_characters": len(state["candidate"]),
+                "agent_count": len(state["agent_results"]),
+                "tool_count": len(tool_calls),
+                "tools": [
+                    {"name": call.get("name"),
+                     "output_type": type(call.get("output")).__name__}
+                    for call in tool_calls
+                ],
+            },
             "revision_count": revision_count,
             "subcriteria_checked": False,
         }
@@ -191,7 +209,10 @@ class JudgeAgent:
                 reason_codes = ["LOW_CONFIDENCE"]
                 justification = (
                     f"A Choice indicou no_error, mas sua confidence foi {confidence}, "
-                    "abaixo de 0,80. Revise a candidata usando as evidências fornecidas."
+                    "abaixo de 0,80. Isso indica incerteza na classificação, não um erro "
+                    "específico comprovado. Confira a correspondência com as evidências "
+                    "e explicite unidades, período e caráter estimado quando aplicável. "
+                    "Preserve os valores sustentados e não invente dados."
                 )
             else:
                 decision = "reject"
