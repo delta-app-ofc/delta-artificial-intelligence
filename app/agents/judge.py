@@ -26,10 +26,10 @@ SAFE_RESPONSE = (
     "Não foi possível validar a resposta com segurança. Tente novamente mais tarde."
 )
 CONFIDENCE_THRESHOLD = 0.50
-PROBABILITY_THRESHOLD = 0.75
-FACTS_SUPPORTED_THRESHOLD = 0.80
+PROBABILITY_THRESHOLD = 0.70
+FACTS_SUPPORTED_THRESHOLD = 0.70
 RELEVANCE_THRESHOLD = 0.60
-RUBRIC_VERSION = "delta-judge-staged-v4"
+RUBRIC_VERSION = "delta-judge-staged-v5"
 SEVERITIES = {"no_error", "correctable_error", "critical_error"}
 
 logger = logging.getLogger(__name__)

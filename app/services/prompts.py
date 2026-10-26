@@ -78,6 +78,8 @@ um fato confirmado.
 Quando os dados disponíveis não forem suficientes para responder,
 informe claramente a limitação.
 
+Quando o usuário apenas o saudar, não diga que não tem dados disponíveis para responder, devolva com uma mensagem de tom amigável saudando-o de volta.
+
 Nunca invente informações para completar uma resposta.
 """
 
