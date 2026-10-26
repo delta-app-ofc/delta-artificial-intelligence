@@ -181,6 +181,41 @@ def test_router_failure_is_visible(monkeypatch):
     assert trace.errors[0]["stage"] == "router"
 
 
+@pytest.mark.parametrize("intent, prefix", [("greeting", "Oi!"), ("unknown", "Não entendi")])
+def test_greeting_workflow_keeps_guards_without_specialists_or_judge(monkeypatch, intent, prefix):
+    checked = []
+    monkeypatch.setattr(graph, "_history_from_mongo", lambda *args: [])
+    monkeypatch.setattr(graph, "build_context", lambda *args: {})
+    monkeypatch.setattr(graph, "validate_input", lambda uid, text: {
+        "ok": True, "message": text, "pii_map": {},
+    })
+    monkeypatch.setattr(graph, "classify", lambda *args: routing.RoutingDecision(
+        intent=intent, complexity="simple", agents=[],
+    ))
+    monkeypatch.setattr(graph, "load_agent", lambda *args: pytest.fail("Sem especialista para saudação."))
+    monkeypatch.setattr(graph, "JudgeAgent", lambda: pytest.fail("Sem candidata factual para julgar."))
+    def output_guard(text, pii_map):
+        checked.append(text)
+        return {"ok": True, "response": text}
+    monkeypatch.setattr(graph, "validate_output", output_guard)
+    state = graph.run_workflow(12345679, f"greeting-{intent}", "oi", persist_session=False)
+    assert state["response"].startswith(prefix)
+    assert checked == [state["response"]]
+    assert state["selected_agents"] == []
+    assert state["judge_history"] == []
+
+
+def test_greeting_with_request_keeps_specialist_answer():
+    state = {
+        "question": "Oi, quanto consumi esta semana?", "intent": "consumption_history",
+        "selected_agents": ["consumption"],
+        "agent_results": [{"agent": "consumption", "status": "success", "answer": "Foram 1200 litros."}],
+    }
+    response = graph._respond_node(state)
+    assert response["response"] == "Foram 1200 litros."
+    assert graph._compose_node(state | response)["composition_status"] == "ready"
+
+
 def test_router_tab_classifies_without_running_specialists(client, approved, monkeypatch):
     monkeypatch.setattr(pg, "classify", lambda *a: routing.RoutingDecision(
         intent="consumption", complexity="simple", agents=["consumption"]))

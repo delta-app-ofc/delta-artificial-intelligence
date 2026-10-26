@@ -18,6 +18,10 @@ from app.memory.session import append_turn, load_history_validated
 from app.observability.diagnostics import component, current_trace, safe_error
 
 RECENT_TURNS = 6
+_GREETING_RESPONSE = (
+    "Oi! Posso ajudar com seu consumo de água, previsões, alertas e hábitos. "
+    "O que você gostaria de saber?"
+)
 _NO_AGENT_RESPONSE = (
     "Não entendi o que você gostaria de saber. Posso ajudar com previsão de consumo, "
     "detecção de vazamentos ou seus hábitos de água."
@@ -241,7 +245,8 @@ def _respond_node(state: GraphState) -> dict:
         results = state.get("agent_results", [])
         selected = state.get("selected_agents", [])
         if not selected:
-            return {"response": _NO_AGENT_RESPONSE, "chart_data": None}
+            response = _GREETING_RESPONSE if state.get("intent") == "greeting" else _NO_AGENT_RESPONSE
+            return {"response": response, "chart_data": None}
         successes = [result for result in results
                      if result.get("status") == "success" and result.get("answer")]
         if not successes:
