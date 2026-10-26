@@ -84,7 +84,7 @@ def test_judge_tab_runs_the_guarded_workflow_and_returns_decisions(client, appro
                     "confidence_threshold": 0.8, "selected_probability": 0.94,
                     "severity_probabilities": {"no_error": 0.94, "correctable_error": 0.04,
                                                "critical_error": 0.02},
-                    "input_summary": {"tool_count": 1, "tools": [
+                    "input_summary": {"tools": [
                         {"name": "calculate_forecast", "output_type": "dict"}
                     ]},
                 },

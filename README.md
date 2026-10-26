@@ -130,8 +130,8 @@ A avaliação é sequencial:
 
 Se um subcritério falhar, pede revisão; após a única revisão, qualquer falha gera mensagem segura. O runner manual mostra quais verificações foram executadas e seus resultados.
 O console mostra também as probabilidades de cada categoria, o limiar aplicado
-e o tamanho da entrada, com nomes e tipos dos resultados de ferramentas recebidos
-pelo Juiz. Isso permite distinguir uma entrada sem evidências de uma classificação
+e os nomes e tipos dos resultados de ferramentas recebidos pelo Juiz.
+Isso permite distinguir uma entrada sem evidências de uma classificação
 incerta. Esses metadados não incluem o texto da candidata bloqueada.
 
 `confidence` resume a distribuição da Choice; não é uma nota de correção factual.

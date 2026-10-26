@@ -116,13 +116,14 @@ class JudgeAgent:
                 return _unavailable("JUDGE_CONFIGURATION_INVALID")
 
         try:
-            serialized_state = json.dumps(
-                judge_input.model_dump(mode="json"),
-                ensure_ascii=False,
-                default=str,
-                allow_nan=False,
+            state = json.loads(
+                json.dumps(
+                    judge_input.model_dump(mode="json"),
+                    ensure_ascii=False,
+                    default=str,
+                    allow_nan=False,
+                )
             )
-            state = json.loads(serialized_state)
         except (TypeError, ValueError, OverflowError):
             return _unavailable("JUDGE_INPUT_INVALID")
 
@@ -171,10 +172,6 @@ class JudgeAgent:
             "severity_probabilities": answer.probabilities,
             "selected_probability": answer.probabilities.get(severity),
             "input_summary": {
-                "state_characters": len(serialized_state),
-                "candidate_characters": len(state["candidate"]),
-                "agent_count": len(state["agent_results"]),
-                "tool_count": len(tool_calls),
                 "tools": [
                     {"name": call.get("name"),
                      "output_type": type(call.get("output")).__name__}
