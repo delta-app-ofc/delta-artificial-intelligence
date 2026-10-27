@@ -20,11 +20,15 @@ class ChatResponse(BaseModel):
 
 class SessionInfo(BaseModel):
     session_id: str
+    title: str = ""
+    preview: str = ""
     created_at: datetime | None = None
+    updated_at: datetime | None = None
 
 
 class SessionsResponse(BaseModel):
     sessions: list[SessionInfo]
+    total: int = 0
 
 
 class MessageItem(BaseModel):

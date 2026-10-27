@@ -68,13 +68,68 @@ def append_turn(session_id: str, user_id: int, role: str, content: str) -> None:
     )
 
 
-def get_sessions_for_user(user_id: int) -> list[dict]:
-    """Lista todas as sessões do usuário (sem as mensagens completas)."""
+_TITLE_MAX = 40
+_PREVIEW_MAX = 80
+
+
+def _shorten(text: str, limit: int) -> str:
+    text = " ".join((text or "").split())
+    if len(text) <= limit:
+        return text
+    return text[: limit - 1].rstrip() + "…"
+
+
+def count_sessions_for_user(user_id: int) -> int:
+    collection = get_app_client()[get_settings().mongo_db_app]["conversations"]
+    return collection.count_documents({"user_id": user_id})
+
+
+def get_sessions_for_user(user_id: int, limit: int = 20, offset: int = 0) -> list[dict]:
+    """Lista as sessões do usuário, da mais recente para a mais antiga.
+
+    Cada item traz título (início da primeira pergunta), prévia (fim da última
+    resposta) e a data da última mensagem, sem devolver o histórico completo.
+    """
 
     collection = get_app_client()[get_settings().mongo_db_app]["conversations"]
-    cursor = collection.find(
-        {"user_id": user_id},
-        {"_id": 0, "session_id": 1, "created_at": 1},
-    )
+    pipeline = [
+        {"$match": {"user_id": user_id}},
+        {
+            "$project": {
+                "_id": 0,
+                "session_id": 1,
+                "created_at": 1,
+                "first_human": {
+                    "$arrayElemAt": [
+                        {"$filter": {"input": {"$ifNull": ["$messages", []]}, "cond": {"$eq": ["$$this.role", "human"]}}},
+                        0,
+                    ]
+                },
+                "last_assistant": {
+                    "$arrayElemAt": [
+                        {"$filter": {"input": {"$ifNull": ["$messages", []]}, "cond": {"$eq": ["$$this.role", "assistant"]}}},
+                        -1,
+                    ]
+                },
+                "last_message": {"$arrayElemAt": [{"$ifNull": ["$messages", []]}, -1]},
+            }
+        },
+        {"$addFields": {"updated_at": {"$ifNull": ["$last_message.timestamp", "$created_at"]}}},
+        {"$sort": {"updated_at": -1}},
+        {"$skip": offset},
+        {"$limit": limit},
+    ]
 
-    return list(cursor)
+    sessions = []
+    for doc in collection.aggregate(pipeline):
+        sessions.append(
+            {
+                "session_id": doc["session_id"],
+                "title": _shorten((doc.get("first_human") or {}).get("content", ""), _TITLE_MAX),
+                "preview": _shorten((doc.get("last_assistant") or {}).get("content", ""), _PREVIEW_MAX),
+                "created_at": doc.get("created_at"),
+                "updated_at": doc.get("updated_at"),
+            }
+        )
+
+    return sessions
