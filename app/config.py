@@ -49,6 +49,7 @@ class Settings:
     qdrant_url: str | None = field(repr=False)
     qdrant_api_key: str | None = field(repr=False)
     rag_document_path: str | None = field(default=None, repr=False)
+    jwt_secret: str | None = field(default=None, repr=False)
     _parse_errors: tuple[tuple[str, str], ...] = field(default=(), repr=False)
 
 
@@ -171,6 +172,7 @@ def load_settings(
         rag_document_path=values.get(
             "RAG_DOCUMENT_PATH", "app/knowledge/delta-main-source.md"
         ),
+        jwt_secret=values.get("JWT_SECRET"),
         _parse_errors=tuple(parse_errors),
     )
 

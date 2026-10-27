@@ -6,8 +6,10 @@ from pydantic import BaseModel, Field
 
 
 class ChatRequest(BaseModel):
-    user_id: int = Field(..., gt=0, description="ID do usuário autenticado (positivo).")
-    session_id: str | None = None
+    session_id: str | None = Field(
+        default=None,
+        description="Id de uma sessão já devolvida pela API; omita para iniciar uma conversa nova.",
+    )
     message: str = Field(..., min_length=1, max_length=2000)
 
 
@@ -22,8 +24,10 @@ class SessionInfo(BaseModel):
     session_id: str
     title: str = ""
     preview: str = ""
+    icon: str = "general"
     created_at: datetime | None = None
     updated_at: datetime | None = None
+    is_open: bool = False
 
 
 class SessionsResponse(BaseModel):
