@@ -28,7 +28,7 @@ SAFE_RESPONSE = (
 CONFIDENCE_THRESHOLD = 0.50
 PROBABILITY_THRESHOLD = 0.70
 FACTS_SUPPORTED_THRESHOLD = 0.70
-RELEVANCE_THRESHOLD = 0.60
+RELEVANCE_THRESHOLD = 0.50
 RUBRIC_VERSION = "delta-judge-staged-v5"
 SEVERITIES = {"no_error", "correctable_error", "critical_error"}
 
@@ -304,7 +304,7 @@ class JudgeAgent:
                 )
             if not checks["relevant"]:
                 failures.append(
-                    ("LOW_RELEVANCE", "a relevância ficou abaixo de 0,60")
+                    ("LOW_RELEVANCE", "a relevância ficou abaixo de 0,50")
                 )
             if not checks["quality"]:
                 failures.append(
