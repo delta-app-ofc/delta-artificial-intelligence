@@ -365,9 +365,14 @@ Aplicados em duas camadas (defesa em profundidade): na rota HTTP
 
 ## Memória de sessão e longo prazo
 
-- **Sessão** (`app/memory/session.py`): histórico de mensagens por `session_id`
-  no MongoDB. `append_turn` valida ownership antes de gravar. `load_history_validated`
-  verifica que a sessão pertence ao usuário antes de retornar.
+- **Sessão** (`app/memory/session.py`): histórico na coleção `chat_sessions` do
+  `db_delta_app` (schema oficial do `delta-mongo-database`). O `session_id` da API é o
+  `_id` da sessão em texto e é sempre criado pelo servidor. `append_turn` e
+  `load_history_validated` só operam em sessões do próprio usuário.
+- **Título, prévia e ícone** (`app/services/session_meta.py`): na primeira troca da
+  conversa, a LLM rápida gera `title`, `preview` e `icon` (um valor de `ICONS`), gravados na
+  sessão em segundo plano. Sem eles, a listagem usa o início das mensagens e o ícone `general`.
+  Esses três campos ainda precisam ser documentados no `delta-mongo-database`/`delta-handbook`.
 - **Longo prazo** (`app/memory/long_term.py`): embeddings Gemini armazenados no
   Qdrant. Consultada pelo nó `context` quando a pergunta referencia o passado.
 
@@ -382,12 +387,24 @@ uvicorn app.main:app --reload
 |--------|------|-----------|
 | POST | `/chat` | Envia mensagem ao chatbot |
 | GET | `/health` | Status dos serviços configurados |
-| GET | `/users/{user_id}/sessions` | Lista sessões do usuário |
+| GET | `/sessions?limit=20&offset=0` | Lista as sessões do usuário, da mais recente à mais antiga |
 | GET | `/sessions/{session_id}/messages` | Histórico de uma sessão |
 | POST | `/sessions/{session_id}/close` | Encerra uma sessão |
 
-`POST /chat` aceita `{"user_id": 1, "message": "Quanto consumi?"}` e devolve
+Todas as rotas, exceto `/health`, exigem `Authorization: Bearer <JWT>`: token HS256 assinado com
+`JWT_SECRET` (32 caracteres ou mais), com os claims `sub` (o `user_id`) e `exp`. O `user_id` vem
+só do token; o cliente não o envia. Sem `JWT_SECRET` configurado, as rotas respondem 503.
+O back-end ainda precisa emitir esse token.
+
+`POST /chat` aceita `{"message": "Quanto consumi?"}` (e `session_id` para continuar uma conversa
+existente; ids que o servidor não devolveu retornam 404) e devolve
 `{"response": "...", "agents_used": ["forecast"], "session_id": "...", "chart_data": null}`.
 
-O `user_id` deve vir do backend autenticado — este repositório não implementa
-autenticação HTTP.
+`GET /sessions` devolve `{"sessions": [{"session_id", "title", "preview", "icon", "created_at",
+"updated_at", "is_open"}], "total": N}`. Use `limit=4` para a lista da home e `offset` no "ver todos".
+Ícones possíveis: `routine`, `habits`, `summary`, `report`, `savings`, `leak`, `forecast`,
+`consumption`, `tips`, `general`. Sessão de outro usuário ou inexistente responde 404.
+
+Testes de histórico usam MongoDB real em um banco descartável `delta_test_historico`
+(`DELTA_TEST_MONGO_URI`, padrão `mongodb://localhost:27018` do `docker-compose.dev.yml`) e são
+pulados sem MongoDB. O acesso da IA ao `chat_sessions` exige a role `role_api_service`.
