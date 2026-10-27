@@ -1,0 +1,51 @@
+name: CI tecnico
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  check:
+    name: CI tecnico
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      APP_ENV: test
+      BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.before || github.sha }}
+      CI_PROJECT: ci-${{ github.run_id }}-${{ github.run_attempt }}
+    steps:
+      - uses: actions/checkout@v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-python@v7.1.0
+        with:
+          python-version: '3.12'
+      - name: "Sintaxe e diff"
+        shell: bash
+        run: |
+          python .ci/check_sources.py
+      - name: "Verificacao 1"
+        shell: bash
+        run: |
+          python -m pip install -r requirements.txt -r requirements-dev.txt
+      - name: "Verificacao 2"
+        shell: bash
+        run: |
+          python -m pytest -q --basetemp .pytest_cache/tmp --junitxml=.ci-results/pytest.xml
+      - name: Guardar resultados disponiveis
+        if: always()
+        uses: actions/upload-artifact@v7.0.2
+        with:
+          name: resultados-ci
+          if-no-files-found: ignore
+          retention-days: 7
+          path: |
+            .ci-results/
+            target/surefire-reports/
