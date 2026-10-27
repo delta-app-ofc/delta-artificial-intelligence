@@ -1139,9 +1139,9 @@ definitivo de vazamento. Uma omissão que exige nova consulta não é corrigíve
 com as informações atuais.
 
 Considere correto informar que os dados são insuficientes quando isso é
-sustentado pelos resultados. Noul e Score complementam a avaliação como sinais
-diagnósticos. A política Python de liberação usa a categoria e a confidence da
-Choice de gravidade.
+sustentado pelos resultados. Choice e Noul são avaliados na mesma chamada.
+A política Python exige categoria sem erro e os quatro limites de confidence,
+probabilidade da categoria, suporte factual e relevância simultaneamente.
 """
 
 JUIZ_SEVERITY_INSTRUCTIONS = (
@@ -1150,10 +1150,10 @@ JUIZ_SEVERITY_INSTRUCTIONS = (
 JUIZ_SEVERITY_CRITERIA = {
     "no_error": (
         "Não há erro material identificável: afirmações factuais apoiadas pelos "
-        "outputs e fontes, resposta pertinente e limitações relevantes reconhecidas."
+        "outputs e fontes, resposta pertinente mesmo que com algumas limitações."
     ),
     "correctable_error": (
-        "Há erro ou omissão que pode ser corrigido apenas com os resultados e "
+        "Há erro, limitações reconhecíveis ou omissão relevante que pode ser corrigido apenas com os resultados e "
         "fontes fornecidos, sem nova consulta ou dado externo."
     ),
     "critical_error": (
@@ -1164,8 +1164,7 @@ JUIZ_SEVERITY_CRITERIA = {
 }
 JUIZ_FACTS_SUPPORTED_INSTRUCTIONS = (
     "As afirmações factuais da candidata são sustentadas pelos outputs das ferramentas "
-    "e trechos/fontes recuperados presentes em agent_results? A pergunta, a candidata "
-    "e o contexto não comprovam fatos da conta."
+    "e trechos/fontes recuperados presentes em agent_results?"
 )
 JUIZ_FACTS_SUPPORTED_CRITERIA = {
     "true": (
@@ -1177,21 +1176,11 @@ JUIZ_FACTS_SUPPORTED_CRITERIA = {
         "question, candidate e context não suprem evidência ausente."
     ),
 }
-JUIZ_RELEVANT_INSTRUCTIONS = "A candidata responde diretamente ao pedido atual?"
+JUIZ_RELEVANT_INSTRUCTIONS = "A candidata responde diretamente ao pedido atual ou fornece informação associada?"
 JUIZ_RELEVANT_CRITERIA = {
-    "true": "A candidata trata do que o usuário pediu.",
+    "true": "A candidata trata completamente ou em partes o que o usuário pediu.",
     "false": "A candidata não trata do pedido ou o substitui por outro assunto.",
 }
-JUIZ_QUALITY_INSTRUCTIONS = (
-    "Qual nível descreve a adequação geral da candidata ao pedido e às evidências?"
-)
-JUIZ_QUALITY_CRITERIA = [
-    "A candidata é inadequada ou contém falhas materiais relevantes.",
-    "A candidata atende parcialmente, com limitações ou omissões.",
-    "A candidata é adequada, sustentada e completa para o pedido atual.",
-]
-
-
 # PROMPTS DO SISTEMA — ROTEADOR E SÍNTESE
 # ==============================================================================
 

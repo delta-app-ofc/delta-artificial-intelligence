@@ -53,6 +53,10 @@ class Settings:
     qdrant_api_key: str | None = field(repr=False)
     rag_document_path: str | None = field(default=None, repr=False)
     playground_enabled: bool = False
+    jev_confidence_threshold: float = 0.50
+    jev_probability_threshold: float = 0.70
+    jev_facts_supported_threshold: float = 0.60
+    jev_relevance_threshold: float = 0.25
     _parse_errors: tuple[tuple[str, str], ...] = field(default=(), repr=False)
 
 
@@ -136,6 +140,10 @@ def load_settings(
     numeric_settings = {
         "LLM_TIMEOUT_SECONDS": (15.0, float, "deve ser um número finito"),
         "JEV_TIMEOUT_SECONDS": (5.0, float, "deve ser um número finito"),
+        "JEV_CONFIDENCE_THRESHOLD": (0.50, float, "deve ser um número finito"),
+        "JEV_PROBABILITY_THRESHOLD": (0.70, float, "deve ser um número finito"),
+        "JEV_FACTS_SUPPORTED_THRESHOLD": (0.60, float, "deve ser um número finito"),
+        "JEV_RELEVANCE_THRESHOLD": (0.25, float, "deve ser um número finito"),
         "LLM_MAX_RETRIES": (1, int, "deve ser um número inteiro"),
         "LLM_MAX_OUTPUT_TOKENS": (4096, int, "deve ser um número inteiro"),
         "DB_CONNECT_TIMEOUT_SECONDS": (5, int, "deve ser um número inteiro"),
@@ -166,6 +174,10 @@ def load_settings(
         typesafe_api_key=values.get("TYPESAFE_API_KEY"),
         jev_model=values.get("JEV_MODEL", "jev-1.14.0") or "",
         jev_timeout_seconds=parsed_numbers["JEV_TIMEOUT_SECONDS"],
+        jev_confidence_threshold=parsed_numbers["JEV_CONFIDENCE_THRESHOLD"],
+        jev_probability_threshold=parsed_numbers["JEV_PROBABILITY_THRESHOLD"],
+        jev_facts_supported_threshold=parsed_numbers["JEV_FACTS_SUPPORTED_THRESHOLD"],
+        jev_relevance_threshold=parsed_numbers["JEV_RELEVANCE_THRESHOLD"],
         playground_enabled=playground_enabled,
         gemini_api_key=values.get("GEMINI_API_KEY"),
         groq_api_key=values.get("GROQ_API_KEY"),
@@ -204,9 +216,30 @@ def get_settings(*, refresh: bool = False) -> Settings:
     return _settings_cache
 
 
+def get_judge_config(*, settings: Settings | None = None) -> Settings:
+    """Retorna os settings com os quatro limites do Juiz validados em [0, 1]."""
+    current = settings or get_settings()
+    names = {
+        "JEV_CONFIDENCE_THRESHOLD", "JEV_PROBABILITY_THRESHOLD",
+        "JEV_FACTS_SUPPORTED_THRESHOLD", "JEV_RELEVANCE_THRESHOLD",
+    }
+    problems = [
+        f"{name}: {message}"
+        for name, message in current._parse_errors
+        if name in names or name == "APP_ENV"
+    ]
+    for name in sorted(names):
+        value = getattr(current, name.lower())
+        if isinstance(value, bool) or not math.isfinite(value) or not 0 <= value <= 1:
+            problems.append(f"{name} deve estar entre 0 e 1")
+    if problems:
+        raise ConfigurationError(f"Configuração do Juiz inválida: {', '.join(problems)}.")
+    return current
+
+
 def validate_jev_config(*, settings: Settings | None = None) -> None:
     """Valida somente a configuração do Juiz Jev, sem abrir conexão."""
-    current = settings or get_settings()
+    current = get_judge_config(settings=settings)
     names = {"TYPESAFE_API_KEY", "JEV_MODEL", "JEV_TIMEOUT_SECONDS"}
     problems = [
         f"{name}: {message}"

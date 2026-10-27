@@ -67,6 +67,17 @@ Detalhes: [settings e ambientes](https://github.com/delta-app-ofc/delta-handbook
 [conector PostgreSQL](https://github.com/delta-app-ofc/delta-handbook/blob/main/DADOS/IA/agentes/postgres-connection.md) e
 [conector MongoDB](https://github.com/delta-app-ofc/delta-handbook/blob/main/DADOS/IA/agentes/mongo-connection.md).
 
+## Rastreamento de requisições
+
+Cada requisição encaminhada à API recebe um `X-Request-ID`. O mesmo contexto
+acompanha nós do grafo, ferramentas, modelos e fases do RAG. Falhas preservam
+os tipos das causas e a localização do código, sem serializar mensagens brutas
+de SDKs ou credenciais. O playground mostra os detalhes seguros da execução.
+
+A base expõe `set_event_sink()` para conectar o logging. Ela não configura
+handlers, formatadores ou persistência de logs. Veja o [guia de rastreamento](docs/request-tracking.md)
+para integrar o consumidor, consultar os eventos e executar os testes.
+
 ## Base documental RAG
 
 A fonte do produto é [delta-main-source.md](app/knowledge/delta-main-source.md),

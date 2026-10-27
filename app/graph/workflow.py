@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import json
 from dataclasses import asdict
+from time import perf_counter
 
 from langgraph.checkpoint.memory import MemorySaver
 from langgraph.graph import END, StateGraph
@@ -15,7 +16,13 @@ from app.graph.synthesis import synthesize
 from app.guardrails.input import validate_input
 from app.guardrails.output import validate_output
 from app.memory.session import append_turn, load_history_validated
-from app.observability.diagnostics import component, current_trace, safe_error
+from app.observability.diagnostics import (
+    Trace,
+    capture,
+    component,
+    current_trace,
+    safe_error,
+)
 
 RECENT_TURNS = 6
 _GREETING_RESPONSE = (
@@ -43,10 +50,7 @@ def _recent_messages(state: GraphState) -> list[dict]:
 def _redact_judge_context_text(value: object) -> str | None:
     if not isinstance(value, str) or not value.strip():
         return None
-    from app.guardrails.input import anonymize
-
-    anonymized, pii_map = anonymize(value)
-    checked = validate_output(anonymized, pii_map=pii_map)
+    checked = validate_output(value)
     return checked["response"] if checked.get("ok") else None
 
 
@@ -74,8 +78,13 @@ def _guardrail_input_node(state: GraphState) -> dict:
         result = validate_input(state["user_id"], state["question"])
     if not result["ok"]:
         if trace := current_trace():
-            trace.errors.append({"stage": "input_guard", "code": "input_rejected",
-                                 "message": result.get("reason", "Mensagem bloqueada.")})
+            trace.event(
+                "guardrail.rejected",
+                component="input_guard",
+                operation="validate",
+                status="rejected",
+                metadata={"phase": "input_guard", "outcome": "input_rejected"},
+            )
         return {"response": result.get("reason", "Mensagem bloqueada."),
                 "pii_map": {}, "_blocked": True}
     return {"question": result["message"],
@@ -135,8 +144,30 @@ def execute_agent(
     """Executa o mesmo especialista usado pelas abas individuais e pelo grafo."""
     trace = current_trace()
     try:
+        agent = load_agent(name, user_id)
+    except AgentNotImplemented:
+        if trace:
+            trace.skipped_agents.append(name)
+            trace.warnings.append(f"Agente {name} pendente; etapa ignorada.")
+            trace.event(
+                "agent.skipped",
+                component=name,
+                operation="load_agent",
+                status="skipped",
+                metadata={"outcome": "not_implemented"},
+            )
+        output = AgentOutput(agent=name, status="skipped", answer="",
+                             warnings=[f"Agente {name} ainda não implementado."])
+        return output.model_dump()
+    except Exception as error:
+        if trace:
+            trace.error(name, error, operation="load_agent")
+        output = AgentOutput(agent=name, status="error", answer="",
+                             warnings=[safe_error(error)])
+        return output.model_dump()
+
+    try:
         with component(name):
-            agent = load_agent(name, user_id)
             if trace:
                 trace.executed_agents.append(name)
             if revision_feedback or revision_context:
@@ -152,20 +183,6 @@ def execute_agent(
                 sources=result.sources, chart_data=result.chart_data,
                 tool_calls=[asdict(call) for call in result.tool_calls],
             )
-    except AgentNotImplemented:
-        if trace:
-            trace.errors[:] = [
-                error for error in trace.errors
-                if not (error["stage"] == name and error["code"] == "AgentNotImplemented")
-            ]
-            for stage in reversed(trace.stages):
-                if stage["stage"] == name:
-                    stage["status"] = "skipped"
-                    break
-            trace.skipped_agents.append(name)
-            trace.warnings.append(f"Agente {name} pendente; etapa ignorada.")
-        output = AgentOutput(agent=name, status="skipped", answer="",
-                             warnings=[f"Agente {name} ainda não implementado."])
     except Exception as error:
         output = AgentOutput(agent=name, status="error", answer="",
                              warnings=[safe_error(error)])
@@ -187,6 +204,13 @@ def _execute_node(state: GraphState) -> dict:
             warnings.append(f"Agente desconhecido ignorado: {name}")
             if trace := current_trace():
                 trace.skipped_agents.append(name)
+                trace.event(
+                    "agent.skipped",
+                    component="execute",
+                    operation="unknown_agent",
+                    status="skipped",
+                    metadata={"outcome": "unknown_agent"},
+                )
             continue
 
         prior_result = _previous_result(state, name) if revision_count else {}
@@ -300,9 +324,7 @@ def _judge_node(state: GraphState) -> dict:
             )
         judge_output = result.model_dump()
         decision, status = result.decision, result.status
-    except Exception as error:
-        if trace := current_trace():
-            trace.error("judge", error)
+    except Exception:
         judge_output = {
             "decision": "reject", "status": "unavailable",
             "justification": "A avaliação automática não está disponível neste momento.",
@@ -320,17 +342,41 @@ def _judge_node(state: GraphState) -> dict:
         action = "correct"
     else:
         action = "block"
+    if trace := current_trace():
+        trace.event(
+            "judge.decision",
+            component="judge",
+            operation="review",
+            status="unavailable" if status == "unavailable" else "success",
+            metadata={
+                "outcome": action,
+                "revision_count": revision_count,
+            },
+        )
     return {"judge_history": history, "judge_action": action}
 
 
 def _prepare_revision_node(state: GraphState) -> dict:
     last_judge = state.get("judge_history", [])[-1].get("judge", {})
     feedback = (last_judge.get("justification") or "").strip() or _REVISION_FALLBACK
+    next_revision_count = state.get("revision_count", 0) + 1
+    if trace := current_trace():
+        trace.event(
+            "judge.revision",
+            component="revise",
+            operation="prepare_revision",
+            status="success",
+            metadata={
+                "phase": "revise",
+                "outcome": "correction_requested",
+                "revision_count": next_revision_count,
+            },
+        )
     return {
         "previous_candidate": state.get("candidate", ""),
         "previous_agent_results": state.get("agent_results", []),
         "revision_feedback": feedback,
-        "revision_count": state.get("revision_count", 0) + 1,
+        "revision_count": next_revision_count,
         "candidate": "", "agent_results": [], "response": "", "chart_data": None,
         "composition_status": "", "judge_action": "", "warnings": [],
     }
@@ -365,8 +411,13 @@ def _guardrail_output_node(state: GraphState) -> dict:
         result = validate_output(state.get("response") or "", state.get("pii_map") or {})
     if not result["ok"]:
         if trace := current_trace():
-            trace.errors.append({"stage": "output_guard", "code": "output_rejected",
-                                 "message": result.get("reason", "Resposta bloqueada.")})
+            trace.event(
+                "guardrail.rejected",
+                component="output_guard",
+                operation="validate",
+                status="rejected",
+                metadata={"phase": "output_guard", "outcome": "output_rejected"},
+            )
         safe = "Não foi possível processar a resposta."
     else:
         safe = result["response"]
@@ -381,19 +432,105 @@ def _guardrail_output_node(state: GraphState) -> dict:
     return {"response": safe, "messages": [{"role": "assistant", "content": safe}]}
 
 
+def _node_outcome(name: str, result: dict) -> str | None:
+    if name == "guardrail_input":
+        return "input_rejected" if result.get("_blocked") else "accepted"
+    if name == "execute":
+        statuses = [item.get("status") for item in result.get("agent_results", [])]
+        if not statuses:
+            return "no_agents"
+        if all(status == "success" for status in statuses):
+            return "all_succeeded"
+        if any(status == "success" for status in statuses):
+            return "partial"
+        return "no_agent_succeeded"
+    if name == "compose":
+        status = result.get("composition_status")
+        return status if status in {"ready", "bypass", "no_agents", "no_success"} else None
+    if name == "judge":
+        action = result.get("judge_action")
+        return action if action in {"approve", "correct", "block"} else None
+    if name == "revise":
+        return "correction_requested"
+    return None
+
+
+def _tracked_node(name: str, action):
+    def run(state: GraphState) -> dict:
+        trace = current_trace()
+        started = perf_counter()
+        errors_before = len(trace.errors) if trace else 0
+        if trace:
+            trace.event(
+                "graph.node.start",
+                component=name,
+                operation=name,
+                status="running",
+                metadata={"phase": name},
+            )
+        try:
+            result = action(state)
+        except Exception as error:
+            if trace:
+                record = trace.error(
+                    name,
+                    error,
+                    operation=name,
+                    metadata={"phase": name},
+                )
+                trace.event(
+                    "graph.node.end",
+                    component=name,
+                    operation=name,
+                    status="error",
+                    duration_ms=round((perf_counter() - started) * 1000, 1),
+                    metadata={
+                        "phase": name,
+                        "outcome": "failed",
+                        "error_id": record.get("error_id"),
+                    },
+                )
+            raise
+
+        if trace:
+            outcome = _node_outcome(name, result)
+            errors_after = len(trace.errors)
+            event_status = "partial" if errors_after > errors_before else "success"
+            if name == "guardrail_input" and result.get("_blocked"):
+                event_status = "rejected"
+            metadata = {"phase": name}
+            if outcome:
+                metadata["outcome"] = outcome
+            if name in {"judge", "revise"}:
+                revision_count = result.get("revision_count")
+                if isinstance(revision_count, int):
+                    metadata["revision_count"] = revision_count
+            trace.event(
+                "graph.node.end",
+                component=name,
+                operation=name,
+                status=event_status,
+                duration_ms=round((perf_counter() - started) * 1000, 1),
+                metadata=metadata,
+            )
+        return result
+
+    return run
+
+
 _graph = StateGraph(GraphState)
-_graph.add_node("guardrail_input", _guardrail_input_node)
-_graph.add_node("context", _context_node)
-_graph.add_node("route", _route_node)
-_graph.add_node("execute", _execute_node)
-_graph.add_node("synthesize", _synthesize_node)
-_graph.add_node("respond", _respond_node)
-_graph.add_node("compose", _compose_node)
-_graph.add_node("judge", _judge_node)
-_graph.add_node("revise", _prepare_revision_node)
-_graph.add_node("publish", _publish_node)
-_graph.add_node("block", _block_node)
-_graph.add_node("output_guard", _guardrail_output_node)
+_graph.add_node("guardrail_input", _tracked_node("guardrail_input", _guardrail_input_node))
+_graph.add_node("context", _tracked_node("context", _context_node))
+_graph.add_node("route", _tracked_node("route", _route_node))
+_graph.add_node("execute", _tracked_node("execute", _execute_node))
+_graph.add_node("synthesize", _tracked_node("synthesize", _synthesize_node))
+_graph.add_node("respond", _tracked_node("respond", _respond_node))
+_graph.add_node("compose", _tracked_node("compose", _compose_node))
+_graph.add_node("judge", _tracked_node("judge", _judge_node))
+_graph.add_node("revise", _tracked_node("revise", _prepare_revision_node))
+_graph.add_node("publish", _tracked_node("publish", _publish_node))
+_graph.add_node("block", _tracked_node("block", _block_node))
+_graph.add_node("output_guard", _tracked_node("output_guard", _guardrail_output_node))
 _graph.set_entry_point("guardrail_input")
 _graph.add_conditional_edges("guardrail_input", _after_guardrail_input,
                              {END: END, "context": "context"})
@@ -425,8 +562,13 @@ def _history_from_mongo(user_id: int, session_id: str) -> list[dict]:
             if item.get("role") in ("human", "assistant")]
 
 
-def run_workflow(user_id: int, session_id: str, question: str, *,
-                 persist_session: bool = True) -> GraphState:
+def _invoke_workflow(
+    user_id: int,
+    session_id: str,
+    question: str,
+    *,
+    persist_session: bool,
+) -> GraphState:
     config = {"configurable": {"thread_id": f"{user_id}:{session_id}"}}
     initial: GraphState = {
         "user_id": user_id, "session_id": session_id, "question": question,
@@ -441,3 +583,23 @@ def run_workflow(user_id: int, session_id: str, question: str, *,
     if not workflow.get_state(config).values.get("messages"):
         initial["messages"] = _history_from_mongo(user_id, session_id)
     return workflow.invoke(initial, config=config)
+
+
+def run_workflow(user_id: int, session_id: str, question: str, *,
+                 persist_session: bool = True) -> GraphState:
+    """Executa o fluxo usando o Trace da API ou criando um para chamadas diretas."""
+    if current_trace() is not None:
+        return _invoke_workflow(
+            user_id,
+            session_id,
+            question,
+            persist_session=persist_session,
+        )
+
+    with capture(Trace("chat", user_id=user_id)):
+        return _invoke_workflow(
+            user_id,
+            session_id,
+            question,
+            persist_session=persist_session,
+        )

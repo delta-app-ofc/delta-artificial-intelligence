@@ -6,7 +6,7 @@ import leak from './tabs/leak.js';
 import habits from './tabs/habits.js';
 import rag from './tabs/rag.js';
 import judge from './tabs/judge.js';
-import { element, pretty, requestJSON, renderSignals, renderDiagnostics, renderMessages } from './shared.js';
+import { element, pretty, requestJSON, renderSignals, renderDiagnostics, renderExecutionTerminal, renderMessages } from './shared.js';
 
 const tabs = [chat, router, consumption, forecast, leak, habits, rag, judge];
 const icons = ['✦', '⑂', '◷', '↗', '◈', '◎', '▤', '⚖'];
@@ -90,6 +90,7 @@ function renderPanels() {
     retry.disabled = configLoading; retry.addEventListener('click', loadConfig); byId('signals').append(retry);
   }
   renderDiagnostics(byId('diagnostics'), state.latest, state.busy);
+  renderExecutionTerminal(byId('execution-terminal'), state.latest, state.busy);
 }
 function renderCurrent() {
   renderMessages(byId('messages'), activeState().messages, activeTab());
