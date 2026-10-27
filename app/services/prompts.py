@@ -1463,3 +1463,25 @@ Pergunta: {question}
 
 {respostas}
 """
+
+SESSION_META_PROMPT = """\
+Você identifica uma conversa do app Delta (monitoramento de consumo de água) para a lista de histórico.
+Com base na pergunta do usuário e na resposta do assistente, gere:
+- "title": título curto e natural, em português, até 30 caracteres, sem ponto final (ex.: "Definir rotina nova").
+- "preview": uma frase de até 70 caracteres resumindo o que a resposta trouxe, sem inventar dados.
+- "icon": exatamente um destes valores, o que melhor representa o assunto: {icons}.
+  routine = criar ou ajustar rotinas; habits = hábitos a melhorar; summary = resumo de um período;
+  report = relatórios; savings = economia, gastos e redução de custo; leak = vazamentos e alertas;
+  forecast = previsão de consumo ou conta; consumption = consulta de consumo; tips = dicas gerais;
+  general = qualquer outro assunto. Prefira o assunto principal da pergunta.
+
+Regras: escreva só o que a conversa mostra. Nunca afirme que um vazamento foi confirmado ou detectado;
+use "possível vazamento" ou "alerta de vazamento" quando o assunto for esse.
+
+Responda SOMENTE com um objeto JSON, sem texto extra, no formato:
+{{"title": "...", "preview": "...", "icon": "..."}}
+
+Pergunta do usuário: {question}
+
+Resposta do assistente: {answer}
+"""

@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import threading
+
 from langgraph.checkpoint.memory import MemorySaver
 from langgraph.graph import END, StateGraph
 
@@ -10,6 +12,7 @@ from app.graph.synthesis import synthesize
 from app.guardrails.input import validate_input
 from app.guardrails.output import validate_output
 from app.memory.session import append_turn, load_history_validated
+from app.services.session_meta import refresh_session_meta
 
 RECENT_TURNS = 6
 
@@ -169,7 +172,14 @@ def _guardrail_output_node(state: GraphState) -> dict:
         append_turn(state["session_id"], state["user_id"], "human", state["question"])
         append_turn(state["session_id"], state["user_id"], "assistant", safe)
     except Exception:
-        pass
+        return {"response": safe, "messages": [{"role": "assistant", "content": safe}]}
+
+    # Título, prévia e ícone são gerados à parte para não atrasar a resposta.
+    threading.Thread(
+        target=refresh_session_meta,
+        args=(state["user_id"], state["session_id"], state["question"], safe),
+        daemon=True,
+    ).start()
 
     return {"response": safe, "messages": [{"role": "assistant", "content": safe}]}
 
@@ -206,10 +216,11 @@ def _history_from_mongo(user_id: int, session_id: str) -> list[dict]:
         history = load_history_validated(user_id, session_id)
     except Exception:
         return []
+    roles = {"user": "human", "bot": "assistant"}
     return [
-        {"role": m["role"], "content": m["content"]}
+        {"role": roles[m["role"]], "content": m["content"]}
         for m in history[-RECENT_TURNS:]
-        if m.get("role") in ("human", "assistant")
+        if m.get("role") in roles
     ]
 
 
