@@ -9,7 +9,14 @@ from app.memory.session import (
     mark_session_closed,
     session_belongs_to_user,
 )
-from app.schemas import HistoryResponse, SessionActionResponse, SessionsResponse
+from app.schemas import (
+    AUTH_ERRORS,
+    SESSION_NOT_FOUND,
+    ErrorResponse,
+    HistoryResponse,
+    SessionActionResponse,
+    SessionsResponse,
+)
 
 router = APIRouter(tags=["sessions"])
 
@@ -19,11 +26,20 @@ def _require_owned_session(user_id: int, session_id: str) -> None:
         raise HTTPException(status_code=404, detail="Sessão não encontrada.")
 
 
-@router.get("/sessions", response_model=SessionsResponse)
+@router.get(
+    "/sessions",
+    response_model=SessionsResponse,
+    summary="Lista o histórico de conversas do usuário",
+    description=(
+        "Devolve as conversas do usuário autenticado, da mais recente para a mais antiga, "
+        "com título, prévia e ícone. Use limit=4 na home e offset no ver todos."
+    ),
+    responses=AUTH_ERRORS,
+)
 def list_sessions(
     user_id: int = Depends(get_current_user_id),
-    limit: int = Query(20, ge=1, le=100),
-    offset: int = Query(0, ge=0),
+    limit: int = Query(20, ge=1, le=100, description="Quantidade de sessões por página (1 a 100)."),
+    offset: int = Query(0, ge=0, description="Quantidade de sessões a pular, para paginar."),
 ):
     return SessionsResponse(
         sessions=get_sessions_for_user(user_id, limit, offset),
@@ -31,13 +47,32 @@ def list_sessions(
     )
 
 
-@router.get("/sessions/{session_id}/messages", response_model=HistoryResponse)
+@router.get(
+    "/sessions/{session_id}/messages",
+    response_model=HistoryResponse,
+    summary="Mensagens de uma conversa",
+    description="Devolve todas as mensagens de uma sessão do usuário autenticado, em ordem cronológica.",
+    responses={**AUTH_ERRORS, **SESSION_NOT_FOUND},
+)
 def get_history(session_id: str, user_id: int = Depends(get_current_user_id)):
     _require_owned_session(user_id, session_id)
     return HistoryResponse(messages=load_history_validated(user_id, session_id))
 
 
-@router.post("/sessions/{session_id}/close", response_model=SessionActionResponse)
+@router.post(
+    "/sessions/{session_id}/close",
+    response_model=SessionActionResponse,
+    summary="Encerra uma conversa",
+    description=(
+        "Marca a sessão como fechada e grava um resumo dela na memória de longo prazo. "
+        "Enviar uma nova mensagem a uma sessão fechada a reabre."
+    ),
+    responses={
+        **AUTH_ERRORS,
+        **SESSION_NOT_FOUND,
+        500: {"model": ErrorResponse, "description": "Não foi possível encerrar a sessão."},
+    },
+)
 def close(session_id: str, user_id: int = Depends(get_current_user_id)):
     _require_owned_session(user_id, session_id)
     try:

@@ -13,24 +13,13 @@ from app.memory.session import (
     session_needs_meta,
     set_session_meta,
 )
+from app.schemas import ICON_NAMES
 from app.services import llms
 from app.services.prompts import SESSION_META_PROMPT
 
 logger = logging.getLogger(__name__)
 
-# O app mapeia cada nome para um ícone; "general" é o valor padrão.
-ICONS = (
-    "routine",
-    "habits",
-    "summary",
-    "report",
-    "savings",
-    "leak",
-    "forecast",
-    "consumption",
-    "tips",
-    "general",
-)
+ICONS = ICON_NAMES
 
 _PROMPT_TEXT_MAX = 1500
 

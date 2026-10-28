@@ -3,12 +3,29 @@ from fastapi import APIRouter, Depends, HTTPException
 from app.auth import get_current_user_id
 from app.graph.workflow import run_workflow
 from app.memory.session import create_session, session_belongs_to_user
-from app.schemas import ChatRequest, ChatResponse
+from app.schemas import AUTH_ERRORS, SESSION_NOT_FOUND, ChatRequest, ChatResponse, ErrorResponse
 
 router = APIRouter(tags=["chat"])
 
 
-@router.post("/chat", response_model=ChatResponse)
+@router.post(
+    "/chat",
+    response_model=ChatResponse,
+    summary="Envia uma mensagem ao chatbot",
+    description=(
+        "Responde à pergunta do usuário autenticado. Sem session_id, o servidor cria uma conversa nova "
+        "e devolve o id; com session_id, continua a conversa existente."
+    ),
+    responses={
+        **AUTH_ERRORS,
+        **SESSION_NOT_FOUND,
+        503: {
+            "model": ErrorResponse,
+            "description": "Autenticação não configurada no servidor ou histórico de conversas indisponível.",
+        },
+        422: {"model": ErrorResponse, "description": "Mensagem bloqueada pelos guardrails de entrada."},
+    },
+)
 def chat(req: ChatRequest, user_id: int = Depends(get_current_user_id)):
     try:
         if req.session_id:
