@@ -1,4 +1,4 @@
-"""Avalia respostas completas com Jev e aplica uma política local explícita."""
+"""Avalia com Jev e encaminha incerteza ao juiz especialista."""
 
 from __future__ import annotations
 
@@ -73,12 +73,62 @@ def _unavailable(reason_code: str, error: Exception | None = None) -> JudgeResul
 
 
 class JudgeAgent:
-    """Consulta os critérios juntos e aplica os quatro limites em Python."""
+    """Mantém a política Jev e delega avaliações incertas ao segundo juiz."""
 
     def __init__(self, classifier: Any | None = None) -> None:
         self.classifier = classifier
 
     def run(
+        self,
+        judge_input: JudgeInput,
+        *,
+        revision_count: int = 0,
+        previous_result: JudgeResult | None = None,
+    ) -> JudgeResult:
+        """Encaminha baixa confiança; previous_result identifica quem pediu a revisão."""
+        if isinstance(revision_count, bool) or not isinstance(revision_count, int) or revision_count < 0:
+            return _unavailable("JUDGE_INPUT_INVALID")
+
+        from app.agents.judge_specialist import SpecialistJudgeAgent
+
+        if revision_count > 0 and previous_result is not None and (
+            previous_result.assessment.get("reviewer") == "specialist"
+        ):
+            return SpecialistJudgeAgent().run(
+                judge_input,
+                jev_result=JudgeResult.model_validate(previous_result.assessment["jev_result"]),
+                revision_count=revision_count,
+                previous_result=previous_result,
+            )
+
+        result = self._evaluate_jev(judge_input, revision_count=revision_count)
+        if result.status != "evaluated":
+            return result
+
+        config = get_judge_config()
+        if result.confidence >= config.jev_confidence_threshold:
+            return result
+
+        logger.info(
+            "Jev -> Agente Juiz Especialista (%s): confidence=%.2f abaixo do threshold=%.2f; revisão=%d",
+            config.judge_specialist_model, result.confidence,
+            config.jev_confidence_threshold, revision_count,
+        )
+        if trace := current_trace():
+            trace.event(
+                "judge.fallback", component="judge", operation="review",
+                status="started",
+                metadata={
+                    "provider": "google", "model": config.judge_specialist_model,
+                    "fallback": True, "outcome": "jev_low_confidence",
+                    "revision_count": revision_count,
+                },
+            )
+        return SpecialistJudgeAgent().run(
+            judge_input, jev_result=result, revision_count=revision_count,
+        )
+
+    def _evaluate_jev(
         self,
         judge_input: JudgeInput,
         *,

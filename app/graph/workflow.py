@@ -8,7 +8,7 @@ from time import perf_counter
 from langgraph.checkpoint.memory import MemorySaver
 from langgraph.graph import END, StateGraph
 
-from app.agents.judge import JudgeAgent, JudgeInput, SAFE_RESPONSE
+from app.agents.judge import JudgeAgent, JudgeInput, JudgeResult, SAFE_RESPONSE
 from app.graph.context import build_context
 from app.graph.router import AGENT_REGISTRY, AgentNotImplemented, classify, load_agent
 from app.graph.state import AgentOutput, GraphState
@@ -312,6 +312,8 @@ def _judge_node(state: GraphState) -> dict:
     }
     try:
         with component("judge"):
+            history = state.get("judge_history", [])
+            previous_result = history[-1]["judge"] if revision_count and history else None
             result = JudgeAgent().run(
                 JudgeInput(
                     question=state["question"],
@@ -321,6 +323,7 @@ def _judge_node(state: GraphState) -> dict:
                     chart_data=state.get("chart_data"),
                 ),
                 revision_count=revision_count,
+                previous_result=JudgeResult.model_validate(previous_result) if previous_result else None,
             )
         judge_output = result.model_dump()
         decision, status = result.decision, result.status

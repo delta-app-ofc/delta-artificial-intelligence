@@ -131,31 +131,43 @@ qualidade semântica das respostas precisam de verificação própria.
 
 O `JudgeAgent` usa Jev pela integração `langchain-typesafe`. A candidata
 composta é avaliada junto com as ferramentas e fontes dos especialistas.
-A avaliação é sequencial:
+A política Jev consulta gravidade (Choice), suporte factual e relevância (Noul)
+na mesma chamada. Seus limites continuam em `JEV_CONFIDENCE_THRESHOLD`,
+`JEV_PROBABILITY_THRESHOLD`, `JEV_FACTS_SUPPORTED_THRESHOLD` e
+`JEV_RELEVANCE_THRESHOLD`, sem alterar a avaliação existente.
 
-- Choice no_error com confidence >= 50% e probabilidade da escolha >= 75% passa ao segundo gate;
-- Choice no_error abaixo de qualquer um desses limites pede revisão;
-- qualquer correctable_error pede revisão, independentemente da confidence;
-- critical_error bloqueia com mensagem segura;
-- somente após passar o gate da Choice, uma segunda chamada Jev verifica Noul facts_supported >= 80%, Noul relevant >= 60% e Score diferente da categoria inadequada.
+O direcionamento usa o mesmo `JEV_CONFIDENCE_THRESHOLD`, com default
+**0,70**: confidence maior ou igual mantém o parecer Jev; abaixo desse valor,
+o `SpecialistJudgeAgent` dá o segundo parecer com `gemini-2.5-flash`.
+O mesmo limiar de confiança é usado na política Jev e no encaminhamento.
+O segundo juiz pode aprovar a candidata, pedir uma correção ou bloquear com
+a resposta segura. Uma falha Jev continua bloqueando; não equivale a uma
+avaliação de baixa confiança.
 
-Se um subcritério falhar, pede revisão; após a única revisão, qualquer falha gera mensagem segura. O runner manual mostra quais verificações foram executadas e seus resultados.
-O console mostra também as probabilidades de cada categoria, o limiar aplicado
-e os nomes e tipos dos resultados de ferramentas recebidos pelo Juiz.
-Isso permite distinguir uma entrada sem evidências de uma classificação
-incerta. Esses metadados não incluem o texto da candidata bloqueada.
+O Flash recebe a pergunta e a candidata completas, contexto, evidências,
+gráfico e o parecer original Jev, incluindo categoria, valores, critérios
+pendentes e justificativa disponível. O prompt diretivo e os novos parâmetros
+ficam em `app/config.py`; a rubrica semântica Jev existente é reutilizada.
+`JUDGE_SPECIALIST_MODEL` seleciona o modelo do segundo juiz, sem alterar os
+modelos dos outros agentes. Ele usa `GEMINI_API_KEY` e os limites
+`LLM_TIMEOUT_SECONDS`, `LLM_MAX_RETRIES` e `LLM_MAX_OUTPUT_TOKENS`.
 
-`confidence` resume a distribuição da Choice; não é uma nota de correção factual.
-O gate exige simultaneamente confidence >= 0,50 e probabilidade da escolha >= 0,75.
-Com a fórmula atual da Choice e três categorias, probabilidade de 75% corresponde
-a confidence de 62,5%. Uma decisão `no_error` pode pedir revisão
-por incerteza, sem que o Jev tenha apontado um erro específico.
-Veja a [definição de confidence](https://docs.typesafe.ai/confidence).
+Há no máximo uma correção por solicitação. O juiz que pediu a correção avalia
+o retry: Jev quando sua confiança inicial atingiu o limiar; Flash quando o
+parecer veio do especialista. Se o Jev avaliar o retry com baixa confiança,
+esse parecer também segue ao Flash. Uma nova solicitação de correção na
+segunda rodada bloqueia; candidata e gráfico rejeitados não são publicados.
 
-O Juiz não gera texto livre: os códigos e as justificativas vêm do Python.
-Configure `TYPESAFE_API_KEY`, `JEV_MODEL` e `JEV_TIMEOUT_SECONDS` conforme
-[.env.example](.env.example). Detalhes, tabela de decisão e funcionamento das
-justificativas: [Agente Juiz](docs/judge-agent.md).
+A transferência gera o log `Jev -> Agente Juiz Especialista` e o evento
+`judge.fallback` somente quando ocorre. O parecer do segundo juiz fica no
+histórico com `assessment.reviewer=specialist`; o parecer Jev original
+permanece em `assessment.jev_result`. O Flash não fornece confidence:
+o valor original do Jev é preservado nesse registro, sem inventar outro número.
+
+Os testes em [tests/test_judge_fallback.py](tests/test_judge_fallback.py)
+verificam fronteiras, decisões, contexto completo, falhas e autoria/limite
+do retry, inclusive em turnos da mesma sessão, usando provedores substituídos.
+Não comprovam acesso remoto nem qualidade semântica do Gemini/Jev.
 
 ## Validação manual
 
@@ -181,17 +193,20 @@ usado. Não execute em `APP_ENV=test` esperando carregar o `.env`.
 As verificações isoladas da implementação cobriram a política, o transporte
 com HTTP simulado e o grafo sem consumir crédito. O runner permite validar
 os provedores e dados reais; esse teste não foi executado automaticamente.
-Não há uma nova suíte persistente de testes nesta entrega.
+O fallback do Juiz tem testes persistentes em `tests/test_judge_fallback.py`.
 
 ## Testes
 
-O repositório contém testes com cálculos puros, LLM roteirizado e clientes/leitores
-substituídos. Eles cobrem settings, provedores/fallback, recursos e erros dos
-conectores, agentes e cálculos, workflow LangGraph (guardrails, contexto, síntese,
-roteamento), rotas HTTP e cenários de anti-alucinação. Nenhum depende de
-Postgres/Mongo nem de chamada real a LLM. `tests/conftest.py` isola o ambiente e
-o cache de settings. Esses testes não comprovam acesso remoto nem qualidade
-semântica.
+A suíte disponível em `tests/test_judge_fallback.py` cobre o fallback do Juiz,
+a configuração e o fluxo de revisão com Jev/Gemini substituídos. O ambiente
+de teste e o cache de settings são isolados por fixture. Execute:
+
+~~~powershell
+.\.venv\Scripts\python.exe -m pytest tests/test_judge_fallback.py -q
+~~~
+
+Esses testes não acessam bancos nem provedores reais e não comprovam a
+qualidade semântica das avaliações.
 
 ## Estrutura de `app/data/` e `app/tools/`
 
