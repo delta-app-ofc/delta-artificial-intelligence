@@ -86,7 +86,7 @@ este checkout não contém a antiga suíte RAG versionada.
 O `JudgeAgent` recebe pergunta, candidata composta e evidências reais.
 A política consulta Choice de gravidade e Noul de suporte factual/relevância
 em uma chamada. Python exige os quatro limites inclusivos configurados em
-`app/config.py`: confidence 0,50, probabilidade da categoria 0,70, suporte factual
+`app/config.py`: confidence 0,70, probabilidade da categoria 0,50, suporte factual
 0,60 e relevância 0,25. Não há Score nem etapa de subcritérios. Erro crítico
 bloqueia sempre; erro corrigível ou limite não atingido pede uma revisão e,
 se persistir, bloqueia. Veja `docs/judge-policy.md` e `manual_chat_judge.py`.

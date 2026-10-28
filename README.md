@@ -152,6 +152,15 @@ ficam em `app/config.py`; a rubrica semântica Jev existente é reutilizada.
 modelos dos outros agentes. Ele usa `GEMINI_API_KEY` e os limites
 `LLM_TIMEOUT_SECONDS`, `LLM_MAX_RETRIES` e `LLM_MAX_OUTPUT_TOKENS`.
 
+Com `LLM_FALLBACK_ENABLED=true`, falhas transitórias do Gemini (timeout,
+conexão, HTTP 408/429 ou 5xx) encaminham o mesmo prompt e contexto ao Groq,
+usando `GROQ_API_KEY` e `GROQ_SPECIALIST_MODEL`. Erros permanentes ou
+pareceres inválidos encerram com resposta segura. O log
+`Agente Juiz Especialista: Gemini -> Groq` e o evento
+`judge.specialist.fallback` registram a transferência; `assessment.provider`
+e `assessment.model` identificam o provedor que respondeu. O Groq continua
+no papel de juiz especialista e preserva a mesma regra de revisão.
+
 Há no máximo uma correção por solicitação. O juiz que pediu a correção avalia
 o retry: Jev quando sua confiança inicial atingiu o limiar; Flash quando o
 parecer veio do especialista. Se o Jev avaliar o retry com baixa confiança,

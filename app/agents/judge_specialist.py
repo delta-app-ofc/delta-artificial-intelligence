@@ -1,4 +1,4 @@
-"""Segundo parecer com Gemini para avaliações de baixa confiança do Jev."""
+"""Segundo parecer com Gemini e fallback Groq para avaliações incertas do Jev."""
 
 from __future__ import annotations
 
@@ -12,6 +12,7 @@ from app.agents.judge import JudgeInput, JudgeResult, SAFE_RESPONSE
 from app.config import (
     JUDGE_SPECIALIST_PROMPT,
     JUDGE_SPECIALIST_TEMPERATURE,
+    Settings,
     get_judge_config,
     validate_llm_config,
 )
@@ -55,22 +56,6 @@ class SpecialistJudgeAgent:
         try:
             config = get_judge_config()
             assessment["model"] = config.judge_specialist_model
-            llm = self.llm
-            if llm is None:
-                validate_llm_config(provider="judge", settings=config)
-
-                from langchain_google_genai import ChatGoogleGenerativeAI
-
-                llm = ChatGoogleGenerativeAI(
-                    model=config.judge_specialist_model,
-                    api_key=config.gemini_api_key,
-                    temperature=JUDGE_SPECIALIST_TEMPERATURE,
-                    timeout=config.llm_timeout_seconds,
-                    max_retries=config.llm_max_retries + 1,
-                    max_output_tokens=config.llm_max_output_tokens,
-                    callbacks=[ModelDiagnostics("google", config.judge_specialist_model)],
-                )
-
             payload = {
                 **judge_input.model_dump(mode="json"),
                 "jev_result": jev_result.model_dump(mode="json"),
@@ -90,15 +75,14 @@ class SpecialistJudgeAgent:
                 ("human", json.dumps(payload, ensure_ascii=False, allow_nan=False)),
             ]
             with component("judge_specialist"), fallback_call():
-                structured_llm = llm.with_structured_output(SpecialistVerdict, method="json_schema")
-                response = structured_llm.invoke(messages)
+                response = self._evaluate(messages, config, assessment)
                 verdict = SpecialistVerdict.model_validate(response)
                 if not verdict.justification.strip():
                     raise ValueError("Justificativa vazia do juiz especialista.")
         except Exception as error:
             if trace := current_trace():
                 trace.error("judge_specialist", error, operation="evaluate",
-                            metadata={"provider": "google", "outcome": "specialist_unavailable"})
+                            metadata={"provider": assessment["provider"], "outcome": "specialist_unavailable"})
             logger.warning("Agente Juiz Especialista indisponível; resposta segura; revisão=%d", revision_count)
             return JudgeResult(
                 decision="reject", status="unavailable", justification=SAFE_RESPONSE,
@@ -123,7 +107,7 @@ class SpecialistJudgeAgent:
             trace.event(
                 "judge.specialist.decision", component="judge_specialist", operation="evaluate",
                 status="success", metadata={
-                    "provider": "google", "model": config.judge_specialist_model,
+                    "provider": assessment["provider"], "model": assessment["model"],
                     "outcome": decision, "revision_count": revision_count,
                 },
             )
@@ -132,3 +116,82 @@ class SpecialistJudgeAgent:
             reason_codes=reason_codes, confidence=None,
             severity=verdict.severity, assessment=assessment,
         )
+
+    def _evaluate(
+        self,
+        messages: list[tuple[str, str]],
+        config: Settings,
+        assessment: dict[str, Any],
+    ) -> Any:
+        """Consulta Gemini e usa Groq somente para falhas transitórias do provedor."""
+        if self.llm is not None:
+            return self.llm.with_structured_output(
+                SpecialistVerdict, method="json_schema",
+            ).invoke(messages)
+
+        from langchain_google_genai import ChatGoogleGenerativeAI
+        from langchain_groq import ChatGroq
+        from app.services.llms import (
+            _PROVIDER_REQUEST_ERRORS,
+            _is_transient_provider_error,
+            _request_error_cause,
+        )
+
+        validate_llm_config(provider="judge", settings=config)
+        primary = ChatGoogleGenerativeAI(
+            model=config.judge_specialist_model,
+            api_key=config.gemini_api_key,
+            temperature=JUDGE_SPECIALIST_TEMPERATURE,
+            timeout=config.llm_timeout_seconds,
+            max_retries=config.llm_max_retries + 1,
+            max_output_tokens=config.llm_max_output_tokens,
+            callbacks=[ModelDiagnostics("google", config.judge_specialist_model)],
+        )
+        try:
+            return primary.with_structured_output(
+                SpecialistVerdict, method="json_schema",
+            ).invoke(messages)
+        except _PROVIDER_REQUEST_ERRORS as error:
+            cause = _request_error_cause(error)
+            if (
+                not config.llm_fallback_enabled
+                or cause is None
+                or not _is_transient_provider_error(cause)
+            ):
+                raise
+            if trace := current_trace():
+                trace.error(
+                    "judge_specialist", error, operation="evaluate",
+                    metadata={"provider": "google", "model": config.judge_specialist_model},
+                )
+
+        validate_llm_config(provider="groq_specialist", settings=config)
+        fallback = ChatGroq(
+            model=config.groq_specialist_model,
+            api_key=config.groq_api_key,
+            temperature=JUDGE_SPECIALIST_TEMPERATURE,
+            timeout=config.llm_timeout_seconds,
+            max_retries=config.llm_max_retries,
+            max_tokens=config.llm_max_output_tokens,
+            callbacks=[ModelDiagnostics("groq", config.groq_specialist_model)],
+        )
+        assessment.update(
+            provider="groq", model=config.groq_specialist_model, fallback=True,
+            primary_model=config.judge_specialist_model,
+        )
+        logger.warning(
+            "Agente Juiz Especialista: Gemini -> Groq (%s) por falha transitória; revisão=%d",
+            config.groq_specialist_model, assessment["revision_count"],
+        )
+        if trace := current_trace():
+            trace.event(
+                "judge.specialist.fallback", component="judge_specialist", operation="evaluate",
+                status="started", metadata={
+                    "provider": "groq", "model": config.groq_specialist_model,
+                    "fallback": True, "outcome": "primary_transient_failure",
+                    "revision_count": assessment["revision_count"],
+                },
+            )
+        return fallback.with_structured_output(
+            SpecialistVerdict, method="json_schema",
+        ).invoke(messages)

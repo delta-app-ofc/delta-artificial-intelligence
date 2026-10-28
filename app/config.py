@@ -306,7 +306,7 @@ def validate_llm_config(
         provider == "specialist" and current.llm_fallback_enabled
     )
     names = {"LLM_TIMEOUT_SECONDS", "LLM_MAX_RETRIES", "LLM_MAX_OUTPUT_TOKENS"}
-    if provider == "specialist":
+    if provider in {"specialist", "judge"}:
         names.add("LLM_FALLBACK_ENABLED")
     if needs_gemini:
         names.add("GEMINI_API_KEY")
