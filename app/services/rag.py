@@ -11,6 +11,7 @@ from threading import Lock
 import uuid
 
 from app.config import BASE_DIR, ConfigurationError, get_settings
+from app.observability.diagnostics import embedding_call
 from langchain_google_genai import GoogleGenerativeAIEmbeddings
 from qdrant_client import QdrantClient
 from qdrant_client.models import (
@@ -149,11 +150,10 @@ def index_document(document: RagDocument, *, client, embeddings) -> int:
         raise ValueError("Coleção RAG ausente. Crie rag_documents no Qdrant antes de indexar.")
 
     model = embedding_model_name()
-    for field in ("source", "revision", "embedding_model"):
-        client.create_payload_index(COLLECTION, field, field_schema=PayloadSchemaType.KEYWORD, wait=True)
 
     texts = ["\n".join((*chunk.headings, chunk.text)) for chunk in document.chunks]
-    vectors = embeddings.embed_documents(texts, task_type="RETRIEVAL_DOCUMENT")
+    with embedding_call(model):
+        vectors = embeddings.embed_documents(texts, task_type="RETRIEVAL_DOCUMENT")
 
     if len(vectors) != len(document.chunks):
         raise ValueError("O provedor não retornou um embedding por trecho.")
@@ -189,21 +189,38 @@ def _revision_is_complete(document: RagDocument, *, client) -> bool:
     return count == len(document.chunks)
 
 
-def ensure_document_indexed(document: RagDocument, *, client, embeddings) -> None:
-    """Prepara a revisão atual somente se estiver ausente ou incompleta.
 
-    O lock evita duas gerações de embeddings simultâneas no mesmo processo.
-    Entre processos, IDs determinísticos mantêm as gravações idempotentes.
-    A consulta só pode continuar depois da confirmação de todos os trechos.
-    """
+def ensure_document_indexed(document: RagDocument, *, client, embeddings) -> None:
+    """Garante os índices de payload antes de consultar a revisão."""
+
     with _INDEX_LOCK:
         if not client.collection_exists(COLLECTION):
-            raise ValueError("Coleção RAG ausente. Crie rag_documents no Qdrant antes de consultar.")
+            raise ValueError(
+                "Coleção RAG ausente. Crie rag_documents no Qdrant antes de consultar."
+            )
+
+        # Cria os índices necessários antes de utilizar filtros
+        existing_indexes = client.get_collection(COLLECTION).payload_schema or {}
+
+        for field in ("source", "revision", "embedding_model"):
+            if field not in existing_indexes:
+                client.create_payload_index(
+                    collection_name=COLLECTION,
+                    field_name=field,
+                    field_schema=PayloadSchemaType.KEYWORD,
+                    wait=True,
+                )
+
+        # Agora podemos consultar utilizando os filtros
         if _revision_is_complete(document, client=client):
             return
+
         index_document(document, client=client, embeddings=embeddings)
+
         if not _revision_is_complete(document, client=client):
-            raise ValueError("A indexação da revisão atual não foi concluída.")
+            raise ValueError(
+                "A indexação da revisão atual não foi concluída."
+            )
 
 
 def search_document(document: RagDocument, question: str, *, client, embeddings,
@@ -222,7 +239,8 @@ def search_document(document: RagDocument, question: str, *, client, embeddings,
     if not _revision_is_complete(document, client=client):
         raise ValueError("Revisão ausente ou incompleta. Indexe o documento atual antes de consultar.")
 
-    vector = embeddings.embed_query(question, task_type="RETRIEVAL_QUERY")
+    with embedding_call(embedding_model_name()):
+        vector = embeddings.embed_query(question, task_type="RETRIEVAL_QUERY")
     response = client.query_points(
         COLLECTION, query=vector, query_filter=_revision_filter(document), limit=top_k,
         score_threshold=score_threshold, with_payload=True,

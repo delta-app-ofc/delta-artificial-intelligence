@@ -9,6 +9,9 @@ from __future__ import annotations
 import re
 import uuid
 
+from app.observability.diagnostics import current_trace
+from app.config import ConfigurationError
+
 _MAX_LEN = 2000
 
 # Padrões de PII — usados aqui e importados pelo guardrail de saída.
@@ -110,6 +113,8 @@ def validate_input(user_id: int, message: str) -> dict:
         from app.services.llms import llm_rapido
         from langchain_core.messages import HumanMessage
 
+        if llm_rapido is None:
+            raise ConfigurationError("Configure GROQ_API_KEY e GROQ_FAST_MODEL para o guardrail de entrada.")
         raw = llm_rapido.invoke(
             [HumanMessage(content=_PROMPT_CLASSIFIER.format(mensagem=anonymized))]
         ).content
@@ -121,7 +126,8 @@ def validate_input(user_id: int, message: str) -> dict:
         if category in _BLOCK_RESPONSES:
             _, msg = _BLOCK_RESPONSES[category]
             return {"ok": False, "reason": msg}
-    except Exception:
-        pass  # LLM indisponível: filtros determinísticos já cobrem os casos óbvios
+    except Exception as error:
+        if trace := current_trace():
+            trace.error("input_guard", error)
 
     return {"ok": True, "message": anonymized, "pii_map": pii_map}

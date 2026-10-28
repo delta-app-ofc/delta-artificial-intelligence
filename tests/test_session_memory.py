@@ -143,3 +143,19 @@ def test_mark_closed_ignores_other_user(mongo_db):
     session_id = memory.create_session(7)
     memory.mark_session_closed(8, session_id)
     assert mongo_db.chat_sessions.find_one({"_id": ObjectId(session_id)})["is_open"] is True
+
+
+def test_build_context_gives_router_the_stored_history(mongo_db):
+    from app.graph.context import build_context
+    from app.graph.workflow import _history_from_mongo
+
+    session_id = memory.create_session(7)
+    _turn(7, session_id, "Como diminuir meu gasto?", "Reduza o tempo de banho.")
+
+    expected = [
+        {"role": "human", "content": "Como diminuir meu gasto?"},
+        {"role": "assistant", "content": "Reduza o tempo de banho."},
+    ]
+    assert build_context(7, session_id, "e agora?")["recent_messages"] == expected
+    assert _history_from_mongo(7, session_id) == expected
+    assert build_context(8, session_id, "e agora?")["recent_messages"] == []

@@ -15,3 +15,4 @@ httpx
 qdrant-client
 plotly
 pyjwt
+langchain-typesafe==0.0.1a3

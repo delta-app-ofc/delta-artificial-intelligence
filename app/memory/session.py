@@ -15,6 +15,7 @@ from app.data.db_mongo import get_app_client
 from app.config import get_settings
 
 _ROLE_TO_DB = {"human": "user", "user": "user", "assistant": "bot", "bot": "bot"}
+_CHAT_ROLES = {"user": "human", "bot": "assistant"}
 
 _TITLE_MAX = 40
 _PREVIEW_MAX = 80
@@ -92,6 +93,15 @@ def load_history_validated(user_id: int, session_id: str) -> list[dict]:
             "timestamp": m.get("sent_at"),
         }
         for m in (doc or {}).get("messages", [])
+    ]
+
+
+def to_chat_messages(history: list[dict]) -> list[dict]:
+    """Converte o histórico do banco (`user`/`bot`) para o formato do chat (`human`/`assistant`)."""
+    return [
+        {"role": _CHAT_ROLES[m["role"]], "content": m["content"]}
+        for m in history
+        if m.get("role") in _CHAT_ROLES
     ]
 
 

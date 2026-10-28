@@ -1,11 +1,16 @@
 """Atualiza o índice documental quando necessário e consulta a base oficial do Delta."""
 
+import logging
+
 from langchain_core.tools import tool
 
 from app.config import get_settings
+from app.observability.diagnostics import current_trace, public_data
 from app.services.rag import (
     create_embeddings, create_qdrant, ensure_document_indexed, load_document, search_document,
 )
+
+logger = logging.getLogger(__name__)
 
 
 @tool
@@ -36,11 +41,16 @@ def search_knowledge_base(question: str) -> dict:
         }
 
     client = None
+    phase = "leitura do documento"
     try:
         document = load_document()
+        phase = "conexão com Qdrant"
         client = create_qdrant()
+        phase = "criação do modelo de embeddings"
         embeddings = create_embeddings()
+        phase = "preparação do índice documental"
         ensure_document_indexed(document, client=client, embeddings=embeddings)
+        phase = "busca de trechos"
         results = search_document(
             document, question, client=client, embeddings=embeddings,
         )
@@ -54,7 +64,16 @@ def search_knowledge_base(question: str) -> dict:
             "status": "ok" if chunks else "insufficient_data",
             "chunks": chunks,
         }
-    except Exception:
+    except Exception as error:
+        detail = " ".join(public_data(str(error)).split())
+        logger.error(
+            "Falha no RAG durante %s (%s): %s",
+            phase,
+            type(error).__name__,
+            detail or "sem detalhes fornecidos pela integração",
+        )
+        if trace := current_trace():
+            trace.error("rag", error)
         return {
             "status": "unavailable",
             "message": (

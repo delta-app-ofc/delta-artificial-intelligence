@@ -6,15 +6,13 @@ Filtragem por user_id em todas as buscas.
 
 from __future__ import annotations
 
-import logging
 import uuid
 from functools import lru_cache
 
 from app.config import ConfigurationError, get_settings
+from app.observability.diagnostics import current_trace, embedding_call
 from app.memory.session import load_history_validated
 
-
-logger = logging.getLogger(__name__)
 
 _COLLECTION = "session_summaries"
 _VECTOR_SIZE = 3072
@@ -82,8 +80,8 @@ def _ensure_collection() -> None:
             field_name="user_id",
             field_schema=PayloadSchemaType.INTEGER,
         )
-    except Exception as exc:
-        logger.info("Índice user_id não criado (talvez já exista): %s", type(exc).__name__)
+    except Exception:
+        pass  # índice já existe
 
     _collection_initialized = True
 
@@ -124,10 +122,11 @@ def save_summary(user_id: int, session_id: str, messages: list[dict]) -> None:
 def search_memory(user_id: int, query: str, top_k: int = 3) -> list[str]:
     """Busca semântica nas memórias do usuário. Retorna lista de resumos."""
     try:
-        _ensure_collection()
+        # Uma consulta nunca cria nem recria coleções existentes.
         from qdrant_client.models import FieldCondition, Filter, MatchValue
 
-        vector = _embed_model().embed_query(query)
+        with embedding_call(get_settings().gemini_embedding_model):
+            vector = _embed_model().embed_query(query)
         response = _qdrant().query_points(
             collection_name=_COLLECTION,
             query=vector,
@@ -137,8 +136,9 @@ def search_memory(user_id: int, query: str, top_k: int = 3) -> list[str]:
             limit=top_k,
         )
         return [r.payload.get("summary", "") for r in response.points if r.payload]
-    except Exception as exc:
-        logger.warning("Busca de memória falhou: %s", type(exc).__name__)
+    except Exception as error:
+        if trace := current_trace():
+            trace.error("long_term_memory", error)
         return []
 
 

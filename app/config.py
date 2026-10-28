@@ -29,6 +29,9 @@ class Settings:
     """Snapshot imutável das configurações usadas pela aplicação."""
 
     app_env: str
+    typesafe_api_key: str | None = field(repr=False)
+    jev_model: str
+    jev_timeout_seconds: float
     gemini_api_key: str | None = field(repr=False)
     groq_api_key: str | None = field(repr=False)
     database_url: str | None = field(repr=False)
@@ -50,6 +53,7 @@ class Settings:
     qdrant_api_key: str | None = field(repr=False)
     rag_document_path: str | None = field(default=None, repr=False)
     jwt_secret: str | None = field(default=None, repr=False)
+    playground_enabled: bool = False
     _parse_errors: tuple[tuple[str, str], ...] = field(default=(), repr=False)
 
 
@@ -85,6 +89,15 @@ def load_settings(
     app_env = (raw_app_env or "development").casefold()
     if ("APP_ENV" in values and raw_app_env is None) or app_env not in _ENVIRONMENTS:
         parse_errors.append(("APP_ENV", "use development, test, staging ou production"))
+
+    raw_playground = values.get("DELTA_PLAYGROUND_ENABLED")
+    playground_enabled = app_env in {"development", "test"}
+    if "DELTA_PLAYGROUND_ENABLED" in values:
+        if raw_playground is None or raw_playground.casefold() not in {"true", "false"}:
+            parse_errors.append(("DELTA_PLAYGROUND_ENABLED", "use true ou false"))
+            playground_enabled = False
+        else:
+            playground_enabled = raw_playground.casefold() == "true"
 
     defaults = app_env == "development"
     if "DATABASE_URL" not in values and defaults:
@@ -123,6 +136,7 @@ def load_settings(
 
     numeric_settings = {
         "LLM_TIMEOUT_SECONDS": (15.0, float, "deve ser um número finito"),
+        "JEV_TIMEOUT_SECONDS": (5.0, float, "deve ser um número finito"),
         "LLM_MAX_RETRIES": (1, int, "deve ser um número inteiro"),
         "LLM_MAX_OUTPUT_TOKENS": (4096, int, "deve ser um número inteiro"),
         "DB_CONNECT_TIMEOUT_SECONDS": (5, int, "deve ser um número inteiro"),
@@ -150,6 +164,10 @@ def load_settings(
 
     return Settings(
         app_env=app_env,
+        typesafe_api_key=values.get("TYPESAFE_API_KEY"),
+        jev_model=values.get("JEV_MODEL", "jev-1.14.0") or "",
+        jev_timeout_seconds=parsed_numbers["JEV_TIMEOUT_SECONDS"],
+        playground_enabled=playground_enabled,
         gemini_api_key=values.get("GEMINI_API_KEY"),
         groq_api_key=values.get("GROQ_API_KEY"),
         database_url=database_url,
@@ -187,6 +205,24 @@ def get_settings(*, refresh: bool = False) -> Settings:
         _settings_cache = load_settings()
     return _settings_cache
 
+
+def validate_jev_config(*, settings: Settings | None = None) -> None:
+    """Valida somente a configuração do Juiz Jev, sem abrir conexão."""
+    current = settings or get_settings()
+    names = {"TYPESAFE_API_KEY", "JEV_MODEL", "JEV_TIMEOUT_SECONDS"}
+    problems = [
+        f"{name}: {message}"
+        for name, message in current._parse_errors
+        if name in names or name == "APP_ENV"
+    ]
+    if not current.typesafe_api_key:
+        problems.append("TYPESAFE_API_KEY ausente ou vazio")
+    if not current.jev_model:
+        problems.append("JEV_MODEL ausente ou vazio")
+    if current.jev_timeout_seconds <= 0:
+        problems.append("JEV_TIMEOUT_SECONDS deve ser positivo")
+    if problems:
+        raise ConfigurationError(f"Configuração Jev inválida: {', '.join(problems)}.")
 
 def validate_llm_config(
     provider: Literal["specialist", "gemini", "groq_specialist", "fast"] = "specialist",

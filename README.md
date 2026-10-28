@@ -3,7 +3,9 @@
 Chatbot de IA do Projeto Delta — plataforma de monitoramento inteligente de
 consumo residencial de água. Este repositório reúne os agentes especialistas,
 as tools de acesso a dados, a orquestração LangGraph, guardrails de segurança,
-memória de sessão e longo prazo, e a API HTTP (FastAPI).
+memória de sessão e longo prazo, a API HTTP (FastAPI) e o Agente Juiz com Jev.
+O Juiz revisa a candidata antes da publicação e permite uma única correção.
+Verificações isoladas não comprovam integração com provedores e bancos reais.
 
 O motor de detecção de vazamento (regras que calculam `anomaly_detected` e
 criam alertas) não usa LLM e por isso mora em outro repositório,
@@ -110,31 +112,75 @@ revisão antiga. Uma nova chamada tenta completar a revisão automaticamente. A 
 não cria nem recria a coleção; coleção ausente ou dimensão incompatível exige ajuste
 da infraestrutura. A dimensão permanece fixa em 3072.
 
-Os testes em `tests/test_rag.py` cobrem primeira carga automática, reutilização do
-índice, edição, inclusão, remoção, renomeação, troca de modelo, consultas simultâneas
-e recuperação após falha. Usam Qdrant em memória, embeddings controlados e um modelo
-de resposta controlado; o acesso remoto e a qualidade semântica exigem validação própria.
+A validação de primeira carga, reutilização do índice, atualização e recuperação
+após falha deve considerar a revisão e o modelo efetivos. Acesso remoto e
+qualidade semântica das respostas precisam de verificação própria.
+
+## Agente Juiz e revisão
+
+O `JudgeAgent` usa Jev pela integração `langchain-typesafe`. A candidata
+composta é avaliada junto com as ferramentas e fontes dos especialistas.
+A avaliação é sequencial:
+
+- Choice no_error com confidence >= 50% e probabilidade da escolha >= 75% passa ao segundo gate;
+- Choice no_error abaixo de qualquer um desses limites pede revisão;
+- qualquer correctable_error pede revisão, independentemente da confidence;
+- critical_error bloqueia com mensagem segura;
+- somente após passar o gate da Choice, uma segunda chamada Jev verifica Noul facts_supported >= 80%, Noul relevant >= 60% e Score diferente da categoria inadequada.
+
+Se um subcritério falhar, pede revisão; após a única revisão, qualquer falha gera mensagem segura. O runner manual mostra quais verificações foram executadas e seus resultados.
+O console mostra também as probabilidades de cada categoria, o limiar aplicado
+e os nomes e tipos dos resultados de ferramentas recebidos pelo Juiz.
+Isso permite distinguir uma entrada sem evidências de uma classificação
+incerta. Esses metadados não incluem o texto da candidata bloqueada.
+
+`confidence` resume a distribuição da Choice; não é uma nota de correção factual.
+O gate exige simultaneamente confidence >= 0,50 e probabilidade da escolha >= 0,75.
+Com a fórmula atual da Choice e três categorias, probabilidade de 75% corresponde
+a confidence de 62,5%. Uma decisão `no_error` pode pedir revisão
+por incerteza, sem que o Jev tenha apontado um erro específico.
+Veja a [definição de confidence](https://docs.typesafe.ai/confidence).
+
+O Juiz não gera texto livre: os códigos e as justificativas vêm do Python.
+Configure `TYPESAFE_API_KEY`, `JEV_MODEL` e `JEV_TIMEOUT_SECONDS` conforme
+[.env.example](.env.example). Detalhes, tabela de decisão e funcionamento das
+justificativas: [Agente Juiz](docs/judge-agent.md).
+
+## Validação manual
+
+O arquivo `manual_chat_judge.py` executa guardrails, roteador, especialistas,
+tools, Jev, eventual revisão e saída, sem iniciar um servidor HTTP:
+
+~~~powershell
+.\.venv\Scripts\python.exe -m pip install -r requirements.txt
+.\.venv\Scripts\python.exe manual_chat_judge.py --user-id 1 --no-history
+~~~
+
+Troque `1` pelo usuário autorizado do seu ambiente. Com `--no-history`,
+nenhum turno é gravado; leituras de contexto e consultas das ferramentas
+continuam sendo reais. Sem essa opção, o runner salva os turnos liberados
+no MongoDB. Use `--session-id` para continuar uma sessão do mesmo usuário;
+uma linha vazia encerra.
+
+O console mostra a resposta final, as decisões, confidence, justificativas
+Python e quantidade de revisões. Ele não imprime candidatas bloqueadas.
+As dependências e credenciais devem estar configuradas para cada caminho
+usado. Não execute em `APP_ENV=test` esperando carregar o `.env`.
+
+As verificações isoladas da implementação cobriram a política, o transporte
+com HTTP simulado e o grafo sem consumir crédito. O runner permite validar
+os provedores e dados reais; esse teste não foi executado automaticamente.
+Não há uma nova suíte persistente de testes nesta entrega.
 
 ## Testes
 
-```bash
-pip install -r requirements.txt -r requirements-dev.txt
-python -m pytest -q
-```
-
-Os testes usam cálculos puros, LLM roteirizado e clientes/leitores substituídos.
-Cobrem settings, provedores/fallback, recursos e erros dos conectores, os agentes
-e seus cálculos, o workflow LangGraph (guardrails, context-passing, síntese,
-roteamento), as rotas HTTP e cenários de anti-alucinação. Nenhum depende de
-Postgres/Mongo ou de uma chamada real de LLM. `tests/conftest.py` isola o
-ambiente e o cache de settings.
-
-Esses testes não comprovam acesso real, disponibilidade do modelo para a
-conta ou qualidade da redação. Na validação local deste conjunto, Docker
-Engine e serviços de banco estavam indisponíveis e não havia credenciais
-LLM. Os checks reais de PostgreSQL/Mongo falharam com diagnósticos seguros;
-a avaliação ponta a ponta continua pendente. O workflow organizacional de
-PR não executa pytest: rode a suíte antes de enviar alterações.
+O repositório contém testes com cálculos puros, LLM roteirizado e clientes/leitores
+substituídos. Eles cobrem settings, provedores/fallback, recursos e erros dos
+conectores, agentes e cálculos, workflow LangGraph (guardrails, contexto, síntese,
+roteamento), rotas HTTP e cenários de anti-alucinação. Nenhum depende de
+Postgres/Mongo nem de chamada real a LLM. `tests/conftest.py` isola o ambiente e
+o cache de settings. Esses testes não comprovam acesso remoto nem qualidade
+semântica.
 
 ## Estrutura de `app/data/` e `app/tools/`
 
@@ -298,6 +344,86 @@ usado pelo router e pelo nó de síntese do workflow. Timeout, retries e limite
 de saída são configuráveis. A disponibilidade depende da conta e do identificador;
 os testes não medem qualidade em português. Justificativas, parâmetros e
 fontes oficiais estão em [provedores e modelos](https://github.com/delta-app-ofc/delta-handbook/blob/main/DADOS/IA/agentes/llm-models.md).
+
+## Console de testes dos agentes
+
+O console usa HTML, CSS e JavaScript servidos pelo FastAPI, com as cores,
+fontes e identidade visual do **delta-web-app**. Inicie na raiz deste repositório:
+
+~~~bash
+python -m pip install -r requirements.txt -r requirements-dev.txt
+python -m uvicorn app.main:app --host 127.0.0.1 --port 8000
+~~~
+
+Acesse **http://127.0.0.1:8000/playground/**. O console usa o
+**user_id 12345679** e o nome de teste **teste_agentes_25_10**, definidos no
+servidor. Ele não cadastra esse usuário ou dados de exemplo e não oferece
+configuração de perfil. O usuário precisa existir e ter os vínculos/dados
+necessários nos bancos configurados.
+
+- **Chat completo:** guardrails, contexto, roteador e especialistas reais,
+  com persistência da conversa no MongoDB. Falha de persistência preserva a
+  resposta na tela e aparece no painel de erros.
+- **Roteador:** classifica a pergunta com contexto real, sem executar os
+  especialistas. Selecionar um agente não significa que ele foi executado.
+- **Consumo, Previsão, Vazamento, Hábitos e RAG:** executam diretamente o
+  mesmo especialista usado pelo grafo, preservando os guardrails. Consumo
+  também está registrado no roteador.
+- **Juiz:** executa o fluxo completo com especialistas, ferramentas e avaliação
+  Jev. A aba mostra decisão, confiança, códigos de justificativa Python e os
+  subcritérios consultados.
+
+Cada aba mantém seu rascunho, histórico e sessão separados enquanto a página
+estiver aberta. A opção **Nova sessão** gera uma nova conversa na próxima
+mensagem; não encerra nem resume a anterior. O chat envia a mesma mensagem
+pelo fluxo real do aplicativo; as abas individuais testam cada especialista,
+e a aba Juiz executa o fluxo completo com a avaliação antes da publicação. O
+histórico recente alimenta a classificação e os especialistas continuam
+recebendo a pergunta atual conforme o contrato existente.
+
+Não há modo demonstrativo. Configure o arquivo .env a partir de
+[.env.example](.env.example): Groq para guardrails/roteador/RAG, Gemini e fallback
+Groq para os especialistas, PostgreSQL e MongoDB para os dados, Qdrant e Gemini
+embeddings para o RAG. O RAG pode indexar a revisão documental antes da primeira
+consulta. Ausência de dados não comprova falha de conexão, e erro de conexão
+não vira consumo zero.
+
+Os painéis exibem erros, avisos, etapas, agentes selecionados/executados/ignorados,
+ferramentas com entradas e resultados e chamadas reais aos modelos, inclusive
+fallback e embeddings. Uma configuração de modelo, sozinha, não aparece como
+chamada executada. Os diagnósticos são isolados por requisição e não armazenam
+prompts nem credenciais. Dados das ferramentas pertencem ao usuário fixo do teste.
+O gráfico usa a biblioteca Plotly instalada no servidor, sem script de CDN.
+
+O console e seus assets ficam habilitados por padrão apenas em **development**
+e **test**. Em **staging** e **production** ficam desativados. A variável
+**DELTA_PLAYGROUND_ENABLED=true|false**, no processo ou .env, altera essa escolha.
+Este é um console interno com usuário fixo, sem autenticação própria: se precisar
+habilitá-lo fora do desenvolvimento, restrinja o acesso na infraestrutura.
+
+Rotas de teste (também descritas no Swagger em /docs):
+
+| Método | Caminho | Finalidade |
+| --- | --- | --- |
+| GET | /playground/config | Identidade fixa e implementação dos agentes |
+| POST | /playground/chat | Fluxo completo |
+| POST | /playground/router | Classificação sem executar especialistas |
+| POST | /playground/agents/{name} | Teste individual ou Juiz ignorado |
+
+As requisições aceitam **message** (1 a 2000 caracteres) e **session_id** opcional;
+não aceitam sobrescrever o usuário. A resposta inclui status, response,
+session_id, chart_data, agent_results e diagnostics. Os estados são
+success, partial, error e skipped.
+
+~~~bash
+python -m pytest -q --basetemp .pytest_cache/tmp
+~~~
+
+[tests/test_playground.py](tests/test_playground.py) verifica contratos HTTP,
+isolamento de usuário e diagnósticos, guardrails, falhas parciais, componentes
+pendentes, callbacks de modelos/fallback e proteção do console por ambiente.
+Usa substitutos controlados: essa suíte não comprova acesso remoto aos
+bancos/provedores nem qualidade semântica.
 
 ## Agente de Hábitos
 
