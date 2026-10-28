@@ -3,6 +3,7 @@ from __future__ import annotations
 
 from functools import lru_cache
 import importlib
+from typing import Literal
 import uuid
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -16,6 +17,7 @@ from app.guardrails.input import validate_input
 from app.guardrails.output import validate_output
 from app.memory.session import append_turn
 from app.observability.diagnostics import Trace, capture, component, public_data
+from app.schemas import ErrorResponse
 
 USER_ID = 12345679
 TEST_LABEL = "teste_agentes_25_10"
@@ -33,8 +35,45 @@ router = APIRouter(prefix="/playground", tags=["playground"], dependencies=[Depe
 
 class PlaygroundRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
-    message: str = Field(min_length=1, max_length=2000)
-    session_id: str | None = Field(default=None, pattern=r"^[A-Za-z0-9_-]{1,100}$")
+    message: str = Field(min_length=1, max_length=2000, description="Mensagem de teste (1 a 2000 caracteres).")
+    session_id: str | None = Field(
+        default=None,
+        pattern=r"^[A-Za-z0-9_-]{1,100}$",
+        description="Id livre da sessão de teste (letras, números, - e _). Omita para gerar um novo.",
+    )
+
+
+class AgentStatus(BaseModel):
+    id: str = Field(..., description="Nome do agente, como usado na rota /playground/agents/{name}.")
+    status: str = Field(..., description="available (pronto), pending (sem implementação) ou error (falha ao carregar).")
+    message: str | None = Field(default=None, description="Detalhe adicional, quando houver.")
+
+
+class PlaygroundConfigResponse(BaseModel):
+    enabled: bool = Field(..., description="Sempre verdadeiro: com o console desativado a rota responde 404.")
+    user_id: int = Field(..., description="Usuário fixo de teste usado pelo console.")
+    test_label: str = Field(..., description="Rótulo da rodada de testes.")
+    agents: list[AgentStatus] = Field(..., description="Agentes testáveis e a situação de cada um.")
+
+
+class PlaygroundResponse(BaseModel):
+    status: Literal["success", "partial", "error", "skipped"] = Field(
+        ..., description="Resultado do teste: success, partial (parte das etapas falhou), error ou skipped."
+    )
+    response: str = Field(..., description="Resposta produzida; vazia quando o teste falhou ou foi bloqueado.")
+    session_id: str = Field(..., description="Id da sessão de teste usada.")
+    chart_data: dict | None = Field(default=None, description="Dados de gráfico, quando a resposta traz um.")
+    agent_results: list[dict] = Field(..., description="Resultado de cada agente executado.")
+    judge_results: list[dict] = Field(..., description="Avaliações do Agente Juiz (Jev), quando houve.")
+    diagnostics: dict = Field(..., description="Rastro do teste: roteamento, modelos, ferramentas, avisos e erros.")
+
+
+PLAYGROUND_DISABLED = {
+    404: {
+        "model": ErrorResponse,
+        "description": "Console de testes desativado (padrão em staging e production).",
+    },
+}
 
 
 def agent_status(name: str) -> dict:
@@ -51,7 +90,13 @@ def agent_status(name: str) -> dict:
     return {"id": name, "status": status}
 
 
-@router.get("/config")
+@router.get(
+    "/config",
+    response_model=PlaygroundConfigResponse,
+    summary="Configuração do console de testes",
+    description="Lista os agentes testáveis e se cada um está disponível. Só existe em desenvolvimento e teste.",
+    responses=PLAYGROUND_DISABLED,
+)
 def config():
     return {"enabled": True, "user_id": USER_ID, "test_label": TEST_LABEL,
             "agents": [agent_status(name) for name in (*AGENT_REGISTRY, "judge")]}
@@ -161,17 +206,44 @@ def run_test(req: PlaygroundRequest, mode: str):
     return envelope(trace, session_id, response, chart, results, judge_results=judge_results)
 
 
-@router.post("/chat")
+@router.post(
+    "/chat",
+    response_model=PlaygroundResponse,
+    summary="Testa o fluxo completo do chat",
+    description=(
+        "Executa guardrails, roteador, agentes, síntese e Juiz com o usuário fixo de teste, "
+        "sem autenticação e sem gravar histórico no fluxo. Erros das etapas vêm em diagnostics, "
+        "com status 200."
+    ),
+    responses=PLAYGROUND_DISABLED,
+)
 def chat(req: PlaygroundRequest):
     return run_test(req, "chat")
 
 
-@router.post("/router")
+@router.post(
+    "/router",
+    response_model=PlaygroundResponse,
+    summary="Testa só o roteador",
+    description="Mostra quais agentes o roteador escolheria para a mensagem, sem executá-los.",
+    responses=PLAYGROUND_DISABLED,
+)
 def test_router(req: PlaygroundRequest):
     return run_test(req, "router")
 
 
-@router.post("/agents/{name}")
+@router.post(
+    "/agents/{name}",
+    response_model=PlaygroundResponse,
+    summary="Testa um agente isolado",
+    description="Executa só o agente informado (consumption, forecast, leak, habits, rag ou judge).",
+    responses={
+        404: {
+            "model": ErrorResponse,
+            "description": "Console de testes desativado ou agente de teste desconhecido.",
+        },
+    },
+)
 def test_agent(name: str, req: PlaygroundRequest):
     if name not in {*AGENT_REGISTRY, "judge"}:
         raise HTTPException(404, "Agente de teste desconhecido.")
