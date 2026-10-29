@@ -134,7 +134,14 @@ composta é avaliada junto com as ferramentas e fontes dos especialistas.
 A política Jev consulta gravidade (Choice), suporte factual e relevância (Noul)
 na mesma chamada. Seus limites continuam em `JEV_CONFIDENCE_THRESHOLD`,
 `JEV_PROBABILITY_THRESHOLD`, `JEV_FACTS_SUPPORTED_THRESHOLD` e
-`JEV_RELEVANCE_THRESHOLD`, sem alterar a avaliação existente.
+`JEV_RELEVANCE_THRESHOLD`. A rubrica e sua versão ficam em `app/config.py`.
+A versão `delta-judge-fixed-v7` trata outputs reais como evidência, aceita
+arredondamentos coerentes e distingue limitações verdadeiras de erros
+materiais. O nome da ferramenta não basta: valores, períodos e estados devem
+sustentar a conclusão. Falha de consulta não comprova ausência de dados;
+sinal anômalo, alerta registrado e notificação enviada são fatos distintos.
+Os três critérios continuam na mesma chamada, com os mesmos limites e fluxo.
+As descrições das categorias também são compartilhadas com o segundo juiz.
 
 O direcionamento usa o mesmo `JEV_CONFIDENCE_THRESHOLD`, com default
 **0,70**: confidence maior ou igual mantém o parecer Jev; abaixo desse valor,
@@ -147,7 +154,7 @@ avaliação de baixa confiança.
 O Flash recebe a pergunta e a candidata completas, contexto, evidências,
 gráfico e o parecer original Jev, incluindo categoria, valores, critérios
 pendentes e justificativa disponível. O prompt diretivo e os novos parâmetros
-ficam em `app/config.py`; a rubrica semântica Jev existente é reutilizada.
+ficam em `app/config.py`, junto da rubrica compartilhada com o Jev.
 `JUDGE_SPECIALIST_MODEL` seleciona o modelo do segundo juiz, sem alterar os
 modelos dos outros agentes. Ele usa `GEMINI_API_KEY` e os limites
 `LLM_TIMEOUT_SECONDS`, `LLM_MAX_RETRIES` e `LLM_MAX_OUTPUT_TOKENS`.
