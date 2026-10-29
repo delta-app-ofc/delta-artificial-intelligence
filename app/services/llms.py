@@ -5,6 +5,7 @@ from __future__ import annotations
 from collections.abc import Sequence
 from functools import lru_cache
 import sys
+from time import perf_counter
 from typing import Any
 
 import httpx
@@ -19,7 +20,12 @@ from langchain_google_genai.chat_models import ChatGoogleGenerativeAIError
 from langchain_groq import ChatGroq
 
 from app.config import ConfigurationError, get_settings, validate_llm_config
-from app.observability.diagnostics import ModelDiagnostics, current_trace, fallback_call
+from app.observability.diagnostics import (
+    ModelDiagnostics,
+    current_component,
+    current_trace,
+    fallback_call,
+)
 
 __all__ = [
     "EMBEDDING_MODEL_NAME",
@@ -98,9 +104,22 @@ _PROVIDER_REQUEST_ERRORS = (
 class _FallbackLLM:
     """Mantém bind_tools disponível e aplica fallback só a falhas transitórias."""
 
-    def __init__(self, primary: Any, fallback: Any | None) -> None:
+    def __init__(
+        self,
+        primary: Any,
+        fallback: Any | None,
+        *,
+        primary_provider: str = "google",
+        primary_model: str | None = None,
+        fallback_provider: str = "groq",
+        fallback_model: str | None = None,
+    ) -> None:
         self._primary = primary
         self._fallback = fallback
+        self._primary_provider = primary_provider
+        self._primary_model = primary_model
+        self._fallback_provider = fallback_provider
+        self._fallback_model = fallback_model
 
     def bind_tools(
         self,
@@ -113,7 +132,77 @@ class _FallbackLLM:
             if self._fallback is not None
             else None
         )
-        return _FallbackLLM(primary, fallback)
+        return _FallbackLLM(
+            primary,
+            fallback,
+            primary_provider=self._primary_provider,
+            primary_model=self._primary_model,
+            fallback_provider=self._fallback_provider,
+            fallback_model=self._fallback_model,
+        )
+
+    @staticmethod
+    def _invoke_model(
+        model: Any,
+        messages: Any,
+        invoke_kwargs: dict[str, Any],
+        *,
+        provider: str,
+        model_name: str | None,
+        fallback: bool,
+    ) -> Any:
+        trace = current_trace()
+        component_name = current_component()
+        started = perf_counter()
+        metadata = {"provider": provider, "fallback": fallback}
+        if model_name:
+            metadata["model"] = model_name
+
+        if trace:
+            trace.event(
+                "llm.start",
+                component=component_name,
+                operation="chat_completion",
+                status="running",
+                metadata=metadata,
+            )
+        try:
+            response = model.invoke(messages, **invoke_kwargs)
+        except Exception as error:
+            error_record = None
+            if trace:
+                error_record = trace.error(
+                    "llm",
+                    error,
+                    operation="chat_completion",
+                    metadata={"provider": provider, **({"model": model_name} if model_name else {})},
+                )
+                failure_metadata = dict(metadata)
+                failure_metadata["outcome"] = "request_failed"
+                if error_record and error_record.get("error_id"):
+                    failure_metadata["error_id"] = error_record["error_id"]
+                trace.event(
+                    "llm.end",
+                    component=component_name,
+                    operation="chat_completion",
+                    status="error",
+                    duration_ms=round((perf_counter() - started) * 1000, 1),
+                    metadata=failure_metadata,
+                )
+            raise
+
+        if trace:
+            success_metadata = dict(metadata)
+            success_metadata["outcome"] = "completed"
+            trace.event(
+                "llm.end",
+                component=component_name,
+                operation="chat_completion",
+                status="success",
+                duration_ms=round((perf_counter() - started) * 1000, 1),
+                metadata=success_metadata,
+            )
+        return response
 
     def invoke(
         self,
@@ -126,7 +215,14 @@ class _FallbackLLM:
             invoke_kwargs["config"] = config
 
         try:
-            return self._primary.invoke(messages, **invoke_kwargs)
+            return self._invoke_model(
+                self._primary,
+                messages,
+                invoke_kwargs,
+                provider=self._primary_provider,
+                model_name=self._primary_model,
+                fallback=False,
+            )
         except _PROVIDER_REQUEST_ERRORS as error:
             request_error = _request_error_cause(error)
             if request_error is None:
@@ -138,11 +234,30 @@ class _FallbackLLM:
 
         if trace := current_trace():
             trace.warnings.append("O modelo principal falhou; o fallback foi acionado.")
+            trace.event(
+                "llm.fallback",
+                component=current_component(),
+                operation="chat_completion",
+                status="started",
+                metadata={
+                    "provider": self._fallback_provider,
+                    **({"model": self._fallback_model} if self._fallback_model else {}),
+                    "fallback": True,
+                    "outcome": "primary_transient_failure",
+                },
+            )
 
         try:
             # O fallback recebe a mesma lista, inclusive as ToolMessages anteriores.
             with fallback_call():
-                return self._fallback.invoke(messages, **invoke_kwargs)
+                return self._invoke_model(
+                    self._fallback,
+                    messages,
+                    invoke_kwargs,
+                    provider=self._fallback_provider,
+                    model_name=self._fallback_model,
+                    fallback=True,
+                )
         except _PROVIDER_REQUEST_ERRORS as error:
             request_error = _request_error_cause(error)
             if request_error is None:
@@ -192,7 +307,14 @@ def _get_llm_especialista() -> _FallbackLLM:
     fallback = (
         _get_llm_groq_especialista() if settings.llm_fallback_enabled else None
     )
-    return _FallbackLLM(_get_llm_gemini(), fallback)
+    return _FallbackLLM(
+        _get_llm_gemini(),
+        fallback,
+        primary_provider="google",
+        primary_model=settings.gemini_model,
+        fallback_provider="groq",
+        fallback_model=settings.groq_specialist_model if fallback is not None else None,
+    )
 
 
 @lru_cache(maxsize=1)

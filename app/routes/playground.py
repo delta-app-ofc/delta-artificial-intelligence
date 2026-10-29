@@ -15,7 +15,7 @@ from app.graph.workflow import execute_agent, run_workflow
 from app.guardrails.input import validate_input
 from app.guardrails.output import validate_output
 from app.memory.session import append_turn
-from app.observability.diagnostics import Trace, capture, component, public_data
+from app.observability.diagnostics import Trace, capture, component, current_trace, public_data
 
 USER_ID = 12345679
 TEST_LABEL = "teste_agentes_25_10"
@@ -60,7 +60,10 @@ def config():
 def envelope(trace, session_id, response="", chart_data=None, results=None, skipped=False,
              judge_results=None):
     statuses = [r.get("status") for r in results or []]
-    if skipped or (statuses and all(s == "skipped" for s in statuses)):
+    rejected = any(event.get("event") == "guardrail.rejected" for event in trace.events)
+    if rejected:
+        status = "error"
+    elif skipped or (statuses and all(s == "skipped" for s in statuses)):
         status = "skipped"
     elif trace.errors or "error" in statuses:
         routing_ok = trace.mode == "router" and bool(trace.routing) and not any(
@@ -80,36 +83,26 @@ def _judge_results(state: dict) -> list[dict]:
     summaries = []
     for entry in state.get("judge_history", []):
         judge = entry.get("judge", {})
-        assessment = judge.get("assessment", {})
         summaries.append({
-            "decision": judge.get("decision"),
-            "status": judge.get("status"),
-            "severity": judge.get("severity"),
-            "confidence": judge.get("confidence"),
-            "reason_codes": judge.get("reason_codes", []),
-            "justification": judge.get("justification", ""),
-            "assessment": {
-                "confidence_threshold": assessment.get("confidence_threshold"),
-                "probability_threshold": assessment.get("probability_threshold"),
-                "severity_probabilities": assessment.get("severity_probabilities", {}),
-                "selected_probability": assessment.get("selected_probability"),
-                "input_summary": assessment.get("input_summary", {}),
-                "subcriteria_checked": assessment.get("subcriteria_checked", False),
-                "diagnostics": assessment.get("diagnostics", {}),
-            },
+            **judge,
+            "candidate": entry.get("candidate", ""),
+            "agent_results": entry.get("agent_results", []),
         })
     return summaries
 
 
 def run_test(req: PlaygroundRequest, mode: str):
     session_id = req.session_id or str(uuid.uuid4())
-    trace = Trace(mode=mode, user_id=USER_ID, test_label=TEST_LABEL)
+    trace = current_trace() or Trace(mode=mode)
+    trace.mode, trace.user_id, trace.test_label = mode, USER_ID, TEST_LABEL
     response, chart, results, judge_results = "", None, [], []
     with capture(trace):
         try:
             with component("input_guard"):
                 guard = validate_input(USER_ID, req.message)
                 if not guard["ok"]:
+                    trace.event("guardrail.rejected", component="input_guard", operation="validate",
+                                status="rejected", metadata={"outcome": "input_rejected"})
                     trace.errors.append({"stage": "input_guard", "code": "input_rejected",
                                          "message": guard["reason"]})
                     return envelope(trace, session_id)
@@ -141,6 +134,8 @@ def run_test(req: PlaygroundRequest, mode: str):
                 with component("output_guard"):
                     out = validate_output(response, pii_map=guard["pii_map"])
                     if not out["ok"]:
+                        trace.event("guardrail.rejected", component="output_guard", operation="validate",
+                                    status="rejected", metadata={"outcome": "output_rejected"})
                         trace.errors.append({"stage": "output_guard", "code": "output_rejected",
                                              "message": out["reason"]})
                         response, chart = "", None
@@ -156,8 +151,7 @@ def run_test(req: PlaygroundRequest, mode: str):
                         pass
         except Exception as error:
             # Erros de etapas já instrumentadas estão registrados uma única vez.
-            if not any(e["code"] == type(error).__name__ for e in trace.errors):
-                trace.error(mode, error)
+            trace.error(mode, error)
     return envelope(trace, session_id, response, chart, results, judge_results=judge_results)
 
 

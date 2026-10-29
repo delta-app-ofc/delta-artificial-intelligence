@@ -1,3 +1,5 @@
+import { createExecutionTerminal } from "./event-terminal.js";
+
 // Todo conteúdo retornado pela API entra no DOM como texto, sem HTML do modelo.
 export function element(tag, className = '', text = '') {
   const node = document.createElement(tag);
@@ -28,12 +30,15 @@ export async function requestJSON(url, options = {}) {
   let response;
   try { response = await fetch(url, { credentials: 'same-origin', ...options }); }
   catch { throw new Error('Não foi possível alcançar a API. Verifique o servidor e a conexão e tente novamente.'); }
+  const requestId = response.headers.get('X-Request-ID');
+  const reference = requestId ? ` Requisição: ${requestId}.` : '';
   const raw = await response.text();
   let body;
   try { body = JSON.parse(raw); }
-  catch { throw new Error(`A API retornou uma resposta inválida (HTTP ${response.status}).`); }
+  catch { throw new Error(`A API retornou uma resposta inválida (HTTP ${response.status}).${reference}`); }
   if (!response.ok) {
-    const error = new Error(errorMessage(body.detail ?? body));
+    const error = new Error(errorMessage(body?.detail ?? body) + reference);
+    error.requestId = requestId;
     error.status = response.status;
     error.body = body;
     throw error;
@@ -69,6 +74,11 @@ export function renderSignals(target, state, configError = '') {
   if (state.localError) signals.push({ severity: 'error', title: 'Requisição', message: state.localError });
   const diagnostics = state.latest?.diagnostics || {};
   (diagnostics.errors || []).forEach(error => signals.push({ severity: 'error', title: [error.stage, error.code].filter(Boolean).join(' · ') || 'Erro', message: errorMessage(error) }));
+  (diagnostics.events || []).filter(event => event.event === 'guardrail.rejected').forEach(event => {
+    if ((diagnostics.errors || []).some(error => error.code === event.metadata?.outcome)) return;
+    signals.push({ severity: 'warning', title: 'Mensagem bloqueada',
+      message: `A etapa ${event.component || 'de validação'} bloqueou esta execução.` });
+  });
   (diagnostics.warnings || []).forEach(warning => signals.push({ severity: 'warning', title: 'Aviso', message: errorMessage(warning) }));
   if (!signals.length) target.append(element('p', 'neutral-message', state.latest ? 'Nenhum erro ou aviso nesta execução.' : 'Erros e avisos da execução aparecerão aqui.'));
   signals.forEach(signal => {
@@ -97,6 +107,18 @@ export function renderDiagnostics(target, result, busy = false) {
   [['Selecionados', diagnostics.selected_agents], ['Executados', diagnostics.executed_agents], ['Não executados', diagnostics.skipped_agents]].forEach(([label, values]) => {
     const group = section(label); group.append(listChips(values, label === 'Não executados')); target.append(group);
   });
+  if (diagnostics.errors?.length) {
+    const failures = section('Origem das falhas');
+    diagnostics.errors.forEach(error => failures.append(details(
+      `${error.stage || 'Execução'} · ${error.code || 'Erro'}`,
+      [['Mensagem', error.message], ['ID do erro', error.error_id],
+        ['Operação', error.operation], ['Causa original', error.cause_type],
+        ['Localização', error.location], ['Cadeia de causas', error.cause_chain]],
+    )));
+    target.append(failures);
+  }
+  const technical = element('details', 'tool-detail');
+  technical.append(element('summary', '', 'Modelos, ferramentas e etapas'));
   const models = section('Modelos');
   if (!diagnostics.models?.length) models.append(element('p', 'neutral-message', 'Nenhum modelo registrado.'));
   else diagnostics.models.forEach(model => {
@@ -104,39 +126,29 @@ export function renderDiagnostics(target, result, busy = false) {
     card.append(element('strong', '', model.component || 'Modelo'), element('p', '', `${model.provider || 'Provedor não informado'} · ${model.model || 'Modelo não informado'}`), element('p', '', `Status: ${model.status || 'não informado'} · ${duration(model.duration_ms)}`), element('p', '', `Fallback: ${model.fallback === true ? 'sim' : model.fallback === false ? 'não' : pretty(model.fallback)}`));
     models.append(card);
   });
-  target.append(models);
+  technical.append(models);
   const tools = section('Ferramentas');
   if (!diagnostics.tools?.length) tools.append(element('p', 'neutral-message', 'Nenhuma ferramenta registrada.'));
   else diagnostics.tools.forEach(tool => tools.append(details(`${tool.name || 'Ferramenta'} · ${tool.status || 'não informado'}`, [['Agente', tool.agent], ['Entrada', tool.input], ['Saída', tool.output]])));
-  target.append(tools);
+  technical.append(tools);
   const stages = section('Etapas');
   if (!diagnostics.stages?.length) stages.append(element('p', 'neutral-message', 'Nenhuma etapa registrada.'));
   else diagnostics.stages.forEach(stage => stages.append(row(`${stage.stage} · ${stage.status}`, duration(stage.duration_ms))));
-  target.append(stages);
-  if (result.agent_results?.length) {
-    const results = section('Resultados dos agentes');
-    result.agent_results.forEach(agent => results.append(details(`${agent.agent || agent.agent_id || agent.id || 'Agente'} · ${agent.status || 'resultado'}`, [['Resultado retornado', agent]])));
-    target.append(results);
-  }
-  if (result.judge_results?.length) {
-    const judgments = section('Decisões do Juiz Jev');
-    result.judge_results.forEach((judge, index) => judgments.append(details(
-      `Avaliação ${index + 1} · ${judge.decision || judge.status || 'resultado'}`,
-      [['Status', judge.status], ['Gravidade', judge.severity],
-        ['Confiança da classificação', judge.confidence],
-        ['Limiar de confiança', judge.assessment?.confidence_threshold],
-        ['Probabilidade da categoria escolhida', judge.assessment?.selected_probability],
-        ['Limiar de probabilidade', judge.assessment?.probability_threshold],
-        ['Probabilidades por categoria', judge.assessment?.severity_probabilities],
-        ['Resumo da entrada enviada', judge.assessment?.input_summary],
-        ['Códigos Python', judge.reason_codes],
-        ['Justificativa Python', judge.justification], ['Sinais adicionais', judge.assessment]],
-    )));
-    target.append(judgments);
-  }
+  technical.append(stages);
+  target.append(technical);
   const metadata = section('Requisição');
   metadata.append(row('ID', diagnostics.request_id), row('Modo', diagnostics.mode), row('Usuário', diagnostics.user_id), row('Teste', diagnostics.test_label));
   target.append(metadata);
+}
+export function renderExecutionTerminal(target, result, busy = false) {
+  target.replaceChildren();
+  if (!result) {
+    target.append(element('p', 'event-terminal-notice', busy
+      ? 'Aguardando as mensagens dos agentes e as avaliações do Jev…'
+      : 'Envie uma mensagem para inspecionar as respostas dos agentes, o JSON do Jev e os eventos.'));
+    return;
+  }
+  target.append(createExecutionTerminal(result));
 }
 export function renderMessages(target, messages, tab) {
   if (window.Plotly) target.querySelectorAll('.chart').forEach(chart => window.Plotly.purge(chart));
