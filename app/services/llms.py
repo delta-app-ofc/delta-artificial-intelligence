@@ -5,6 +5,7 @@ from __future__ import annotations
 from collections.abc import Sequence
 from functools import lru_cache
 import sys
+from threading import Lock
 from time import perf_counter
 from typing import Any
 
@@ -18,8 +19,10 @@ from groq import (
 from langchain_google_genai import ChatGoogleGenerativeAI
 from langchain_google_genai.chat_models import ChatGoogleGenerativeAIError
 from langchain_groq import ChatGroq
+from langchain_openai import ChatOpenAI
+from openai import APIError as OpenAIAPIError, APIConnectionError as OpenAIAPIConnectionError
 
-from app.config import ConfigurationError, get_settings, validate_llm_config
+from app.config import ConfigurationError, Settings, get_settings, validate_llm_config
 from app.observability.diagnostics import (
     ModelDiagnostics,
     current_component,
@@ -61,7 +64,7 @@ def _is_transient_provider_error(error: Exception) -> bool:
     """Reconhece somente falhas de transporte, limite ou indisponibilidade."""
     if isinstance(
         error,
-        (httpx.TimeoutException, httpx.ConnectError, GroqAPIConnectionError),
+        (httpx.TimeoutException, httpx.ConnectError, GroqAPIConnectionError, OpenAIAPIConnectionError),
     ):
         return True
 
@@ -93,6 +96,7 @@ def _request_error_cause(error: Exception) -> Exception | None:
 
 
 _PROVIDER_REQUEST_ERRORS = (
+    OpenAIAPIError,
     GoogleAPIError,
     ChatGoogleGenerativeAIError,
     GroqAPIError,
@@ -267,6 +271,52 @@ class _FallbackLLM:
             raise LLMUnavailableError(_PUBLIC_UNAVAILABLE_MESSAGE) from None
 
 
+_OPENAI_MODELS: dict[Settings, ChatOpenAI] = {}
+_OPENAI_MODELS_LOCK = Lock()
+
+
+def _get_llm_openai(settings: Settings | None = None) -> ChatOpenAI:
+    """Reutiliza o modelo por snapshot, incluindo credencial e raciocínio."""
+    current = settings or get_settings()
+    validate_llm_config(provider="openai", settings=current)
+    with _OPENAI_MODELS_LOCK:
+        if current not in _OPENAI_MODELS:
+            _OPENAI_MODELS[current] = ChatOpenAI(
+                model=current.openai_model,
+                api_key=current.openai_api_key,
+                reasoning={"effort": current.openai_reasoning_effort},
+                use_responses_api=True,
+                output_version="responses/v1",
+                store=False,
+                include=["reasoning.encrypted_content"],
+                timeout=current.llm_timeout_seconds,
+                max_retries=current.llm_max_retries,
+                max_tokens=current.llm_max_output_tokens,
+                callbacks=[ModelDiagnostics("openai", current.openai_model)],
+            )
+        return _OPENAI_MODELS[current]
+
+
+async def close_openai_clients() -> None:
+    """Fecha todos os snapshots criados e invalida os aliases dos agentes."""
+    with _OPENAI_MODELS_LOCK:
+        models = list(_OPENAI_MODELS.values())
+        _OPENAI_MODELS.clear()
+    close_error = None
+    for model in models:
+        try:
+            try:
+                model.root_client.close()
+            finally:
+                await model.root_async_client.close()
+        except Exception as error:
+            if close_error is None:
+                close_error = error
+    clear_llm_cache()
+    if close_error is not None:
+        raise RuntimeError("Falha ao fechar clientes OpenAI.") from close_error
+
+
 @lru_cache(maxsize=1)
 def _get_llm_gemini() -> ChatGoogleGenerativeAI:
     validate_llm_config(provider="gemini")
@@ -304,6 +354,14 @@ def _get_llm_groq_especialista() -> ChatGroq:
 def _get_llm_especialista() -> _FallbackLLM:
     validate_llm_config(provider="specialist")
     settings = get_settings()
+    if settings.llm_provider == "openai":
+        fallback = (_get_llm_groq_especialista()
+                    if settings.llm_fallback_enabled and settings.groq_api_key else None)
+        return _FallbackLLM(
+            _get_llm_openai(), fallback, primary_provider="openai",
+            primary_model=settings.openai_model, fallback_provider="groq",
+            fallback_model=settings.groq_specialist_model if fallback else None,
+        )
     fallback = (
         _get_llm_groq_especialista() if settings.llm_fallback_enabled else None
     )
@@ -318,9 +376,11 @@ def _get_llm_especialista() -> _FallbackLLM:
 
 
 @lru_cache(maxsize=1)
-def _get_llm_rapido() -> ChatGroq:
+def _get_llm_rapido() -> ChatGroq | ChatOpenAI:
     validate_llm_config(provider="fast")
     settings = get_settings()
+    if settings.llm_provider == "openai":
+        return _get_llm_openai()
     return ChatGroq(
         model=settings.groq_fast_model,
         callbacks=[ModelDiagnostics("groq", settings.groq_fast_model)],
