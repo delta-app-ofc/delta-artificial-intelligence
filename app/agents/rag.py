@@ -23,7 +23,7 @@ class RagAgent:
             llm = llm_rapido
 
         if llm is None:
-            raise ConfigurationError("Configure o modelo rápido Groq para executar o agente RAG.")
+            raise ConfigurationError("Configure o modelo de linguagem selecionado para executar o agente RAG.")
 
         self.agent = create_agent(
             model=llm,

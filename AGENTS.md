@@ -18,7 +18,7 @@ memória, ferramentas de dados e Agente Juiz com Jev. O grafo revisa a candidata
 antes da publicação e limita a uma correção por solicitação. Testes isolados não
 comprovam conexão real ou qualidade semântica dos provedores.
 
-A stack inclui Python, FastAPI/Uvicorn, Pydantic, LangChain/LangGraph, Gemini/Groq,
+A stack inclui Python, FastAPI/Uvicorn, Pydantic, LangChain/LangGraph, OpenAI Responses e Gemini/Groq,
 PostgreSQL, MongoDB, Qdrant e langchain-typesafe. Redis consta nas dependências,
 sem fluxo de aplicação implementado.
 
@@ -41,7 +41,7 @@ sem fluxo de aplicação implementado.
 - `app/config.py` centraliza settings imutáveis em cache e valida cada componente antes do uso. Variáveis do processo prevalecem sobre `.env`; `APP_ENV=test` ignora qualquer arquivo `.env`. Defaults de bancos locais só existem em `development` e para variáveis ausentes, nunca explicitamente vazias.
 - `delta-handbook/DADOS/IA/agentes/settings.md` descreve ambientes, precedência, recarga e validação. `.env.example` usa somente valores descartáveis locais; `tests/.env.example` é explicativo e não é carregado pela suíte.
 - `app/services/prompts.py` mantém prompts dos sete agentes planejados. Ter prompt definido não significa que o agente correspondente esteja implementado.
-- `app/services/llms.py` configura modelos sob demanda a partir dos settings. O especialista mantém `bind_tools` nos dois provedores e usa Groq como fallback apenas para falhas transitórias; erros permanentes recebem mensagens públicas seguras e erros de programação propagam. O histórico de ferramentas é preservado sem repetir sua execução.
+- `app/services/llms.py` usa OpenAI Responses por padrão (`gpt-6-luna`, raciocínio `medium`), com clientes compartilhados por snapshot e fechamento no lifespan. `LLM_PROVIDER=gemini` mantém o modo anterior. Os embeddings continuam Gemini. Os consumidores extraem texto dos blocos Responses pelo helper existente. A fábrica configura modelos sob demanda a partir dos settings. O especialista mantém `bind_tools` nos dois provedores e usa Groq como fallback apenas para falhas transitórias; erros permanentes recebem mensagens públicas seguras e erros de programação propagam. O histórico de ferramentas é preservado sem repetir sua execução.
 - `delta-handbook/DADOS/IA/agentes/llm-models.md` registra papéis, modelos, parâmetros, retries e fontes oficiais. A disponibilidade de um modelo depende da conta; testes com clientes substituídos não comprovam acesso real nem qualidade das respostas.
 - `tests/` contém testes com modelo falso e ferramentas substituídas; os testes não precisam de banco nem de chamadas reais a provedores de LLM.
 - `manual_chat_judge.py` permite exercitar o fluxo integrado com guardrails, especialistas, Jev, eventual revisão e saída. A entrada manual não comprova integração remota sem execução com credenciais e dados reais.

@@ -6,6 +6,7 @@ from typing import Literal
 from pydantic import BaseModel
 
 from app.config import ConfigurationError
+from app.agents._runtime import _message_text
 from app.observability.diagnostics import current_trace
 from app.services.prompts import ROUTER_PROMPT
 
@@ -47,11 +48,11 @@ def classify(question: str, context: dict) -> RoutingDecision:
     try:
         llm = _llm_module.llm_rapido
         if llm is None:
-            raise ConfigurationError("Configure GROQ_API_KEY e GROQ_FAST_MODEL para o roteador.")
+            raise ConfigurationError("Configure o provedor de linguagem selecionado para o roteador.")
         response = llm.invoke(
             [SystemMessage(content=ROUTER_PROMPT), HumanMessage(content=user_text)]
         )
-        content = response.content if hasattr(response, "content") else str(response)
+        content = _message_text(response) if hasattr(response, "content") else str(response)
         try:
             data = json.loads(content)
         except json.JSONDecodeError:

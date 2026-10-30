@@ -60,8 +60,12 @@ somente em databases de teste isolados em loopback; veja os requisitos no
 
 Settings são snapshots em cache. Ao trocar configuração em um processo já
 em execução, recarregue os settings e descarte os clientes afetados:
-`clear_llm_cache()` para modelos e `close_clients()` para os dois clientes
-Mongo. Reiniciar o processo também aplica a nova configuração.
+`clear_llm_cache()` para os modelos gerais e `close_clients()` para os dois
+clientes Mongo. Para liberar os clientes OpenAI, aguarde
+`close_openai_clients()` de `app.services.llms`. Para o RAG, aguarde `close_rag_clients()` de
+`app.services.rag`; para o segundo juiz, aguarde `close_judge_clients()` de
+`app.agents.judge_specialist`. Faça essa recarga sem requisições em andamento.
+Reiniciar o processo também aplica a nova configuração.
 
 Detalhes: [settings e ambientes](https://github.com/delta-app-ofc/delta-handbook/blob/main/DADOS/IA/agentes/settings.md),
 [conector PostgreSQL](https://github.com/delta-app-ofc/delta-handbook/blob/main/DADOS/IA/agentes/postgres-connection.md) e
@@ -77,6 +81,34 @@ de SDKs ou credenciais. O playground mostra os detalhes seguros da execução.
 A base expõe `set_event_sink()` para conectar o logging. Ela não configura
 handlers, formatadores ou persistência de logs. Veja o [guia de rastreamento](docs/request-tracking.md)
 para integrar o consumidor, consultar os eventos e executar os testes.
+
+## Reutilização de clientes
+
+Os clientes de embeddings e Qdrant do RAG e os modelos do juiz especialista
+são criados no primeiro uso e reutilizados por processo. A OpenAI compartilha
+uma instância por snapshot de configuração entre os papéis generativos. O cache
+guarda clientes de comunicação; perguntas, respostas e evidências continuam
+sendo construídas em cada chamada. Cada worker mantém suas próprias instâncias.
+
+Um lock protege a primeira criação contra acessos simultâneos. Construções
+que falham não entram no cache. O fallback mantém os mesmos parâmetros e
+recebe o contexto da chamada atual. Os clientes permanecem abertos após uma
+busca e são fechados, incluindo transportes sync/async, pelo `lifespan` da API.
+O encerramento tenta fechar os demais recursos mesmo se um deles falhar.
+Runners fora da API devem aguardar as funções de fechamento ao terminar.
+
+As verificações de revisão/índice e a geração do embedding da pergunta
+continuam acontecendo em cada busca. O primeiro uso ainda paga a criação dos
+clientes; essa reutilização não elimina latência de geração ou erros 429.
+
+A metodologia e os resultados medidos estão em
+[comparação de latência](docs/client-reuse-benchmark.md).
+
+Os testes isolados de concorrência, falhas, fechamento e contexto executam com:
+
+```bash
+python -m unittest discover -s tests -p test_client_reuse.py -v
+```
 
 ## Base documental RAG
 
@@ -145,45 +177,46 @@ As descrições das categorias também são compartilhadas com o segundo juiz.
 
 O direcionamento usa o mesmo `JEV_CONFIDENCE_THRESHOLD`, com default
 **0,70**: confidence maior ou igual mantém o parecer Jev; abaixo desse valor,
-o `SpecialistJudgeAgent` dá o segundo parecer com `gemini-2.5-flash`.
+o `SpecialistJudgeAgent` dá o segundo parecer com o modelo selecionado.
+O padrão é OpenAI `gpt-6-luna` com raciocínio `medium`.
 O mesmo limiar de confiança é usado na política Jev e no encaminhamento.
 O segundo juiz pode aprovar a candidata, pedir uma correção ou bloquear com
 a resposta segura. Uma falha Jev continua bloqueando; não equivale a uma
 avaliação de baixa confiança.
 
-O Flash recebe a pergunta e a candidata completas, contexto, evidências,
+O segundo juiz recebe a pergunta e a candidata completas, contexto, evidências,
 gráfico e o parecer original Jev, incluindo categoria, valores, critérios
 pendentes e justificativa disponível. O prompt diretivo e os novos parâmetros
 ficam em `app/config.py`, junto da rubrica compartilhada com o Jev.
-`JUDGE_SPECIALIST_MODEL` seleciona o modelo do segundo juiz, sem alterar os
-modelos dos outros agentes. Ele usa `GEMINI_API_KEY` e os limites
-`LLM_TIMEOUT_SECONDS`, `LLM_MAX_RETRIES` e `LLM_MAX_OUTPUT_TOKENS`.
+No modo OpenAI, o segundo juiz usa `OPENAI_MODEL` e `OPENAI_REASONING_EFFORT`.
+No modo `LLM_PROVIDER=gemini`, usa `JUDGE_SPECIALIST_MODEL` e `GEMINI_API_KEY`.
+Os limites `LLM_TIMEOUT_SECONDS`, `LLM_MAX_RETRIES` e `LLM_MAX_OUTPUT_TOKENS`
+continuam configuráveis.
 
-Com `LLM_FALLBACK_ENABLED=true`, falhas transitórias do Gemini (timeout,
+Com `LLM_FALLBACK_ENABLED=true`, falhas transitórias do provedor principal (timeout,
 conexão, HTTP 408/429 ou 5xx) encaminham o mesmo prompt e contexto ao Groq,
 usando `GROQ_API_KEY` e `GROQ_SPECIALIST_MODEL`. Erros permanentes ou
 pareceres inválidos encerram com resposta segura. O log
-`Agente Juiz Especialista: Gemini -> Groq` e o evento
+`Agente Juiz Especialista: openai -> Groq` (ou `google -> Groq` no modo legado) e o evento
 `judge.specialist.fallback` registram a transferência; `assessment.provider`
 e `assessment.model` identificam o provedor que respondeu. O Groq continua
 no papel de juiz especialista e preserva a mesma regra de revisão.
 
 Há no máximo uma correção por solicitação. O juiz que pediu a correção avalia
-o retry: Jev quando sua confiança inicial atingiu o limiar; Flash quando o
+o retry: Jev quando sua confiança inicial atingiu o limiar; o segundo juiz quando o
 parecer veio do especialista. Se o Jev avaliar o retry com baixa confiança,
-esse parecer também segue ao Flash. Uma nova solicitação de correção na
+esse parecer também segue ao segundo juiz. Uma nova solicitação de correção na
 segunda rodada bloqueia; candidata e gráfico rejeitados não são publicados.
 
 A transferência gera o log `Jev -> Agente Juiz Especialista` e o evento
 `judge.fallback` somente quando ocorre. O parecer do segundo juiz fica no
 histórico com `assessment.reviewer=specialist`; o parecer Jev original
-permanece em `assessment.jev_result`. O Flash não fornece confidence:
+permanece em `assessment.jev_result`. O segundo juiz não fornece confidence:
 o valor original do Jev é preservado nesse registro, sem inventar outro número.
 
-Os testes em [tests/test_judge_fallback.py](tests/test_judge_fallback.py)
-verificam fronteiras, decisões, contexto completo, falhas e autoria/limite
-do retry, inclusive em turnos da mesma sessão, usando provedores substituídos.
-Não comprovam acesso remoto nem qualidade semântica do Gemini/Jev.
+Os testes em tests/test_client_reuse.py e tests/test_openai_models.py cobrem
+cache, fechamento, configuração, tools, JSON e tratamento de falhas com
+provedores substituídos. Não medem a qualidade semântica do Jev.
 
 ## Validação manual
 
@@ -209,20 +242,19 @@ usado. Não execute em `APP_ENV=test` esperando carregar o `.env`.
 As verificações isoladas da implementação cobriram a política, o transporte
 com HTTP simulado e o grafo sem consumir crédito. O runner permite validar
 os provedores e dados reais; esse teste não foi executado automaticamente.
-O fallback do Juiz tem testes persistentes em `tests/test_judge_fallback.py`.
+A integração e o reuso têm testes persistentes na pasta tests/.
 
 ## Testes
 
-A suíte disponível em `tests/test_judge_fallback.py` cobre o fallback do Juiz,
-a configuração e o fluxo de revisão com Jev/Gemini substituídos. O ambiente
-de teste e o cache de settings são isolados por fixture. Execute:
+A suíte usa unittest, clientes substituídos e transportes HTTP simulados.
+Execute na raiz do repositório:
 
-~~~powershell
-.\.venv\Scripts\python.exe -m pytest tests/test_judge_fallback.py -q
-~~~
+```powershell
+.\.venv\Scripts\python.exe -m unittest discover -s tests -v
+```
 
 Esses testes não acessam bancos nem provedores reais e não comprovam a
-qualidade semântica das avaliações.
+qualidade semântica das avaliações. Veja também [modelos OpenAI](docs/openai-models.md).
 
 ## Estrutura de `app/data/` e `app/tools/`
 
@@ -274,7 +306,7 @@ tendência de consumo e avalia risco de ultrapassar a meta cadastrada.
 - Estimativa da próxima conta: usa a última conta cadastrada quando não há
   histórico Mongo suficiente (menos de 7 dias); usa projeção de consumo ×
   tarifa vigente quando há.
-- Usa `llm_especialista` (Gemini com fallback Groq, `app/services/llms.py`).
+- Usa `llm_especialista` com o provedor selecionado em `app/services/llms.py`.
 
 ## Agente de Consumo
 
@@ -374,18 +406,12 @@ que o LLM já recebe no schema; repetir isso no prompt custaria token à toa.
 `CONSUMO_PROMPT` exige contexto do período, escopo, granularidade e lacunas;
 `consumo_prompt_completo()` monta a referência temporal no uso.
 
-`llms.py` cria os clientes sob demanda a partir dos settings. Os três agentes
-usam `llm_especialista`: Gemini (`GEMINI_MODEL`, default `gemini-2.5-flash`)
-com fallback Groq (`GROQ_SPECIALIST_MODEL`, default `openai/gpt-oss-120b`).
-O fallback preserva `bind_tools` e histórico, sem repetir tools já executadas,
-e só é acionado para erros transitórios reconhecidos. Pode ser desativado
-com `LLM_FALLBACK_ENABLED=false`.
-
-`llm_rapido` usa Groq (`GROQ_FAST_MODEL`, default `openai/gpt-oss-20b`) e é
-usado pelo router e pelo nó de síntese do workflow. Timeout, retries e limite
-de saída são configuráveis. A disponibilidade depende da conta e do identificador;
-os testes não medem qualidade em português. Justificativas, parâmetros e
-fontes oficiais estão em [provedores e modelos](https://github.com/delta-app-ofc/delta-handbook/blob/main/DADOS/IA/agentes/llm-models.md).
+Os clientes de geração são criados sob demanda em app/services/llms.py.
+O padrão usa OpenAI Responses com gpt-6-luna e raciocínio medium para os
+especialistas, modelo rápido e segundo juiz. O fallback Groq permanece
+configurável para falhas transitórias; o modo LLM_PROVIDER=gemini mantém
+a seleção anterior. Os parâmetros e contratos estão em
+[modelos OpenAI](docs/openai-models.md).
 
 ## Console de testes dos agentes
 
@@ -424,9 +450,9 @@ histórico recente alimenta a classificação e os especialistas continuam
 recebendo a pergunta atual conforme o contrato existente.
 
 Não há modo demonstrativo. Configure o arquivo .env a partir de
-[.env.example](.env.example): Groq para guardrails/roteador/RAG, Gemini e fallback
-Groq para os especialistas, PostgreSQL e MongoDB para os dados, Qdrant e Gemini
-embeddings para o RAG. O RAG pode indexar a revisão documental antes da primeira
+[.env.example](.env.example): OpenAI para os papéis generativos, Groq opcional
+para fallback, PostgreSQL e MongoDB para os dados e Qdrant/Gemini embeddings
+para a recuperação documental. O RAG pode indexar a revisão documental antes da primeira
 consulta. Ausência de dados não comprova falha de conexão, e erro de conexão
 não vira consumo zero.
 

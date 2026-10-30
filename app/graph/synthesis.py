@@ -3,6 +3,7 @@ from __future__ import annotations
 from langchain_core.messages import HumanMessage, SystemMessage
 
 from app.services.prompts import SYNTHESIS_PROMPT
+from app.agents._runtime import _message_text
 from app.observability.diagnostics import current_trace
 
 
@@ -29,7 +30,7 @@ def synthesize(question: str, answers: list[dict]) -> dict | None:
             trace.error("synthesis", error, operation="combine_answers")
         return None
 
-    unified = response.content if hasattr(response, "content") else str(response)
+    unified = _message_text(response) if hasattr(response, "content") else str(response)
     if not unified.strip():
         return None
 

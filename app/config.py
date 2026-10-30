@@ -180,6 +180,10 @@ class Settings:
     jev_facts_supported_threshold: float = 0.60
     jev_relevance_threshold: float = 0.25
     judge_specialist_model: str = "gemini-2.5-flash"
+    openai_api_key: str | None = field(default=None, repr=False)
+    openai_model: str = "gpt-6-luna"
+    openai_reasoning_effort: str = "medium"
+    llm_provider: str = "openai"
     _parse_errors: tuple[tuple[str, str], ...] = field(default=(), repr=False)
 
 
@@ -305,6 +309,10 @@ def load_settings(
         playground_enabled=playground_enabled,
         jwt_secret=values.get("JWT_SECRET"),
         cors_allowed_origins=values.get("CORS_ALLOWED_ORIGINS") or "*",
+        openai_api_key=values.get("OPENAI_API_KEY"),
+        openai_model=values.get("OPENAI_MODEL", Settings.openai_model) or "",
+        openai_reasoning_effort=(values.get("OPENAI_REASONING_EFFORT", Settings.openai_reasoning_effort) or "").casefold(),
+        llm_provider=(values.get("LLM_PROVIDER", Settings.llm_provider) or "").casefold(),
         gemini_api_key=values.get("GEMINI_API_KEY"),
         groq_api_key=values.get("GROQ_API_KEY"),
         database_url=database_url,
@@ -382,45 +390,60 @@ def validate_jev_config(*, settings: Settings | None = None) -> None:
         raise ConfigurationError(f"Configuração Jev inválida: {', '.join(problems)}.")
 
 def validate_llm_config(
-    provider: Literal["specialist", "gemini", "groq_specialist", "fast", "judge"] = "specialist",
+    provider: Literal["specialist", "gemini", "groq_specialist", "fast", "judge", "openai"] = "specialist",
     *,
     settings: Settings | None = None,
 ) -> None:
-    """Valida as chaves e opções do caminho LLM selecionado."""
+    """Valida somente as integrações necessárias ao caminho selecionado."""
     current = settings or get_settings()
-    if provider not in {"specialist", "gemini", "groq_specialist", "fast", "judge"}:
-        raise ValueError("provider deve ser specialist, gemini, groq_specialist, fast ou judge")
+    if provider not in {"specialist", "gemini", "groq_specialist", "fast", "judge", "openai"}:
+        raise ValueError("Provedor LLM desconhecido.")
 
-    needs_gemini = provider in {"specialist", "gemini", "judge"}
-    needs_groq = provider in {"groq_specialist", "fast"} or (
-        provider == "specialist" and current.llm_fallback_enabled
+    openai_path = current.llm_provider == "openai" and provider in {"specialist", "fast", "judge"}
+    needs_openai = provider == "openai" or openai_path
+    needs_gemini = provider == "gemini" or (
+        provider in {"specialist", "judge"} and not openai_path
     )
-    names = {"LLM_TIMEOUT_SECONDS", "LLM_MAX_RETRIES", "LLM_MAX_OUTPUT_TOKENS"}
+    needs_groq = provider == "groq_specialist" or (
+        not openai_path and (provider == "fast" or (
+            provider == "specialist" and current.llm_fallback_enabled
+        ))
+    )
+    names = {"LLM_PROVIDER", "LLM_TIMEOUT_SECONDS", "LLM_MAX_RETRIES", "LLM_MAX_OUTPUT_TOKENS"}
     if provider == "specialist":
         names.add("LLM_FALLBACK_ENABLED")
+    if needs_openai:
+        names.update({"OPENAI_API_KEY", "OPENAI_MODEL", "OPENAI_REASONING_EFFORT"})
     if needs_gemini:
         names.add("GEMINI_API_KEY")
     if needs_groq:
         names.add("GROQ_API_KEY")
 
     problems = [
-        f"{name}: {message}"
-        for name, message in current._parse_errors
+        f"{name}: {message}" for name, message in current._parse_errors
         if name in names or name == "APP_ENV"
     ]
-    if needs_gemini and not current.gemini_api_key:
-        problems.append("GEMINI_API_KEY ausente ou vazio")
-    if needs_groq and not current.groq_api_key:
-        problems.append("GROQ_API_KEY ausente ou vazio")
-    gemini_model = current.judge_specialist_model if provider == "judge" else current.gemini_model
-    gemini_model_name = "JUDGE_SPECIALIST_MODEL" if provider == "judge" else "GEMINI_MODEL"
-    if needs_gemini and not gemini_model:
-        problems.append(f"{gemini_model_name} ausente ou vazio")
-
-    groq_model = current.groq_fast_model if provider == "fast" else current.groq_specialist_model
-    groq_model_name = "GROQ_FAST_MODEL" if provider == "fast" else "GROQ_SPECIALIST_MODEL"
-    if needs_groq and not groq_model:
-        problems.append(f"{groq_model_name} ausente ou vazio")
+    if current.llm_provider not in {"openai", "gemini"}:
+        problems.append("LLM_PROVIDER deve ser openai ou gemini")
+    if needs_openai:
+        if not current.openai_api_key:
+            problems.append("OPENAI_API_KEY ausente ou vazio")
+        if not current.openai_model:
+            problems.append("OPENAI_MODEL ausente ou vazio")
+        if current.openai_reasoning_effort not in {"none", "low", "medium", "high", "xhigh", "max"}:
+            problems.append("OPENAI_REASONING_EFFORT deve ser none, low, medium, high, xhigh ou max")
+    if needs_gemini:
+        if not current.gemini_api_key:
+            problems.append("GEMINI_API_KEY ausente ou vazio")
+        model = current.judge_specialist_model if provider == "judge" else current.gemini_model
+        if not model:
+            problems.append("Modelo Gemini ausente ou vazio")
+    if needs_groq:
+        if not current.groq_api_key:
+            problems.append("GROQ_API_KEY ausente ou vazio")
+        model = current.groq_fast_model if provider == "fast" else current.groq_specialist_model
+        if not model:
+            problems.append("Modelo Groq ausente ou vazio")
     if current.llm_timeout_seconds <= 0:
         problems.append("LLM_TIMEOUT_SECONDS deve ser positivo")
     if current.llm_max_retries < 0:

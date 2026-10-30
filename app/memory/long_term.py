@@ -174,7 +174,9 @@ def save_summary(user_id: int, session_id: str, messages: list[dict]) -> None:
             [HumanMessage(content=f"Resuma em até 3 frases esta conversa:\n\n{transcript}")]
         ),
     )
-    summary_text = summary_msg.content if hasattr(summary_msg, "content") else str(summary_msg)
+    from app.agents._runtime import _message_text
+
+    summary_text = _message_text(summary_msg) if hasattr(summary_msg, "content") else str(summary_msg)
 
     embed_model = _run_phase("create_embeddings", _embed_model)
 

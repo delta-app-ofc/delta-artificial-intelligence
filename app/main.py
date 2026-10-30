@@ -1,3 +1,5 @@
+from contextlib import asynccontextmanager
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from app.observability.http import RequestTracingMiddleware
@@ -8,7 +10,27 @@ from app.routes.chat import router as chat_router
 from app.routes.sessions import router as sessions_router
 from app.routes.playground import router as playground_router
 
-app = FastAPI(title="Delta AI", version="0.1.0")
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """Mantém clientes lazy por processo e fecha-os após as requisições terminarem."""
+    from app.agents.judge_specialist import close_judge_clients
+    from app.services.rag import close_rag_clients
+    from app.services.llms import close_openai_clients
+
+    try:
+        yield
+    finally:
+        try:
+            await close_rag_clients()
+        finally:
+            try:
+                await close_judge_clients()
+            finally:
+                await close_openai_clients()
+
+
+app = FastAPI(title="Delta AI", version="0.1.0", lifespan=lifespan)
 
 
 def cors_origins() -> list[str]:

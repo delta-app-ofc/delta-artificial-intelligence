@@ -29,6 +29,8 @@ VECTOR_SIZE = 3072
 MAX_SECTION_CHARS = 6000
 _PARSER_VERSION = "markdown-headings-v2"
 _INDEX_LOCK = Lock()
+_CLIENTS_LOCK = Lock()
+_CLIENTS: dict = {}
 
 
 @dataclass(frozen=True)
@@ -120,13 +122,16 @@ def create_embeddings():
     if not settings.gemini_api_key:
         raise ConfigurationError("GEMINI_API_KEY ausente para embeddings RAG.")
 
-    return GoogleGenerativeAIEmbeddings(
-        model=embedding_model_name(),
-        api_key=settings.gemini_api_key,
-        output_dimensionality=VECTOR_SIZE,
-        vertexai=False,
-        client_args={"timeout": 30},
-    )
+    with _CLIENTS_LOCK:
+        if "embeddings" not in _CLIENTS:
+            _CLIENTS["embeddings"] = GoogleGenerativeAIEmbeddings(
+                model=embedding_model_name(),
+                api_key=settings.gemini_api_key,
+                output_dimensionality=VECTOR_SIZE,
+                vertexai=False,
+                client_args={"timeout": 30},
+            )
+        return _CLIENTS["embeddings"]
 
 
 def create_qdrant():
@@ -135,7 +140,35 @@ def create_qdrant():
     settings = get_settings()
     if not settings.qdrant_url:
         raise ConfigurationError("QDRANT_URL ausente para a base documental RAG.")
-    return QdrantClient(url=settings.qdrant_url, api_key=settings.qdrant_api_key, timeout=30)
+    with _CLIENTS_LOCK:
+        if "qdrant" not in _CLIENTS:
+            _CLIENTS["qdrant"] = QdrantClient(
+                url=settings.qdrant_url, api_key=settings.qdrant_api_key, timeout=30,
+            )
+        return _CLIENTS["qdrant"]
+
+
+async def close_rag_clients() -> None:
+    """Fecha os clientes RAG inicializados e limpa o cache sem criar conexões."""
+    with _CLIENTS_LOCK:
+        clients = dict(_CLIENTS)
+        _CLIENTS.clear()
+
+    close_error = None
+    for name, client in clients.items():
+        try:
+            if name == "qdrant":
+                client.close()
+            else:
+                try:
+                    client.client.close()
+                finally:
+                    await client.client.aio.aclose()
+        except Exception as error:
+            if close_error is None:
+                close_error = error
+    if close_error is not None:
+        raise RuntimeError("Falha ao fechar clientes RAG.") from close_error
 
 
 def index_document(document: RagDocument, *, client, embeddings) -> int:
