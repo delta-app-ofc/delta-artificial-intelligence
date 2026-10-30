@@ -14,7 +14,7 @@ from app.graph.router import AGENT_REGISTRY, AgentNotImplemented, classify, load
 from app.graph.state import AgentOutput, GraphState
 from app.graph.synthesis import synthesize
 from app.guardrails.input import validate_input
-from app.guardrails.output import validate_output
+from app.guardrails.output import chart_mentions_other_user, validate_output, validate_ownership
 from app.memory.session import append_turn, load_history_validated, to_chat_messages
 from app.observability.diagnostics import component, current_trace, safe_error
 from app.services.session_meta import refresh_session_meta
@@ -365,6 +365,10 @@ def _guardrail_output_node(state: GraphState) -> dict:
         return {}
     with component("output_guard"):
         result = validate_output(state.get("response") or "", state.get("pii_map") or {})
+        if result["ok"]:
+            ownership = validate_ownership(result["response"], state.get("user_id"))
+            if not ownership["ok"]:
+                result = ownership
     if not result["ok"]:
         if trace := current_trace():
             trace.errors.append({"stage": "output_guard", "code": "output_rejected",
@@ -387,7 +391,14 @@ def _guardrail_output_node(state: GraphState) -> dict:
                 args=(state["user_id"], state["session_id"], state["question"], safe),
                 daemon=True,
             ).start()
-    return {"response": safe, "messages": [{"role": "assistant", "content": safe}]}
+
+    update: dict = {"response": safe, "messages": [{"role": "assistant", "content": safe}]}
+    if chart_mentions_other_user(state.get("chart_data"), state.get("user_id")):
+        if trace := current_trace():
+            trace.errors.append({"stage": "output_guard", "code": "chart_rejected",
+                                 "message": "Gráfico com dados de outro usuário descartado."})
+        update["chart_data"] = None
+    return update
 
 
 _graph = StateGraph(GraphState)
@@ -447,4 +458,21 @@ def run_workflow(user_id: int, session_id: str, question: str, *,
     }
     if not workflow.get_state(config).values.get("messages"):
         initial["messages"] = _history_from_mongo(user_id, session_id)
-    return workflow.invoke(initial, config=config)
+    try:
+        return workflow.invoke(initial, config=config)
+    finally:
+        if persist_session:
+            _forget_thread(config["configurable"]["thread_id"])
+
+
+def _forget_thread(thread_id: str) -> None:
+    """Apaga o estado da execução da memória do processo.
+
+    No chat o histórico vem do MongoDB a cada pergunta; guardar o checkpoint só
+    acumularia mensagens e PII em RAM sem limite. O console de testes não grava
+    histórico e continua usando o checkpoint para manter a conversa.
+    """
+    try:
+        workflow.checkpointer.delete_thread(thread_id)
+    except Exception:
+        pass

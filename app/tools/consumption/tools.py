@@ -143,7 +143,7 @@ def _read_period(
     bounds = analysis.daily_date_bounds(period)
     records = (
         db_postgres.get_organization_consumption_daily(
-            list(scope.property_ids), bounds[0], bounds[1]
+            user_id, list(scope.property_ids), bounds[0], bounds[1]
         )
         if bounds is not None
         else []

@@ -14,6 +14,7 @@ from langchain_core.tools import BaseTool, tool
 
 from app.data import db_mongo
 from app.tools.leak import analysis
+from app.tools.validation import days_error, validate_user_id
 
 # Janela padrão de análise (dias).
 DEFAULT_ANALYSIS_DAYS = 30
@@ -33,6 +34,7 @@ def _serialize(value: Any) -> Any:
 
 def build_tools(user_id: int) -> list[BaseTool]:
     """Cria as tools já amarradas a user_id (não exposto ao LLM)."""
+    validate_user_id(user_id)
 
     @tool
     def get_anomalous_windows(days: int = DEFAULT_ANALYSIS_DAYS) -> dict:
@@ -43,6 +45,8 @@ def build_tools(user_id: int) -> list[BaseTool]:
         ausência como garantia de que não há vazamento; interprete presença
         como indício, nunca como diagnóstico.
         """
+        if invalid := days_error(days):
+            return invalid
         windows = db_mongo.get_anomalous_consumption_windows(user_id, days)
         return {
             "status": "ok" if windows else "insufficient_data",
@@ -58,6 +62,8 @@ def build_tools(user_id: int) -> list[BaseTool]:
 
         Com only_active=True retorna só os não resolvidos (resolved_at nulo).
         """
+        if invalid := days_error(days):
+            return invalid
         alerts = db_mongo.get_alerts_history(user_id, days, only_active=only_active)
         return {
             "status": "ok" if alerts else "insufficient_data",
@@ -75,6 +81,8 @@ def build_tools(user_id: int) -> list[BaseTool]:
         Serve só para você explicar o padrão já sinalizado em linguagem
         natural. Não cria nenhum critério novo de detecção.
         """
+        if invalid := days_error(days):
+            return invalid
         windows = db_mongo.get_anomalous_consumption_windows(user_id, days)
         summary = analysis.summarize_anomalous_windows(windows)
         return {

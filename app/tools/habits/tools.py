@@ -3,6 +3,7 @@ from __future__ import annotations
 from langchain_core.tools import BaseTool, tool
 
 from app.data import db_mongo, db_postgres
+from app.tools.validation import validate_user_id
 
 _HABIT_LITERS_PER_SESSION: dict[str, float] = {
     "BANHO LONGO": 80.0,
@@ -79,9 +80,11 @@ _NOT_RESIDENTIAL = {
 
 
 def build_tools(user_id: int) -> list[BaseTool]:
+    validate_user_id(user_id)
 
-    _access_kind = db_postgres.get_user_access_kind(user_id)
-    _is_residential = _access_kind == "residential"
+    def _is_residential() -> bool:
+        # Consulta a cada chamada: uma mudança de vínculo vale já na próxima tool.
+        return db_postgres.get_user_access_kind(user_id) == "residential"
 
     @tool
     def list_habits() -> dict:
@@ -93,7 +96,7 @@ def build_tools(user_id: int) -> list[BaseTool]:
 
         Disponível apenas para usuários residenciais.
         """
-        if not _is_residential:
+        if not _is_residential():
             return _NOT_RESIDENTIAL
         habits = db_postgres.get_user_habits(user_id)
         if not habits:
@@ -111,7 +114,7 @@ def build_tools(user_id: int) -> list[BaseTool]:
 
         Disponível apenas para usuários residenciais.
         """
-        if not _is_residential:
+        if not _is_residential():
             return _NOT_RESIDENTIAL
         canonical = _normalize_day(day)
         if canonical is None:
@@ -149,7 +152,7 @@ def build_tools(user_id: int) -> list[BaseTool]:
 
         Disponível apenas para usuários residenciais.
         """
-        if not _is_residential:
+        if not _is_residential():
             return _NOT_RESIDENTIAL
         canonical_name = _VALID_HABITS.get(name.strip().lower())
         if canonical_name is None:
@@ -207,7 +210,7 @@ def build_tools(user_id: int) -> list[BaseTool]:
 
         Disponível apenas para usuários residenciais.
         """
-        if not _is_residential:
+        if not _is_residential():
             return _NOT_RESIDENTIAL
         canonical = _VALID_HABITS.get(habit_name.strip().lower())
         if canonical is None:

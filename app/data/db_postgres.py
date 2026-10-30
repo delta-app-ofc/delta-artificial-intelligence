@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 from contextlib import contextmanager
 from datetime import date, datetime, timedelta
 from decimal import Decimal
@@ -12,8 +13,11 @@ from app.tools.exceptions import (
     DatabaseConnectionError,
     DatabaseQueryError,
     RegionRateNotFound,
+    UnauthorizedAccessError,
 )
 from app.tools.models import ConsumptionPoint, LastWaterBill, OrganizationProperty
+
+logger = logging.getLogger(__name__)
 
 
 def get_conn():
@@ -154,6 +158,17 @@ def get_last_water_bill(user_id: int) -> LastWaterBill | None:
     )
 
 
+def _authorize_property_ids(user_id: int, property_ids: list[int]) -> None:
+    """Garante que todas as propriedades pertencem às organizações de user_id.
+
+    Os ids já devem vir de get_user_organization_properties; esta conferência
+    impede que uma chamada futura consulte propriedades de outra organização.
+    """
+    allowed = {item.property_id for item in get_user_organization_properties(user_id)}
+    if not set(property_ids) <= allowed:
+        raise UnauthorizedAccessError()
+
+
 def get_user_access_kind(user_id: int) -> Literal["residential", "organizational", "none"]:
     """Resolve como o usuário se relaciona com propriedades.
 
@@ -188,7 +203,7 @@ def get_user_organization_properties(user_id: int) -> list[OrganizationProperty]
     ]
 
 
-def organization_can_estimate(property_ids: list[int]) -> bool:
+def organization_can_estimate(user_id: int, property_ids: list[int]) -> bool:
     """Elegibilidade organizacional: existe telemetria real (com tarifa já
     calculada) para pelo menos uma das propriedades.
 
@@ -197,6 +212,7 @@ def organization_can_estimate(property_ids: list[int]) -> bool:
     """
     if not property_ids:
         return False
+    _authorize_property_ids(user_id, property_ids)
     with _cursor() as cur:
         cur.execute("SELECT fn_organization_can_estimate(%s);", (property_ids,))
         row = cur.fetchone()
@@ -204,7 +220,7 @@ def organization_can_estimate(property_ids: list[int]) -> bool:
 
 
 def get_organization_consumption_history(
-    property_ids: list[int], days: int, today: date
+    user_id: int, property_ids: list[int], days: int, today: date
 ) -> list[ConsumptionPoint]:
     """Histórico diário (litros) somado por dia entre as propriedades
     informadas, via fn_organization_consumption_history (janela de `days`
@@ -216,6 +232,7 @@ def get_organization_consumption_history(
     """
     if not property_ids:
         return []
+    _authorize_property_ids(user_id, property_ids)
     with _cursor() as cur:
         cur.execute(
             "SELECT full_date, total_liters FROM fn_organization_consumption_history(%s, %s, %s);",
@@ -239,7 +256,7 @@ def get_organization_consumption_history(
 
 
 def get_organization_consumption_daily(
-    property_ids: list[int], start_date: date, end_date: date
+    user_id: int, property_ids: list[int], start_date: date, end_date: date
 ) -> list[tuple[date, Decimal]]:
     """Lê os registros diários das unidades autorizadas no intervalo de datas.
 
@@ -248,6 +265,7 @@ def get_organization_consumption_daily(
     """
     if not property_ids:
         return []
+    _authorize_property_ids(user_id, property_ids)
     if (
         not isinstance(start_date, date)
         or isinstance(start_date, datetime)
@@ -274,7 +292,7 @@ def get_organization_consumption_daily(
 
 
 def get_organization_last_billed_period(
-    property_ids: list[int], today: date
+    user_id: int, property_ids: list[int], today: date
 ) -> LastWaterBill | None:
     """Equivalente organizacional de tb_last_water_bill (que não existe para
     organização) via fn_organization_last_billed_period: soma do último mês
@@ -283,6 +301,7 @@ def get_organization_last_billed_period(
     """
     if not property_ids:
         return None
+    _authorize_property_ids(user_id, property_ids)
     with _cursor() as cur:
         cur.execute(
             """
@@ -393,12 +412,17 @@ def create_habit(user_id: int, name: str, frequency: int, days: list[str]) -> di
                 (user_id, name, frequency, days),
             )
         except psycopg2.errors.RaiseException as exc:  # type: ignore[attr-defined]
-            raise ValueError(exc.diag.message_primary) from exc
+            # A mensagem do banco pode trazer detalhes internos: vai só para o log.
+            logger.warning("Cadastro de hábito recusado pelo banco: %s", exc.diag.message_primary)
+            raise ValueError(
+                "Não foi possível cadastrar o hábito. Ele pode já estar cadastrado "
+                "ou os dados informados são inválidos."
+            ) from exc
     return {"name": name, "frequency": frequency, "days": days}
 
 
 def get_organization_effective_rate(
-    property_ids: list[int], today: date, window_days: int = 30
+    user_id: int, property_ids: list[int], today: date, window_days: int = 30
 ) -> Decimal | None:
     """Tarifa efetiva (R$/m³) observada nos últimos window_days dias, via
     fn_organization_effective_rate. Retorna None sem consumo na janela.
@@ -409,6 +433,7 @@ def get_organization_effective_rate(
     """
     if not property_ids:
         return None
+    _authorize_property_ids(user_id, property_ids)
     with _cursor() as cur:
         cur.execute(
             "SELECT fn_organization_effective_rate(%s, %s, %s);",

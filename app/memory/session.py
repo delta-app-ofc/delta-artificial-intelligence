@@ -71,6 +71,17 @@ def session_belongs_to_user(user_id: int, session_id: str) -> bool:
     )
 
 
+def discard_empty_session(user_id: int, session_id: str) -> None:
+    """Remove a sessão de user_id só se ela ainda não tiver mensagens."""
+    object_id = _object_id(session_id)
+    if object_id is None:
+        return
+
+    _collection().delete_one(
+        {"_id": object_id, "user_id": user_id, "messages.0": {"$exists": False}}
+    )
+
+
 def load_history_validated(user_id: int, session_id: str) -> list[dict]:
     """Retorna o histórico somente se a sessão pertencer a user_id.
 
@@ -151,7 +162,7 @@ def mark_session_closed(user_id: int, session_id: str) -> None:
         return
 
     _collection().update_one(
-        {"_id": object_id, "user_id": user_id},
+        {"_id": object_id, "user_id": user_id, "is_deleted": {"$ne": True}},
         {"$set": {"is_open": False, "is_active": False}},
     )
 
@@ -163,7 +174,7 @@ def session_needs_meta(user_id: int, session_id: str) -> bool:
         return False
 
     doc = _collection().find_one(
-        {"_id": object_id, "user_id": user_id}, {"_id": 0, "title": 1}
+        {"_id": object_id, "user_id": user_id, "is_deleted": {"$ne": True}}, {"_id": 0, "title": 1}
     )
     return doc is not None and not doc.get("title")
 
@@ -174,7 +185,7 @@ def set_session_meta(user_id: int, session_id: str, title: str, preview: str, ic
         return
 
     _collection().update_one(
-        {"_id": object_id, "user_id": user_id},
+        {"_id": object_id, "user_id": user_id, "is_deleted": {"$ne": True}},
         {"$set": {"title": title, "preview": preview, "icon": icon}},
     )
 

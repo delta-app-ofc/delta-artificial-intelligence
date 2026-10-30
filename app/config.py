@@ -52,8 +52,9 @@ class Settings:
     qdrant_url: str | None = field(repr=False)
     qdrant_api_key: str | None = field(repr=False)
     rag_document_path: str | None = field(default=None, repr=False)
-    jwt_secret: str | None = field(default=None, repr=False)
     playground_enabled: bool = False
+    jwt_secret: str | None = field(default=None, repr=False)
+    cors_allowed_origins: str = "*"
     _parse_errors: tuple[tuple[str, str], ...] = field(default=(), repr=False)
 
 
@@ -168,6 +169,8 @@ def load_settings(
         jev_model=values.get("JEV_MODEL", "jev-1.14.0") or "",
         jev_timeout_seconds=parsed_numbers["JEV_TIMEOUT_SECONDS"],
         playground_enabled=playground_enabled,
+        jwt_secret=values.get("JWT_SECRET"),
+        cors_allowed_origins=values.get("CORS_ALLOWED_ORIGINS") or "*",
         gemini_api_key=values.get("GEMINI_API_KEY"),
         groq_api_key=values.get("GROQ_API_KEY"),
         database_url=database_url,
@@ -190,7 +193,6 @@ def load_settings(
         rag_document_path=values.get(
             "RAG_DOCUMENT_PATH", "app/knowledge/delta-main-source.md"
         ),
-        jwt_secret=values.get("JWT_SECRET"),
         _parse_errors=tuple(parse_errors),
     )
 

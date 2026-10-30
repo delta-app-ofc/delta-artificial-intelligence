@@ -493,12 +493,14 @@ Aplicados em duas camadas (defesa em profundidade): na rota HTTP
 
 - **Sessão** (`app/memory/session.py`): histórico na coleção `chat_sessions` do
   `db_delta_app` (schema oficial do `delta-mongo-database`). O `session_id` da API é o
-  `_id` da sessão em texto e é sempre criado pelo servidor. `append_turn` e
-  `load_history_validated` só operam em sessões do próprio usuário.
+  `_id` da sessão em texto e é sempre criado pelo servidor (`create_session`); `/chat` só
+  continua sessões que o servidor devolveu. `append_turn`, `load_history_validated` e
+  `session_belongs_to_user` só operam em sessões do próprio usuário; sessões marcadas
+  como excluídas (`is_deleted`) são ignoradas.
 - **Título, prévia e ícone** (`app/services/session_meta.py`): na primeira troca da
   conversa, a LLM rápida gera `title`, `preview` e `icon` (um valor de `ICONS`), gravados na
   sessão em segundo plano. Sem eles, a listagem usa o início das mensagens e o ícone `general`.
-  Esses três campos ainda precisam ser documentados no `delta-mongo-database`/`delta-handbook`.
+  Esses três campos estão documentados no `delta-mongo-database` e no `delta-handbook`.
 - **Longo prazo** (`app/memory/long_term.py`): embeddings Gemini armazenados no
   Qdrant. Consultada pelo nó `context` quando a pergunta referencia o passado.
 
@@ -513,24 +515,41 @@ uvicorn app.main:app --reload
 |--------|------|-----------|
 | POST | `/chat` | Envia mensagem ao chatbot |
 | GET | `/health` | Status dos serviços configurados |
-| GET | `/sessions?limit=20&offset=0` | Lista as sessões do usuário, da mais recente à mais antiga |
-| GET | `/sessions/{session_id}/messages` | Histórico de uma sessão |
-| POST | `/sessions/{session_id}/close` | Encerra uma sessão |
+| GET | `/sessions?limit=20&offset=0` | Lista as sessões do usuário autenticado, da mais recente à mais antiga |
+| GET | `/sessions/{session_id}/messages` | Histórico de uma sessão do usuário |
+| POST | `/sessions/{session_id}/close` | Encerra uma sessão do usuário |
 
-Todas as rotas, exceto `/health`, exigem `Authorization: Bearer <JWT>`: token HS256 assinado com
-`JWT_SECRET` (32 caracteres ou mais), com os claims `sub` (o `user_id`) e `exp`. O `user_id` vem
-só do token; o cliente não o envia. Sem `JWT_SECRET` configurado, as rotas respondem 503.
-O back-end ainda precisa emitir esse token.
+Todas as rotas, exceto `/health` e `/playground`, exigem `Authorization: Bearer <token>`. O token é um JWT
+assinado com HS256 e o segredo `JWT_SECRET` (32 caracteres ou mais), com dois campos: `sub` (o id do usuário,
+inteiro positivo) e `exp` (até quando o token vale). O `user_id` vem só do token; o cliente não o envia. Sem
+`JWT_SECRET` configurado, as rotas respondem 503, e token ausente, inválido ou expirado responde 401. O
+back-end ainda precisa emitir esse token.
 
-`POST /chat` aceita `{"message": "Quanto consumi?"}` (e `session_id` para continuar uma conversa
-existente; ids que o servidor não devolveu retornam 404) e devolve
+`POST /chat` aceita `{"message": "Quanto consumi?"}` (e `session_id` para continuar uma conversa existente;
+ids que o servidor não devolveu retornam 404) e devolve
 `{"response": "...", "agents_used": ["forecast"], "session_id": "...", "chart_data": null}`.
+Sessão de outro usuário e sessão inexistente respondem 404 idêntico, sem revelar se ela existe.
 
 `GET /sessions` devolve `{"sessions": [{"session_id", "title", "preview", "icon", "created_at",
 "updated_at", "is_open"}], "total": N}`. Use `limit=4` para a lista da home e `offset` no "ver todos".
 Ícones possíveis: `routine`, `habits`, `summary`, `report`, `savings`, `leak`, `forecast`,
-`consumption`, `tips`, `general`. Sessão de outro usuário ou inexistente responde 404.
+`consumption`, `tips`, `general`.
 
-Testes de histórico usam MongoDB real em um banco descartável `delta_test_historico`
-(`DELTA_TEST_MONGO_URI`, padrão `mongodb://localhost:27018` do `docker-compose.dev.yml`) e são
-pulados sem MongoDB. O acesso da IA ao `chat_sessions` exige a role `role_api_service`.
+### Isolamento de dados entre usuários
+
+- O `user_id` entra pelo token e segue preso às tools por `build_tools(user_id)`; o modelo nunca o recebe
+  como argumento nem o vê nas saídas das tools.
+- As tools de previsão, vazamento e hábitos validam o `user_id` (inteiro positivo) e limitam janelas de
+  `days` a 1..366. As funções organizacionais de `app/data/db_postgres.py` recebem o `user_id` e recusam
+  propriedades que não pertençam às organizações dele (`UnauthorizedAccessError`).
+- O guardrail de entrada bloqueia tentativas de agir como outro usuário; o de saída bloqueia respostas que
+  citem o id de outro usuário e descarta gráficos com `user_id` alheio.
+- O checkpoint do LangGraph é apagado depois de cada chat (o histórico vem do MongoDB), o id do ponto de
+  memória de longo prazo inclui o `user_id`, o CORS não permite credenciais e `/health` não expõe detalhes.
+- Fora do alcance deste repositório: funções SQL `fn_*` e permissões do banco (`delta-sql-database`), papéis
+  dentro de uma organização e a emissão do JWT.
+
+Testes de histórico e de isolamento usam MongoDB real em um banco descartável `delta_test_*`
+(`DELTA_TEST_MONGO_URI`, padrão `mongodb://localhost:27018` do `docker-compose.dev.yml`) e são pulados sem
+MongoDB. Os de isolamento ficam em `tests/isolation/`. O acesso da IA ao `chat_sessions` exige a role
+`role_api_service`.

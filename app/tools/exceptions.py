@@ -40,3 +40,10 @@ class DatabaseDataError(DatabaseQueryError):
             raise ValueError("Nome de banco desconhecido.")
         RuntimeError.__init__(self, f"Documento inválido retornado pelo {database}.")
         self.code = None
+
+
+class UnauthorizedAccessError(RuntimeError):
+    """O usuário tentou acessar uma propriedade que não pertence às suas organizações."""
+
+    def __init__(self) -> None:
+        super().__init__("Acesso não autorizado ao recurso solicitado.")

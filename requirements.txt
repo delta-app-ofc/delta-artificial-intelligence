@@ -14,5 +14,5 @@ redis
 httpx
 qdrant-client
 plotly
-pyjwt
 langchain-typesafe==0.0.1a3
+pyjwt>=2.10,<3
