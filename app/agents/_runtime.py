@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 from dataclasses import dataclass, field
+from time import perf_counter
 from typing import Any
 
 from langchain_core.messages import (
@@ -125,15 +126,47 @@ def _without_user_id(value: Any) -> Any:
 
 
 def _run_tool(tool: BaseTool | None, name: str, args: dict) -> Any:
+    candidate_name = getattr(tool, "name", None) if tool is not None else None
+    safe_name = (
+        candidate_name
+        if isinstance(candidate_name, str) and candidate_name
+        else "unknown_tool"
+    )
+    trace = current_trace()
+    started = perf_counter()
+    if trace:
+        trace.event(
+            "tool.start",
+            component=current_component(),
+            operation=safe_name,
+            status="running",
+            metadata={"tool": safe_name},
+        )
+
+    error_record = None
     if tool is None:
-        output = {"status": "error", "message": f"ferramenta desconhecida: {name}"}
+        output = {"status": "error", "message": "ferramenta desconhecida"}
     else:
         try:
             output = tool.invoke(args)
         except Exception as exc:
+            if trace:
+                error_record = trace.error(
+                    current_component(),
+                    exc,
+                    operation=safe_name,
+                    metadata={"tool": safe_name},
+                )
             output = {"status": "error", "message": safe_error(exc)}
-    if trace := current_trace():
-        trace.tool(current_component(), name, args, output)
+    if trace:
+        trace.tool(
+            current_component(),
+            name,
+            args,
+            output,
+            duration_ms=round((perf_counter() - started) * 1000, 1),
+            error_id=error_record.get("error_id") if error_record else None,
+        )
     return output
 
 

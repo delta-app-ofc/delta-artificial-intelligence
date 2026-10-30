@@ -84,12 +84,13 @@ Acesso ao Qdrant remoto e fidelidade do modelo precisam de validação real;
 este checkout não contém a antiga suíte RAG versionada.
 
 O `JudgeAgent` recebe pergunta, candidata composta e evidências reais.
-A política usa `choices.severity.confidence`, com limite inclusivo de 0,80:
-erro crítico bloqueia sempre; erro corrigível ou baixa confiança pede uma
-revisão; depois dela só publica sem erro com confiança suficiente. Python
-gera códigos e justificativas. Veja `docs/judge-agent.md` e
-`manual_chat_judge.py`; o runner permite `--no-history` e não imprime
-candidatas bloqueadas. `manual_jev.py` continua sendo o experimento isolado.
+A política consulta Choice de gravidade e Noul de suporte factual/relevância
+em uma chamada. Python exige os quatro limites inclusivos configurados em
+`app/config.py`: confidence 0,70, probabilidade da categoria 0,50, suporte factual
+0,60 e relevância 0,25. Não há Score nem etapa de subcritérios. Erro crítico
+bloqueia sempre; erro corrigível ou limite não atingido pede uma revisão e,
+se persistir, bloqueia. Veja `docs/judge-policy.md` e `manual_chat_judge.py`.
+O runner permite `--no-history` e não imprime candidatas bloqueadas.
 
 ### Estrutura atual
 

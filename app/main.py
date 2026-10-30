@@ -1,5 +1,6 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from app.observability.http import RequestTracingMiddleware
 
 from app.config import get_settings
 from app.routes.health import router as health_router
@@ -16,6 +17,8 @@ def cors_origins() -> list[str]:
     return [origin.strip() for origin in raw.split(",") if origin.strip()] or ["*"]
 
 
+app.add_middleware(RequestTracingMiddleware)
+
 # A autenticação é por cabeçalho Bearer, sem cookies: não há motivo para permitir credenciais.
 app.add_middleware(
     CORSMiddleware,
@@ -23,6 +26,7 @@ app.add_middleware(
     allow_credentials=False,
     allow_methods=["*"],
     allow_headers=["*"],
+    expose_headers=["X-Request-ID"],
 )
 
 app.include_router(health_router)

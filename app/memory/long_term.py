@@ -8,9 +8,11 @@ from __future__ import annotations
 
 import uuid
 from functools import lru_cache
+from time import perf_counter
+from typing import Callable, TypeVar
 
 from app.config import ConfigurationError, get_settings
-from app.observability.diagnostics import current_trace, embedding_call
+from app.observability.diagnostics import component, current_trace, embedding_call
 from app.memory.session import load_history_validated
 
 
@@ -18,6 +20,67 @@ _COLLECTION = "session_summaries"
 _VECTOR_SIZE = 3072
 
 _collection_initialized = False
+_T = TypeVar("_T")
+
+
+def _run_phase(phase: str, action: Callable[[], _T]) -> _T:
+    trace = current_trace()
+    component_name = f"long_term_memory_{phase}"
+    started = perf_counter()
+    if trace:
+        trace.event(
+            "memory.phase.start",
+            component=component_name,
+            operation=phase,
+            status="running",
+            metadata={"phase": phase},
+        )
+    try:
+        with component(component_name):
+            try:
+                result = action()
+            except Exception as error:
+                if trace:
+                    trace.error(
+                        component_name,
+                        error,
+                        operation=phase,
+                        metadata={"phase": phase},
+                    )
+                raise
+    except Exception as error:
+        record = None
+        if trace:
+            record = trace.error(
+                component_name,
+                error,
+                operation=phase,
+                metadata={"phase": phase},
+            )
+            trace.event(
+                "memory.phase.end",
+                component=component_name,
+                operation=phase,
+                status="error",
+                duration_ms=round((perf_counter() - started) * 1000, 1),
+                metadata={
+                    "phase": phase,
+                    "outcome": "failed",
+                    **({"error_id": record["error_id"]} if record else {}),
+                },
+            )
+        raise
+
+    if trace:
+        trace.event(
+            "memory.phase.end",
+            component=component_name,
+            operation=phase,
+            status="success",
+            duration_ms=round((perf_counter() - started) * 1000, 1),
+            metadata={"phase": phase, "outcome": "completed"},
+        )
+    return result
 
 
 @lru_cache(maxsize=1)
@@ -81,8 +144,15 @@ def _ensure_collection() -> None:
             field_name="user_id",
             field_schema=PayloadSchemaType.INTEGER,
         )
-    except Exception:
-        pass  # índice já existe
+    except Exception as error:
+        if trace := current_trace():
+            trace.error(
+                "long_term_memory",
+                error,
+                operation="create_user_index",
+                metadata={"phase": "create_user_index"},
+            )
+        pass  # mantém o comportamento atual quando o índice já existe
 
     _collection_initialized = True
 
@@ -98,27 +168,39 @@ def save_summary(user_id: int, session_id: str, messages: list[dict]) -> None:
     transcript = "\n".join(
         f"{m['role'].upper()}: {m['content']}" for m in messages
     )
-    summary_msg = llm_rapido.invoke(
-        [HumanMessage(content=f"Resuma em até 3 frases esta conversa:\n\n{transcript}")]
+    summary_msg = _run_phase(
+        "summary_generation",
+        lambda: llm_rapido.invoke(
+            [HumanMessage(content=f"Resuma em até 3 frases esta conversa:\n\n{transcript}")]
+        ),
     )
     summary_text = summary_msg.content if hasattr(summary_msg, "content") else str(summary_msg)
 
-    vector = _embed_model().embed_query(summary_text)
+    embed_model = _run_phase("create_embeddings", _embed_model)
 
-    _ensure_collection()
+    def embed_summary():
+        with embedding_call(get_settings().gemini_embedding_model):
+            return embed_model.embed_query(summary_text)
+
+    vector = _run_phase("embed_summary", embed_summary)
+    _run_phase("ensure_collection", _ensure_collection)
+
     from qdrant_client.models import PointStruct
 
-    _qdrant().upsert(
-        collection_name=_COLLECTION,
-        points=[
-            PointStruct(
-                # O id inclui o user_id: sessões de usuários diferentes nunca compartilham o ponto.
-                id=str(uuid.uuid5(uuid.NAMESPACE_URL, f"{user_id}:{session_id}")),
-                vector=vector,
-                payload={"user_id": user_id, "session_id": session_id, "summary": summary_text},
-            )
-        ],
-    )
+    def persist_summary():
+        return _qdrant().upsert(
+            collection_name=_COLLECTION,
+            points=[
+                PointStruct(
+                    # O id inclui o user_id: sessões de usuários diferentes nunca compartilham o ponto.
+                    id=str(uuid.uuid5(uuid.NAMESPACE_URL, f"{user_id}:{session_id}")),
+                    vector=vector,
+                    payload={"user_id": user_id, "session_id": session_id, "summary": summary_text},
+                )
+            ],
+        )
+
+    _run_phase("persist_summary", persist_summary)
 
 
 def search_memory(user_id: int, query: str, top_k: int = 3) -> list[str]:
@@ -127,24 +209,41 @@ def search_memory(user_id: int, query: str, top_k: int = 3) -> list[str]:
         # Uma consulta nunca cria nem recria coleções existentes.
         from qdrant_client.models import FieldCondition, Filter, MatchValue
 
-        with embedding_call(get_settings().gemini_embedding_model):
-            vector = _embed_model().embed_query(query)
-        response = _qdrant().query_points(
-            collection_name=_COLLECTION,
-            query=vector,
-            query_filter=Filter(
-                must=[FieldCondition(key="user_id", match=MatchValue(value=user_id))]
+        embed_model = _run_phase("create_embeddings", _embed_model)
+
+        def embed_query():
+            with embedding_call(get_settings().gemini_embedding_model):
+                return embed_model.embed_query(query)
+
+        vector = _run_phase("embed_query", embed_query)
+        client = _run_phase("create_client", _qdrant)
+        response = _run_phase(
+            "search",
+            lambda: client.query_points(
+                collection_name=_COLLECTION,
+                query=vector,
+                query_filter=Filter(
+                    must=[FieldCondition(key="user_id", match=MatchValue(value=user_id))]
+                ),
+                limit=top_k,
             ),
-            limit=top_k,
         )
         return [r.payload.get("summary", "") for r in response.points if r.payload]
     except Exception as error:
         if trace := current_trace():
-            trace.error("long_term_memory", error)
+            trace.error(
+                "long_term_memory",
+                error,
+                operation="search_memory",
+                metadata={"phase": "search_memory"},
+            )
         return []
 
 
 def close_session(session_id: str, user_id: int) -> None:
     """Encerra a sessão: lê histórico MongoDB e salva resumo no Qdrant."""
-    messages = load_history_validated(user_id, session_id)
-    save_summary(user_id, session_id, messages)
+    messages = _run_phase(
+        "load_session_history",
+        lambda: load_history_validated(user_id, session_id),
+    )
+    _run_phase("save_session_summary", lambda: save_summary(user_id, session_id, messages))
