@@ -111,9 +111,11 @@ class JudgeAgent:
         if result.confidence >= config.jev_confidence_threshold:
             return result
 
+        provider = "openai" if config.llm_provider == "openai" else "google"
+        model = config.openai_model if provider == "openai" else config.judge_specialist_model
         logger.info(
             "Jev -> Agente Juiz Especialista (%s): confidence=%.2f abaixo do threshold=%.2f; revisão=%d",
-            config.judge_specialist_model, result.confidence,
+            model, result.confidence,
             config.jev_confidence_threshold, revision_count,
         )
         if trace := current_trace():
@@ -121,7 +123,7 @@ class JudgeAgent:
                 "judge.fallback", component="judge", operation="review",
                 status="started",
                 metadata={
-                    "provider": "google", "model": config.judge_specialist_model,
+                    "provider": provider, "model": model,
                     "fallback": True, "outcome": "jev_low_confidence",
                     "revision_count": revision_count,
                 },

@@ -111,7 +111,6 @@ def search_knowledge_base(question: str) -> dict:
             "chunks": [],
         }
 
-    client = None
     phase = "load_document"
     try:
         document = _run_phase("load_document", load_document)
@@ -162,6 +161,3 @@ def search_knowledge_base(question: str) -> dict:
             ),
             "chunks": [],
         }
-    finally:
-        if client is not None:
-            _run_phase("close", client.close)

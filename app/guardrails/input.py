@@ -11,6 +11,7 @@ import uuid
 
 from app.observability.diagnostics import current_trace
 from app.config import ConfigurationError
+from app.agents._runtime import _message_text
 
 _MAX_LEN = 2000
 
@@ -114,10 +115,10 @@ def validate_input(user_id: int, message: str) -> dict:
         from langchain_core.messages import HumanMessage
 
         if llm_rapido is None:
-            raise ConfigurationError("Configure GROQ_API_KEY e GROQ_FAST_MODEL para o guardrail de entrada.")
-        raw = llm_rapido.invoke(
+            raise ConfigurationError("Configure o provedor de linguagem selecionado para o guardrail de entrada.")
+        raw = _message_text(llm_rapido.invoke(
             [HumanMessage(content=_PROMPT_CLASSIFIER.format(mensagem=anonymized))]
-        ).content
+        ))
         category = "APROVADO"
         for line in raw.splitlines():
             if line.strip().upper().startswith("CATEGORIA:"):
