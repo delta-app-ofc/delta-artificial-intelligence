@@ -822,6 +822,111 @@ h2 {
   margin:12px 0 3px;
 }
 
+/* Os eventos compartilham uma área de terminal com rolagem própria. */
+.event-terminal {
+  border:1px solid #40516a;
+  border-radius:9px;
+  background:#10151b;
+  overflow:hidden;
+}
+
+.event-terminal-toolbar {
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  flex-wrap:wrap;
+  gap:10px;
+  padding:11px 12px;
+  background:#1b2530;
+  border-bottom:1px solid #40516a;
+}
+
+.event-terminal-toolbar strong {
+  color:#d2e2f8;
+  font:11px Consolas, 'Cascadia Code', monospace;
+}
+
+.event-terminal-actions {
+  display:flex;
+  gap:6px;
+}
+
+.event-terminal-actions .button {
+  padding:6px 8px;
+  font-size:10px;
+}
+
+.event-terminal-output {
+  max-height:560px;
+  overflow:auto;
+  padding:12px;
+  scrollbar-width:thin;
+  scrollbar-color:#567298 #10151b;
+}
+
+.event-terminal-output:focus-visible {
+  outline:2px solid var(--blue-light);
+  outline-offset:-2px;
+}
+
+.event-terminal-entry {
+  margin:0 0 20px;
+  padding:14px 0 20px;
+  border-bottom:2px solid #33465c;
+  color:#bed0e5;
+  white-space:pre-wrap;
+  overflow-wrap:anywhere;
+  font:12px/1.7 Consolas, 'Cascadia Code', 'Courier New', monospace;
+  tab-size:2;
+}
+
+.event-terminal-entry:last-child {
+  margin-bottom:0;
+  padding-bottom:0;
+  border-bottom:0;
+}
+
+.event-terminal-entry.error {
+  color:#ffc2be;
+  border-color:#a95a59;
+}
+
+.event-terminal-entry.warning {
+  color:#f1d49d;
+  border-color:#9b7d42;
+}
+
+.event-terminal-notice, .event-terminal-request {
+  margin:0;
+  padding:10px 12px;
+  color:#b4c3d7;
+  overflow-wrap:anywhere;
+  font:11px/1.7 Consolas, 'Cascadia Code', monospace;
+}
+
+.event-terminal-dialog {
+  width:min(1100px, calc(100vw - 32px));
+  max-height:90vh;
+  padding:0;
+  border:1px solid #55749b;
+  border-radius:12px;
+  color:var(--text);
+  background:#10151b;
+}
+
+.event-terminal-dialog::backdrop {
+  background:rgb(0 0 0 / 72%);
+}
+
+.event-terminal-dialog .event-terminal-output {
+  max-height:calc(90vh - 150px);
+  padding:16px 20px;
+}
+
+.event-terminal-dialog .event-terminal-entry {
+  font-size:12px;
+}
+
 .inspection-note {
   margin:0 5px;
   font-size:10px;
@@ -1082,3 +1187,9 @@ h2 {
     }
   }
 }
+
+.execution-terminal-panel { grid-column:1 / -1; min-width:0; }
+.execution-terminal-panel .event-terminal { border:0; border-radius:0; }
+.event-terminal-actions button[aria-pressed="true"] { background:#314760; color:#eef5ff; border-color:#7695bf; }
+.event-terminal-output > .event-terminal-request { padding:0 0 16px; color:#8ca4c2; }
+.event-terminal-dialog .event-terminal { border:0; border-radius:0; }

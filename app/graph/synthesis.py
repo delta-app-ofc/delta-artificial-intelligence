@@ -3,6 +3,7 @@ from __future__ import annotations
 from langchain_core.messages import HumanMessage, SystemMessage
 
 from app.services.prompts import SYNTHESIS_PROMPT
+from app.observability.diagnostics import current_trace
 
 
 def synthesize(question: str, answers: list[dict]) -> dict | None:
@@ -23,7 +24,9 @@ def synthesize(question: str, answers: list[dict]) -> dict | None:
         response = llm.invoke(
             [SystemMessage(content=prompt), HumanMessage(content="Unifique as respostas.")]
         )
-    except Exception:
+    except Exception as error:
+        if trace := current_trace():
+            trace.error("synthesis", error, operation="combine_answers")
         return None
 
     unified = response.content if hasattr(response, "content") else str(response)
