@@ -604,7 +604,7 @@ Sessão de outro usuário e sessão inexistente respondem 404 idêntico, sem rev
 `POST /chat/stream` recebe o mesmo corpo e checa JWT, sessão e histórico antes de abrir o fluxo (401, 404, 503).
 Depois devolve eventos `stage` (etapa e rótulo fixo em português, incluindo o plano "Vou consultar ..." e uma linha por consulta), um único `result` (mesmo JSON do
 `/chat`, depois da validação) ou `error` (`422` mensagem bloqueada, `500` falha). Leia com `fetch`, pois o
-`EventSource` não envia `Authorization`. Detalhes e medições em [`docs/reducao-latencia.md`](docs/reducao-latencia.md).
+`EventSource` não envia `Authorization`. Detalhes e medições em [redução de latência do chat](https://github.com/delta-app-ofc/delta-handbook/blob/main/IA/reducao-latencia.md), no `delta-handbook`.
 
 `GET /sessions` devolve `{"sessions": [{"session_id", "title", "preview", "icon", "created_at",
 "updated_at", "is_open"}], "total": N}`. Use `limit=4` para a lista da home e `offset` no "ver todos".
