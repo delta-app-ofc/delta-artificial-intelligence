@@ -277,6 +277,10 @@ h1 {
   font-size:10px;
 }
 
+.badge[hidden] {
+  display:none;
+}
+
 .badge.pending {
   color:var(--warning);
   border-color:#64573f;
