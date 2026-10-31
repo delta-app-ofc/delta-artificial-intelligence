@@ -361,8 +361,10 @@ def _get_llm_especialista() -> _FallbackLLM:
     if settings.llm_provider == "openai":
         fallback = (_get_llm_groq_especialista()
                     if settings.llm_fallback_enabled and settings.groq_api_key else None)
+        # Os agentes especialistas usam o próprio nível de raciocínio (padrão high); vazio = o geral.
         return _FallbackLLM(
-            _get_llm_openai(), fallback, primary_provider="openai",
+            _get_llm_openai(reasoning_effort=settings.openai_specialist_reasoning_effort or None),
+            fallback, primary_provider="openai",
             primary_model=settings.openai_model, fallback_provider="groq",
             fallback_model=settings.groq_specialist_model if fallback else None,
         )
@@ -384,7 +386,7 @@ def _get_llm_rapido() -> ChatGroq | ChatOpenAI:
     validate_llm_config(provider="fast")
     settings = get_settings()
     if settings.llm_provider == "openai":
-        # Sem OPENAI_FAST_REASONING_EFFORT, o papel rápido usa o mesmo raciocínio do especialista.
+        # O papel rápido (guarda, roteador, síntese, título) usa o próprio nível (padrão low); vazio = o geral.
         return _get_llm_openai(reasoning_effort=settings.openai_fast_reasoning_effort or None)
     return ChatGroq(
         model=settings.groq_fast_model,

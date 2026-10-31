@@ -198,7 +198,8 @@ class Settings:
     langsmith_tracing: bool = False
     langsmith_api_key: str | None = field(default=None, repr=False)
     langsmith_project: str = "delta-ai"
-    openai_fast_reasoning_effort: str = ""
+    openai_fast_reasoning_effort: str = "low"
+    openai_specialist_reasoning_effort: str = "high"
     db_pool_min_size: int = 1
     db_pool_max_size: int = 10
     db_pool_wait_seconds: int = 5
@@ -364,7 +365,12 @@ def load_settings(
         openai_model=values.get("OPENAI_MODEL", Settings.openai_model) or "",
         openai_reasoning_effort=(values.get("OPENAI_REASONING_EFFORT", Settings.openai_reasoning_effort) or "").casefold(),
         llm_provider=(values.get("LLM_PROVIDER", Settings.llm_provider) or "").casefold(),
-        openai_fast_reasoning_effort=(values.get("OPENAI_FAST_REASONING_EFFORT") or "").casefold(),
+        openai_fast_reasoning_effort=(
+            values.get("OPENAI_FAST_REASONING_EFFORT", Settings.openai_fast_reasoning_effort) or ""
+        ).casefold(),
+        openai_specialist_reasoning_effort=(
+            values.get("OPENAI_SPECIALIST_REASONING_EFFORT", Settings.openai_specialist_reasoning_effort) or ""
+        ).casefold(),
         gemini_api_key=values.get("GEMINI_API_KEY"),
         groq_api_key=values.get("GROQ_API_KEY"),
         database_url=database_url,
@@ -520,6 +526,10 @@ def validate_llm_config(
             "none", "low", "medium", "high", "xhigh", "max",
         }:
             problems.append("OPENAI_FAST_REASONING_EFFORT deve ser none, low, medium, high, xhigh ou max")
+        if current.openai_specialist_reasoning_effort and current.openai_specialist_reasoning_effort not in {
+            "none", "low", "medium", "high", "xhigh", "max",
+        }:
+            problems.append("OPENAI_SPECIALIST_REASONING_EFFORT deve ser none, low, medium, high, xhigh ou max")
     if needs_gemini:
         if not current.gemini_api_key:
             problems.append("GEMINI_API_KEY ausente ou vazio")
