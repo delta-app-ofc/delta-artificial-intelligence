@@ -221,6 +221,7 @@ def build_tools(
     *,
     clock: Callable[[], datetime] | None = None,
     timezone_name: str = analysis.DEFAULT_TIMEZONE,
+    access_kind: str | None = None,
 ) -> list[BaseTool]:
     """Cria ferramentas com o ``user_id`` confiável preso às funções.
 
@@ -242,7 +243,7 @@ def build_tools(
         ):
             raise analysis.InvalidConsumptionInput("O identificador da unidade não é válido.")
 
-        kind = db_postgres.get_user_access_kind(user_id)
+        kind = access_kind or db_postgres.get_user_access_kind(user_id)
         if kind == "residential":
             if needle or unit_id is not None:
                 return None, _scope_failure(
@@ -561,7 +562,7 @@ def build_tools(
         """
 
         def list_units() -> dict[str, object]:
-            kind = db_postgres.get_user_access_kind(user_id)
+            kind = access_kind or db_postgres.get_user_access_kind(user_id)
             if kind == "residential":
                 return _scope_failure(
                     "insufficient_data",
