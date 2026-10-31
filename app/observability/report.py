@@ -252,7 +252,7 @@ def _decorate(canvas: Canvas, doc) -> None:
     canvas.line(MARGIN, MARGIN - 4, PAGE_W - MARGIN, MARGIN - 4)
     canvas.setFillColor(MUTED)
     canvas.setFont("Helvetica", 6.5)
-    canvas.drawString(MARGIN, MARGIN - 15, "Delta · Relatório de observabilidade da IA · dados de teste não representam uso real")
+    canvas.drawString(MARGIN, MARGIN - 15, "Delta · Relatório de observabilidade da IA")
     canvas.drawRightString(PAGE_W - MARGIN, MARGIN - 15, f"Página {doc.page}")
     canvas.restoreState()
 
@@ -404,7 +404,7 @@ def build_pdf(summary: dict) -> bytes:
         "Custo de atendimento humano: faixa de referência de US$ 6 a 12 por contato, mediana de US$ 13,50 nos EUA "
         "(Gartner, citado em stealthagents.com); são fontes de mercado, não dados da Delta.",
         "O ROI considera só o custo de tokens dos modelos; hospedagem, bancos, desenvolvimento e manutenção não entram, "
-        "então ele é um limite superior. Embeddings não entram no custo. Dados de teste não representam uso real.",
+        "então ele é um limite superior. Embeddings não entram no custo.",
     ]
     story += [_section("Definições e premissas")] + [Paragraph(escape(note), _BODY) for note in notes]
     doc.build(story)
