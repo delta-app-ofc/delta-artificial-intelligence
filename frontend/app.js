@@ -112,6 +112,7 @@ function renderControls() {
   const agent = config?.agents?.find(item => item.id === tab.id);
   const badge = byId('availability');
   badge.className = 'badge';
+  badge.hidden = tab.mode === 'monitor';
   if (configLoading) badge.textContent = 'Carregando configuração';
   else if (!config?.enabled) { badge.textContent = 'Console indisponível'; badge.classList.add('error'); }
   else if (agent?.status === 'pending') { badge.textContent = 'Implementação pendente'; badge.classList.add('pending'); }

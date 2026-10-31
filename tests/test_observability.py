@@ -90,7 +90,7 @@ def test_summary_error_rate_cost_per_resolution_and_roi():
     assert summary["slo"]["ok"] is False
     assert summary["resolutions"] == 9
     assert summary["cost_per_resolution_usd"] == pytest.approx(summary["cost_usd"] / 9, rel=1e-3)
-    assert summary["roi"] == pytest.approx((9 * 2.0 - summary["cost_usd"]) / summary["cost_usd"], rel=1e-3)
+    assert summary["roi"] == pytest.approx((9 * 6.0 - summary["cost_usd"]) / summary["cost_usd"], rel=1e-3)
 
 
 def test_projection_for_100_and_1000_users():
@@ -134,7 +134,7 @@ def test_pdf_is_generated():
 
 
 def test_settings_use_defaults_and_overrides(monkeypatch):
-    assert get_observability_config().obs_support_cost_usd == 2.0
+    assert get_observability_config().obs_support_cost_usd == 6.0
     _use_env(monkeypatch, OBS_SUPPORT_COST_USD="3.5", OBS_QUESTIONS_PER_USER_WEEK="10")
     assert metrics.assumptions()["support_cost_per_resolution_usd"] == 3.5
     assert metrics.assumptions()["questions_per_user_per_week"] == 10.0
@@ -204,3 +204,32 @@ def test_pdf_without_measurements_is_labeled_as_estimate():
     summary = metrics.summarize([])
     summary["projection"] = metrics.project(summary)
     assert build_pdf(summary).startswith(b"%PDF")
+
+
+def test_every_priced_model_has_a_source():
+    assert set(metrics.DEFAULT_PRICES) == set(metrics.PRICE_SOURCES)
+    assert metrics.DEFAULT_PRICES["gpt-6-luna"] == (0.10, 0.50)
+    assert "openai/gpt-oss-120b" in metrics.summarize([])["unconfirmed_price_models"]
+
+
+def test_console_summary_keeps_token_counts_visible():
+    """O filtro de privacidade omite chaves com 'token'; os totais precisam passar por ele."""
+    from app.observability.diagnostics import public_data
+    summary = metrics.summarize([metrics.build_record(_trace(), "success", 100.0)])
+    shown = public_data(summary)
+    assert shown["usage"]["input_tokens"] == 1100 and shown["usage"]["output_tokens"] == 300
+    assert isinstance(shown["volume_per_request"], int)
+
+
+def test_database_failure_is_skipped_for_a_while(monkeypatch):
+    calls = []
+
+    def broken_client():
+        calls.append(1)
+        raise RuntimeError("sem banco")
+
+    monkeypatch.setattr("app.data.db_mongo.get_app_client", broken_client)
+    monkeypatch.setattr(metrics, "_db_retry_at", 0.0)
+    metrics.load_records()
+    metrics.load_records()
+    assert len(calls) == 1

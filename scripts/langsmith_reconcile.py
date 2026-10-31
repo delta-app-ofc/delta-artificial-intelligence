@@ -33,7 +33,7 @@ def main() -> None:
     print(f"Projeto LangSmith: {project} · {len(runs)} runs raiz")
     print(f"LangSmith: {tokens} tokens · US$ {cost:.6f} · latência média "
           f"{sum(latencies) / len(latencies):.0f} ms" if latencies else f"LangSmith: {tokens} tokens · US$ {cost:.6f}")
-    print(f"Delta:     {local['tokens']['input'] + local['tokens']['output']} tokens · "
+    print(f"Delta:     {local['usage']['input_tokens'] + local['usage']['output_tokens']} tokens · "
           f"US$ {local['cost_usd']} · latência média {local['latency_total_ms']['avg']} ms")
     print("Diferenças pequenas são esperadas: tabelas de preço e janelas de requisições diferem.")
 

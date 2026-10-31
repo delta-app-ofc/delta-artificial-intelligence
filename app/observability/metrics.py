@@ -5,20 +5,29 @@ from collections import deque
 from datetime import datetime, timezone
 import json
 import math
+from time import monotonic
 from threading import Lock, Thread
 from typing import Any
 
 from app.config import get_observability_config, get_settings
 
-# USD por 1 milhão de tokens: (entrada, saída). Preço do gpt-6-luna é premissa:
-# confirme na conta e sobrescreva com OBS_PRICES_JSON (lido em app/config.py).
+# USD por 1 milhão de tokens: (entrada, saída), prompts de até 272 mil tokens, tarifa Standard.
+# Sobrescreva com OBS_PRICES_JSON (lido em app/config.py). Fontes em PRICE_SOURCES.
 DEFAULT_PRICES: dict[str, tuple[float, float]] = {
     "gemini-2.5-flash": (0.30, 2.50),
     "openai/gpt-oss-120b": (0.15, 0.60),
     "openai/gpt-oss-20b": (0.075, 0.30),
-    "gpt-6-luna": (1.00, 8.00),
+    "gpt-6-luna": (0.10, 0.50),
 }
-ASSUMED_PRICE_MODELS = {"gpt-6-luna"}
+# Fonte de cada preço. "oficial" = página do provedor; "secundária" = agregadores,
+# ainda não conferida na página do provedor.
+PRICE_SOURCES: dict[str, tuple[str, str]] = {
+    "gpt-6-luna": ("https://developers.openai.com/api/docs/pricing", "oficial"),
+    "gemini-2.5-flash": ("https://ai.google.dev/gemini-api/docs/pricing", "oficial"),
+    "openai/gpt-oss-120b": ("https://groq.com/pricing", "secundária"),
+    "openai/gpt-oss-20b": ("https://groq.com/pricing", "secundária"),
+}
+UNCONFIRMED_PRICE_MODELS = {model for model, (_, kind) in PRICE_SOURCES.items() if kind != "oficial"}
 
 COLLECTION = "observability_requests"
 RECORDED_MODES = {"chat", "judge"}
@@ -26,6 +35,9 @@ AGENT_NAMES = {"consumption", "forecast", "leak", "habits", "rag"}
 _MAX_MEMORY = 2000
 _recent: deque = deque(maxlen=_MAX_MEMORY)
 _lock = Lock()
+# Depois de uma falha no MongoDB, o banco é ignorado por alguns segundos para o painel não travar no timeout.
+DB_RETRY_SECONDS = 60
+_db_retry_at = 0.0
 
 
 def assumptions() -> dict:
@@ -129,24 +141,37 @@ def record_request(trace, outcome: str, total_ms: float) -> None:
         pass
 
 
+def _db_available() -> bool:
+    return monotonic() >= _db_retry_at
+
+
+def _mark_db_failed() -> None:
+    global _db_retry_at
+    _db_retry_at = monotonic() + DB_RETRY_SECONDS
+
+
 def _persist(record: dict) -> None:
+    if not _db_available():
+        return
     try:
         from app.data.db_mongo import get_app_client
         get_app_client()[get_settings().mongo_db_app][COLLECTION].insert_one(record)
     except Exception:
         # O registro continua em memória; a falha não pode afetar a aplicação.
-        pass
+        _mark_db_failed()
 
 
 def load_records(limit: int = 1000) -> list[dict]:
     """Lê do MongoDB; sem banco, usa os registros do processo atual."""
-    try:
-        from app.data.db_mongo import get_app_client
-        cursor = (get_app_client()[get_settings().mongo_db_app][COLLECTION]
-                  .find({}, {"_id": 0}).sort("created_at", -1).limit(limit))
-        found = list(reversed(list(cursor)))
-    except Exception:
-        found = []
+    found = []
+    if _db_available():
+        try:
+            from app.data.db_mongo import get_app_client
+            cursor = (get_app_client()[get_settings().mongo_db_app][COLLECTION]
+                      .find({}, {"_id": 0}).sort("created_at", -1).limit(limit))
+            found = list(reversed(list(cursor)))
+        except Exception:
+            _mark_db_failed()
     with _lock:
         pending = list(_recent)
     saved = {item["request_id"] for item in found}
@@ -214,12 +239,16 @@ def summarize(records: list[dict]) -> dict:
         "latency_by_node_ms": {k: _latency(v) for k, v in nodes.items()},
         "latency_by_agent_ms": {k: _latency(v) for k, v in agents.items()},
         "overhead_ms": _latency([r.get("overhead_ms", 0.0) for r in records]),
-        "tokens": {"input": sum(r["input_tokens"] for r in records),
-                   "output": sum(r["output_tokens"] for r in records)},
+        "usage": {"input_tokens": sum(r["input_tokens"] for r in records),
+                  "output_tokens": sum(r["output_tokens"] for r in records)},
         "cost_usd": round(cost, 6),
         "cost_per_request_usd": round(cost / total, 6) if total else 0.0,
         "cost_by_component_usd": {k: round(v, 6) for k, v in sorted(
             cost_by_component.items(), key=lambda kv: kv[1], reverse=True)},
+        "volume_per_request": round((sum(r["input_tokens"] + r["output_tokens"] for r in records)) / total) if total else 0,
+        "model_calls_per_request": round(sum(r["model_calls"] for r in records) / total, 2) if total else 0.0,
+        "revision_rate": round(sum(1 for r in records if r.get("revisions")) / total, 4) if total else 0.0,
+        "savings_usd": round(resolutions * assumptions()["support_cost_per_resolution_usd"] - cost, 4),
         "resolutions": resolutions,
         "resolution_rate": round(resolutions / total, 4) if total else 0.0,
         "cost_per_resolution_usd": round(cost / resolutions, 6) if resolutions else None,
@@ -230,7 +259,8 @@ def summarize(records: list[dict]) -> dict:
                 "ok": (total_lat["p95"] <= p95_limit and error_rate <= error_limit) if total else None},
         "series": [{"at": r["created_at"].isoformat() if hasattr(r["created_at"], "isoformat") else str(r["created_at"]),
                     "total_ms": r["total_ms"], "cost_usd": r["cost_usd"]} for r in records[-100:]],
-        "assumed_price_models": sorted(ASSUMED_PRICE_MODELS),
+        "unconfirmed_price_models": sorted(UNCONFIRMED_PRICE_MODELS),
+        "price_sources": {m: {"url": url, "kind": kind} for m, (url, kind) in PRICE_SOURCES.items()},
         "assumptions": assumptions(),
     }
 

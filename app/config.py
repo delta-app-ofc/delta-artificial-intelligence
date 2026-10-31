@@ -183,7 +183,7 @@ class Settings:
     openai_model: str = "gpt-6-luna"
     openai_reasoning_effort: str = "medium"
     llm_provider: str = "openai"
-    obs_support_cost_usd: float = 2.0
+    obs_support_cost_usd: float = 6.0
     obs_questions_per_user_week: float = 5.0
     obs_usd_to_brl: float = 5.5
     obs_jev_cost_usd: float = 0.0

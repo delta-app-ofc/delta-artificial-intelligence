@@ -18,11 +18,11 @@ _LAT_KEYS = ("avg", "p50", "p95", "p99")
 def _table(rows: list[list], widths=None) -> Table:
     table = Table(rows, colWidths=widths, repeatRows=1)
     table.setStyle(TableStyle([
-        ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#1f4e79")),
+        ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#356ce0")),
         ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
         ("FONTSIZE", (0, 0), (-1, -1), 8),
         ("GRID", (0, 0), (-1, -1), 0.25, colors.grey),
-        ("ROWBACKGROUNDS", (0, 1), (-1, -1), [colors.white, colors.HexColor("#f2f6fa")]),
+        ("ROWBACKGROUNDS", (0, 1), (-1, -1), [colors.white, colors.HexColor("#eef3fd")]),
     ]))
     return table
 
@@ -57,6 +57,12 @@ def build_pdf(summary: dict) -> bytes:
             ["Custo por resolução (USD)", _fmt(summary["cost_per_resolution_usd"]), ""],
             ["ROI", _fmt(summary["roi"]), "> 0 é retorno positivo"],
             ["Custo total (USD)", summary["cost_usd"], ""],
+            ["Custo por requisição (USD)", summary["cost_per_request_usd"], ""],
+            ["Tokens por requisição", summary["volume_per_request"], ""],
+            ["Chamadas ao modelo por requisição", summary["model_calls_per_request"], ""],
+            ["Requisições com revisão do Juiz", f"{summary['revision_rate'] * 100:.1f}%", ""],
+            ["Chamadas ao modelo reserva (fallback)", summary["fallback_calls"], ""],
+            ["Economia estimada (USD)", summary["savings_usd"], "atendimentos evitados − custo de IA"],
         ], [8 * cm, 4 * cm, 5 * cm]), Spacer(1, 10)]
 
         latency_rows = [["Etapa / agente", "média", "p50", "p95", "p99"],
@@ -95,9 +101,13 @@ def build_pdf(summary: dict) -> bytes:
         f"Premissas: atendimento = US$ {ass['support_cost_per_resolution_usd']}; "
         f"{ass['questions_per_user_per_week']} perguntas/usuário/semana; US$ 1 = R$ {ass['usd_to_brl']}; "
         f"Jev = US$ {ass['jev_cost_per_evaluation_usd']} por avaliação. Cenário pessimista = custo × 1,5.",
-        "Preço por modelo é tabela fixa e pode divergir da fatura. Modelos com preço assumido: "
-        + (", ".join(summary["assumed_price_models"]) or "nenhum") + ". Sem preço cadastrado: "
-        + (", ".join(summary["unpriced_models"]) or "nenhum") + ".",
+        "Preço por modelo é tabela fixa (tarifa Standard) e pode divergir da fatura. Fontes: "
+        + "; ".join(f"{m}: {v['url']} ({v['kind']})" for m, v in summary["price_sources"].items())
+        + ". Sem preço cadastrado: " + (", ".join(summary["unpriced_models"]) or "nenhum") + ".",
+        "Custo de atendimento humano: faixa de referência de US$ 6 a 12 por contato, com mediana de "
+        "US$ 13,50 nos EUA (Gartner, citado em stealthagents.com); são fontes de mercado, não dados da Delta.",
+        "O ROI considera só o custo de tokens dos modelos; hospedagem, bancos, desenvolvimento e manutenção não entram, "
+        "então ele é um limite superior.",
         "Embeddings não entram no custo. Dados de testes/mock não representam uso real.",
     ]
     story += [Paragraph("6. Definições e premissas", styles["Heading2"])]
