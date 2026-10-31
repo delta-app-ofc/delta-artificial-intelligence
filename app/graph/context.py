@@ -83,8 +83,14 @@ def find_relevant_memory(user_id: int, question: str) -> list[str]:
     return results
 
 
-def build_context(user_id: int, session_id: str, question: str) -> dict:
-    """Monta histórico validado da sessão e memória de longo prazo para o roteador."""
+def build_context(
+    user_id: int, session_id: str, question: str, history: list[dict] | None = None
+) -> dict:
+    """Monta histórico validado da sessão e memória de longo prazo para o roteador.
+
+    Se o chamador já leu o histórico validado desta pergunta, passe-o em ``history``
+    para não consultar o MongoDB de novo.
+    """
     trace = current_trace()
     started = perf_counter()
     if trace:
@@ -96,7 +102,8 @@ def build_context(user_id: int, session_id: str, question: str) -> dict:
             metadata={"phase": "session_history"},
         )
     try:
-        history = load_history_validated(user_id, session_id)
+        if history is None:
+            history = load_history_validated(user_id, session_id)
     except Exception as error:
         record = trace.error(
             "session_history",

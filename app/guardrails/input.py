@@ -92,8 +92,8 @@ def anonymize(text: str) -> tuple[str, dict[str, str]]:
     return text, pii_map
 
 
-def validate_input(user_id: int, message: str) -> dict:
-    """Valida e anonimiza a mensagem.
+def validate_input_rules(user_id: int, message: str) -> dict:
+    """Validações instantâneas (tamanho, PII, injeção, dados internos), sem chamar LLM.
 
     Retorna {"ok": True, "message": <anonimizada>, "pii_map": {...}}
     ou {"ok": False, "reason": "..."}.
@@ -118,6 +118,15 @@ def validate_input(user_id: int, message: str) -> dict:
         if kw in lower:
             return {"ok": False, "reason": "Não consigo compartilhar dados internos do sistema."}
 
+    return {"ok": True, "message": anonymized, "pii_map": pii_map}
+
+
+def classify_input(anonymized: str) -> dict | None:
+    """Classifica a mensagem já anonimizada com o LLM rápido.
+
+    Retorna {"ok": False, "reason": "..."} se for bloqueada e None se puder seguir.
+    Falha do classificador não bloqueia a mensagem (é registrada no diagnóstico).
+    """
     try:
         from app.services.llms import llm_rapido
         from langchain_core.messages import HumanMessage
@@ -138,5 +147,12 @@ def validate_input(user_id: int, message: str) -> dict:
     except Exception as error:
         if trace := current_trace():
             trace.error("input_guard", error)
+    return None
 
-    return {"ok": True, "message": anonymized, "pii_map": pii_map}
+
+def validate_input(user_id: int, message: str) -> dict:
+    """Valida e anonimiza a mensagem: regras instantâneas e depois o classificador LLM."""
+    result = validate_input_rules(user_id, message)
+    if not result["ok"]:
+        return result
+    return classify_input(result["message"]) or result

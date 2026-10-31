@@ -1,8 +1,10 @@
 """Workflow dos agentes Delta, compartilhado pelo chat e pelo console de testes."""
 from __future__ import annotations
 
+import contextvars
 import json
 import threading
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import asdict
 from time import perf_counter
 
@@ -14,7 +16,7 @@ from app.graph.context import build_context
 from app.graph.router import AGENT_REGISTRY, AgentNotImplemented, classify, load_agent
 from app.graph.state import AgentOutput, GraphState
 from app.graph.synthesis import synthesize
-from app.guardrails.input import validate_input
+from app.guardrails.input import classify_input, validate_input_rules
 from app.guardrails.output import chart_mentions_other_user, validate_output, validate_ownership
 from app.memory.session import append_turn, load_history_validated, to_chat_messages
 from app.observability.diagnostics import (
@@ -74,33 +76,50 @@ def _safe_relevant_memory(items: object) -> list[str]:
     return [content for item in items if (content := _redact_judge_context_text(item))]
 
 
+def _reject_input(reason: str) -> dict:
+    if trace := current_trace():
+        trace.event(
+            "guardrail.rejected",
+            component="input_guard",
+            operation="validate",
+            status="rejected",
+            metadata={"phase": "input_guard", "outcome": "input_rejected"},
+        )
+    return {"response": reason or "Mensagem bloqueada.", "pii_map": {}, "_blocked": True}
+
+
 def _guardrail_input_node(state: GraphState) -> dict:
+    """Regras instantâneas da entrada; o classificador LLM roda em paralelo na etapa seguinte."""
     with component("input_guard"):
-        result = validate_input(state["user_id"], state["question"])
+        result = validate_input_rules(state["user_id"], state["question"])
     if not result["ok"]:
-        if trace := current_trace():
-            trace.event(
-                "guardrail.rejected",
-                component="input_guard",
-                operation="validate",
-                status="rejected",
-                metadata={"phase": "input_guard", "outcome": "input_rejected"},
-            )
-        return {"response": result.get("reason", "Mensagem bloqueada."),
-                "pii_map": {}, "_blocked": True}
+        return _reject_input(result.get("reason", ""))
     return {"question": result["message"],
             "messages": [{"role": "human", "content": result["message"]}],
             "pii_map": result.get("pii_map") or {}, "_blocked": False}
 
 
+def _guardrail_llm_node(state: GraphState) -> dict:
+    with component("input_guard"):
+        blocked = classify_input(state["question"])
+    if blocked is not None:
+        return _reject_input(blocked.get("reason", ""))
+    return {"_blocked": False}
+
+
 def _after_guardrail_input(state: GraphState) -> str:
-    return END if state.get("_blocked") else "context"
+    return END if state.get("_blocked") else "prepare"
 
 
 def _context_node(state: GraphState) -> dict:
     with component("context"):
-        context = build_context(state["user_id"], state["session_id"], state["question"])
-        context["access_kind"] = resolve_access_kind(state["user_id"])
+        # O perfil (PostgreSQL) e o histórico/memória (MongoDB, Qdrant) não dependem um do outro.
+        with ThreadPoolExecutor(max_workers=2) as pool:
+            profile = pool.submit(contextvars.copy_context().run, resolve_access_kind, state["user_id"])
+            context = build_context(
+                state["user_id"], state["session_id"], state["question"], state.get("_history")
+            )
+            context["access_kind"] = profile.result()
         return context
 
 
@@ -125,6 +144,39 @@ def _route_node(state: GraphState) -> dict:
             "selected_agents": decision.agents,
             "unavailable_agents": decision.unavailable,
             "agent_used": ", ".join(decision.agents) if decision.agents else "unknown"}
+
+
+_guardrail_llm_tracked = None  # definido abaixo, depois de _tracked_node
+_context_tracked = None
+_route_tracked = None
+
+
+def _context_and_route(state: GraphState) -> dict:
+    context = _context_tracked(state)
+    routing = _route_tracked({**state, **context})
+    return {**context, **routing}
+
+
+def _prepare_node(state: GraphState) -> dict:
+    """Roda o classificador de segurança ao mesmo tempo que contexto e roteador.
+
+    Nada executa antes do veredito: se a guarda bloquear, o resultado do roteador é descartado.
+    Cada ramo usa uma cópia do contexto da requisição, para o rastreamento enxergar os dois.
+    """
+    pool = ThreadPoolExecutor(max_workers=2)
+    try:
+        guard = pool.submit(contextvars.copy_context().run, _guardrail_llm_tracked, state)
+        prepared = pool.submit(contextvars.copy_context().run, _context_and_route, state)
+        verdict = guard.result()
+        if verdict.get("_blocked"):
+            return verdict
+        return {**prepared.result(), **verdict}
+    finally:
+        pool.shutdown(wait=False, cancel_futures=True)
+
+
+def _after_prepare(state: GraphState) -> str:
+    return END if state.get("_blocked") else "execute"
 
 
 def _previous_result(state: GraphState, agent_name: str) -> dict:
@@ -479,7 +531,7 @@ def _guardrail_output_node(state: GraphState) -> dict:
 
 
 def _node_outcome(name: str, result: dict) -> str | None:
-    if name == "guardrail_input":
+    if name in {"guardrail_input", "guardrail_llm"}:
         return "input_rejected" if result.get("_blocked") else "accepted"
     if name == "execute":
         statuses = [item.get("status") for item in result.get("agent_results", [])]
@@ -542,7 +594,7 @@ def _tracked_node(name: str, action):
             outcome = _node_outcome(name, result)
             errors_after = len(trace.errors)
             event_status = "partial" if errors_after > errors_before else "success"
-            if name == "guardrail_input" and result.get("_blocked"):
+            if name in {"guardrail_input", "guardrail_llm"} and result.get("_blocked"):
                 event_status = "rejected"
             metadata = {"phase": name}
             if outcome:
@@ -566,8 +618,10 @@ def _tracked_node(name: str, action):
 
 _graph = StateGraph(GraphState)
 _graph.add_node("guardrail_input", _tracked_node("guardrail_input", _guardrail_input_node))
-_graph.add_node("context", _tracked_node("context", _context_node))
-_graph.add_node("route", _tracked_node("route", _route_node))
+_guardrail_llm_tracked = _tracked_node("guardrail_llm", _guardrail_llm_node)
+_context_tracked = _tracked_node("context", _context_node)
+_route_tracked = _tracked_node("route", _route_node)
+_graph.add_node("prepare", _prepare_node)
 _graph.add_node("execute", _tracked_node("execute", _execute_node))
 _graph.add_node("synthesize", _tracked_node("synthesize", _synthesize_node))
 _graph.add_node("respond", _tracked_node("respond", _respond_node))
@@ -579,9 +633,8 @@ _graph.add_node("block", _tracked_node("block", _block_node))
 _graph.add_node("output_guard", _tracked_node("output_guard", _guardrail_output_node))
 _graph.set_entry_point("guardrail_input")
 _graph.add_conditional_edges("guardrail_input", _after_guardrail_input,
-                             {END: END, "context": "context"})
-_graph.add_edge("context", "route")
-_graph.add_edge("route", "execute")
+                             {END: END, "prepare": "prepare"})
+_graph.add_conditional_edges("prepare", _after_prepare, {END: END, "execute": "execute"})
 _graph.add_edge("execute", "synthesize")
 _graph.add_edge("synthesize", "respond")
 _graph.add_edge("respond", "compose")
@@ -596,14 +649,19 @@ _graph.add_edge("output_guard", END)
 workflow = _graph.compile(checkpointer=MemorySaver())
 
 
-def _history_from_mongo(user_id: int, session_id: str) -> list[dict]:
+def _load_history(user_id: int, session_id: str) -> list[dict] | None:
+    """Histórico validado da sessão; None se o MongoDB falhar (o nó de contexto tenta de novo e registra)."""
     try:
-        history = load_history_validated(user_id, session_id)
+        return load_history_validated(user_id, session_id)
     except Exception as error:
         if trace := current_trace():
             trace.error("session_history", error)
-        return []
-    return to_chat_messages(history[-RECENT_TURNS:])
+        return None
+
+
+def _history_from_mongo(user_id: int, session_id: str) -> list[dict]:
+    history = _load_history(user_id, session_id)
+    return to_chat_messages(history[-RECENT_TURNS:]) if history else []
 
 
 def _invoke_workflow(
@@ -624,8 +682,12 @@ def _invoke_workflow(
         "revision_feedback": "", "revision_count": 0, "judge_history": [],
         "judge_action": "", "composition_status": "", "pii_map": {}, "_blocked": False,
     }
+    initial["_history"] = None
     if not workflow.get_state(config).values.get("messages"):
-        initial["messages"] = _history_from_mongo(user_id, session_id)
+        history = _load_history(user_id, session_id)
+        initial["messages"] = to_chat_messages(history[-RECENT_TURNS:]) if history else []
+        # Entra no estado para o nó de contexto não ler o MongoDB uma segunda vez.
+        initial["_history"] = history
     try:
         return workflow.invoke(initial, config=config)
     finally:
