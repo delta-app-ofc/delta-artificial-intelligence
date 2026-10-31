@@ -6,10 +6,11 @@ import leak from './tabs/leak.js';
 import habits from './tabs/habits.js';
 import rag from './tabs/rag.js';
 import judge from './tabs/judge.js';
+import monitor from './tabs/monitor.js';
 import { element, pretty, requestJSON, renderSignals, renderDiagnostics, renderExecutionTerminal, renderMessages } from './shared.js';
 
-const tabs = [chat, router, consumption, forecast, leak, habits, rag, judge];
-const icons = ['✦', '⑂', '◷', '↗', '◈', '◎', '▤', '⚖'];
+const tabs = [chat, router, consumption, forecast, leak, habits, rag, judge, monitor];
+const icons = ['✦', '⑂', '◷', '↗', '◈', '◎', '▤', '⚖', '▥'];
 const states = Object.fromEntries(tabs.map(tab => [tab.id, {
   messages: [], draft: '', fields: Object.fromEntries((tab.fields || []).map(field => [field.name, field.defaultValue ?? ''])),
   sessionId: null, busy: false, latest: null, localError: '', chartWarnings: [],
@@ -50,6 +51,9 @@ function selectTab(id) {
     button.setAttribute('aria-selected', String(selected)); button.tabIndex = selected ? 0 : -1;
   });
   byId('workspace').setAttribute('aria-labelledby', `tab-${id}`);
+  const isMonitor = tab.mode === 'monitor';
+  byId('console-grid').hidden = isMonitor; byId('monitor-view').hidden = !isMonitor;
+  if (isMonitor) monitor.render(byId('monitor-view'), { element, requestJSON });
   byId('page-title').textContent = tab.title;
   byId('page-description').textContent = tab.description;
   byId('workspace-label').textContent = tab.label;

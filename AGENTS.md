@@ -62,11 +62,11 @@ Os componentes abaixo foram implementados e têm cobertura de testes:
   `app/guardrails/output.py` (redação de PII na saída).
 - Memória de sessão: `app/memory/session.py` (MongoDB, ownership validado).
 - Memória de longo prazo: `app/memory/long_term.py` (Qdrant + embeddings Gemini).
+- Observabilidade: `app/observability/` mede tokens, custo, latência por etapa/agente, erros, resolução e ROI; aba Monitor no console, PDF e projeção para 100/1000 usuários. Veja `docs/observability.md`; LangSmith é opcional e a conexão real não foi validada.
 
 ### Componentes ainda sem implementação
 
 - Agente `profile`.
-- Métricas em `app/observability/`.
 
 API, grafo, guardrails, memória e agentes registrados têm código. Verifique
 o comportamento e as dependências reais antes de descrevê-los como validados.

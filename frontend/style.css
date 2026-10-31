@@ -1193,3 +1193,6 @@ h2 {
 .event-terminal-actions button[aria-pressed="true"] { background:#314760; color:#eef5ff; border-color:#7695bf; }
 .event-terminal-output > .event-terminal-request { padding:0 0 16px; color:#8ca4c2; }
 .event-terminal-dialog .event-terminal { border:0; border-radius:0; }
+
+#monitor-view[hidden], #console-grid[hidden] { display: none; }
+#monitor-view { padding: 16px; }

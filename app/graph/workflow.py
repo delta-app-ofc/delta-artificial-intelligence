@@ -572,7 +572,9 @@ def _invoke_workflow(
     *,
     persist_session: bool,
 ) -> GraphState:
-    config = {"configurable": {"thread_id": f"{user_id}:{session_id}"}}
+    # O session_id nos metadados agrupa os runs filhos do LangSmith por conversa.
+    config = {"configurable": {"thread_id": f"{user_id}:{session_id}"},
+              "metadata": {"session_id": session_id}}
     initial: GraphState = {
         "user_id": user_id, "session_id": session_id, "question": question,
         "response": "", "agent_used": "", "chart_data": None,

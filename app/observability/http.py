@@ -7,6 +7,7 @@ from starlette.responses import JSONResponse
 from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
 from app.observability.diagnostics import Trace, capture
+from app.observability.metrics import record_request
 
 
 class RequestTracingMiddleware:
@@ -61,9 +62,11 @@ class RequestTracingMiddleware:
                 outcome = ("error" if failed or status_code >= 500 else
                            "rejected" if status_code >= 400 or rejected else
                            "partial" if trace.errors else "success")
+                total_ms = round((perf_counter() - started) * 1000, 1)
                 trace.event(
                     "request.finished", component="http", operation=scope["method"],
-                    status=outcome, duration_ms=round((perf_counter() - started) * 1000, 1),
+                    status=outcome, duration_ms=total_ms,
                     metadata={"method": scope["method"], "route": route,
                               "status_code": status_code},
                 )
+                record_request(trace, outcome, total_ms)
