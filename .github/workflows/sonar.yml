@@ -1,0 +1,46 @@
+name: Validação Sonar
+
+on:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  tests:
+    name: Testes e relatórios
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          persist-credentials: false
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Instalar dependências de desenvolvimento
+        run: python -m pip install -r requirements-dev.txt
+
+      - name: Executar testes e gerar relatórios
+        run: python tests/run_ci.py
+
+      - name: Publicar relatórios para o Sonar
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: sonar-reports
+          path: reports/
+          if-no-files-found: error
+
+  scan:
+    needs: tests
+    uses: delta-app-ofc/.github/.github/workflows/sonar_scan.yml@d16a26074a524d0d414fa03b97931fb8d7713d90
+    with:
+      project_key: ${{ vars.SONAR_PROJECT_KEY || 'delta-app-ofc_delta-artificial-intelligence' }}
+      organization: ${{ vars.SONAR_ORGANIZATION || 'delta-app-ofc' }}
+      artifact_name: sonar-reports
+    secrets:
+      SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
