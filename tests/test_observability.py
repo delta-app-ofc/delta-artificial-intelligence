@@ -162,10 +162,13 @@ def test_langsmith_needs_key_and_stays_off_by_default(monkeypatch):
     assert enable_langsmith() is True
 
 
-def test_app_imports_and_playground_routes_exist():
+def test_app_imports_and_playground_routes_respond():
+    from fastapi.testclient import TestClient
     from app.main import app
-    paths = {getattr(route, "path", "") for route in app.routes}
-    assert "/playground/observability" in paths and "/playground/observability/report.pdf" in paths
+    client = TestClient(app)
+    assert client.get("/playground/observability").status_code == 200
+    pdf = client.get("/playground/observability/report.pdf")
+    assert pdf.status_code == 200 and pdf.content.startswith(b"%PDF")
 
 
 @pytest.mark.parametrize("price", ['{"m": [NaN, 1]}', '{"m": [1, Infinity]}', '{"m": [-1, 1]}'])
