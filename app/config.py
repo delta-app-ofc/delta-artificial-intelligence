@@ -187,6 +187,10 @@ class Settings:
     openai_model: str = "gpt-6-luna"
     openai_reasoning_effort: str = "medium"
     llm_provider: str = "openai"
+    openai_fast_reasoning_effort: str = ""
+    db_pool_min_size: int = 1
+    db_pool_max_size: int = 10
+    db_pool_wait_seconds: int = 5
     _parse_errors: tuple[tuple[str, str], ...] = field(default=(), repr=False)
 
 
@@ -278,6 +282,9 @@ def load_settings(
         "LLM_MAX_OUTPUT_TOKENS": (4096, int, "deve ser um número inteiro"),
         "DB_CONNECT_TIMEOUT_SECONDS": (5, int, "deve ser um número inteiro"),
         "DB_QUERY_TIMEOUT_SECONDS": (30, int, "deve ser um número inteiro"),
+        "DB_POOL_MIN_SIZE": (1, int, "deve ser um número inteiro"),
+        "DB_POOL_MAX_SIZE": (10, int, "deve ser um número inteiro"),
+        "DB_POOL_WAIT_SECONDS": (5, int, "deve ser um número inteiro"),
     }
     parsed_numbers: dict[str, int | float] = {}
     for name, (default, parse_number, error_message) in numeric_settings.items():
@@ -316,6 +323,7 @@ def load_settings(
         openai_model=values.get("OPENAI_MODEL", Settings.openai_model) or "",
         openai_reasoning_effort=(values.get("OPENAI_REASONING_EFFORT", Settings.openai_reasoning_effort) or "").casefold(),
         llm_provider=(values.get("LLM_PROVIDER", Settings.llm_provider) or "").casefold(),
+        openai_fast_reasoning_effort=(values.get("OPENAI_FAST_REASONING_EFFORT") or "").casefold(),
         gemini_api_key=values.get("GEMINI_API_KEY"),
         groq_api_key=values.get("GROQ_API_KEY"),
         database_url=database_url,
@@ -333,6 +341,9 @@ def load_settings(
         llm_max_output_tokens=parsed_numbers["LLM_MAX_OUTPUT_TOKENS"],
         db_connect_timeout_seconds=parsed_numbers["DB_CONNECT_TIMEOUT_SECONDS"],
         db_query_timeout_seconds=parsed_numbers["DB_QUERY_TIMEOUT_SECONDS"],
+        db_pool_min_size=parsed_numbers["DB_POOL_MIN_SIZE"],
+        db_pool_max_size=parsed_numbers["DB_POOL_MAX_SIZE"],
+        db_pool_wait_seconds=parsed_numbers["DB_POOL_WAIT_SECONDS"],
         qdrant_url=values.get("QDRANT_URL"),
         qdrant_api_key=values.get("QDRANT_API_KEY"),
         rag_document_path=values.get(
@@ -435,6 +446,10 @@ def validate_llm_config(
             problems.append("OPENAI_MODEL ausente ou vazio")
         if current.openai_reasoning_effort not in {"none", "low", "medium", "high", "xhigh", "max"}:
             problems.append("OPENAI_REASONING_EFFORT deve ser none, low, medium, high, xhigh ou max")
+        if current.openai_fast_reasoning_effort and current.openai_fast_reasoning_effort not in {
+            "none", "low", "medium", "high", "xhigh", "max",
+        }:
+            problems.append("OPENAI_FAST_REASONING_EFFORT deve ser none, low, medium, high, xhigh ou max")
     if needs_gemini:
         if not current.gemini_api_key:
             problems.append("GEMINI_API_KEY ausente ou vazio")
@@ -460,7 +475,10 @@ def validate_llm_config(
 def validate_postgres_config(*, settings: Settings | None = None) -> None:
     """Valida a URI PostgreSQL e timeouts sem abrir uma conexão."""
     current = settings or get_settings()
-    names = {"DATABASE_URL", "DB_CONNECT_TIMEOUT_SECONDS", "DB_QUERY_TIMEOUT_SECONDS"}
+    names = {
+        "DATABASE_URL", "DB_CONNECT_TIMEOUT_SECONDS", "DB_QUERY_TIMEOUT_SECONDS",
+        "DB_POOL_MIN_SIZE", "DB_POOL_MAX_SIZE", "DB_POOL_WAIT_SECONDS",
+    }
     problems = [
         f"{name}: {message}"
         for name, message in current._parse_errors
@@ -491,6 +509,12 @@ def validate_postgres_config(*, settings: Settings | None = None) -> None:
         problems.append("DB_CONNECT_TIMEOUT_SECONDS deve ser positivo")
     if current.db_query_timeout_seconds <= 0:
         problems.append("DB_QUERY_TIMEOUT_SECONDS deve ser positivo")
+    if current.db_pool_min_size <= 0:
+        problems.append("DB_POOL_MIN_SIZE deve ser positivo")
+    if current.db_pool_max_size < current.db_pool_min_size:
+        problems.append("DB_POOL_MAX_SIZE deve ser maior ou igual a DB_POOL_MIN_SIZE")
+    if current.db_pool_wait_seconds <= 0:
+        problems.append("DB_POOL_WAIT_SECONDS deve ser positivo")
     if problems:
         raise ConfigurationError(f"Configuração PostgreSQL inválida: {', '.join(problems)}.")
 
