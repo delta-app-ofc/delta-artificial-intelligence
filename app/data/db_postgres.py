@@ -57,6 +57,9 @@ def _get_pool() -> tuple[ThreadedConnectionPool, threading.BoundedSemaphore]:
                 )
             except psycopg2.Error as exc:
                 raise DatabaseConnectionError("PostgreSQL") from exc
+            # O psycopg2 só guarda "minconn" conexões ociosas e fecha as outras ao devolver;
+            # depois de abrir as iniciais, sobe o limite para manter até o máximo e evitar reconexões.
+            _pool.minconn = settings.db_pool_max_size
             _pool_slots = threading.BoundedSemaphore(settings.db_pool_max_size)
         return _pool, _pool_slots
 
@@ -127,7 +130,6 @@ def _cursor() -> Iterator:
     holder: dict = {"conn": None}
     cur = None
     operation_failed = False
-    discard = False
     try:
         try:
             holder["conn"] = pool.getconn()
@@ -138,7 +140,6 @@ def _cursor() -> Iterator:
         holder["conn"].commit()
     except psycopg2.Error as exc:
         operation_failed = True
-        discard = isinstance(exc, (psycopg2.OperationalError, psycopg2.InterfaceError))
         raise DatabaseQueryError(
             "PostgreSQL",
             code=getattr(exc, "pgcode", None),
@@ -156,7 +157,9 @@ def _cursor() -> Iterator:
         conn = holder["conn"]
         try:
             if conn is not None:
-                if discard or conn.closed:
+                if conn.closed:
+                    # Conexão fechada ou quebrada: sai do pool. Erro de consulta (inclusive timeout)
+                    # com a conexão saudável não descarta nada.
                     _discard(pool, conn)
                 else:
                     # putconn desfaz transação aberta, então uma falha nunca contamina o próximo uso.
