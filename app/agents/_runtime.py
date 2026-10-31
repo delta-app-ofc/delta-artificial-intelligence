@@ -180,6 +180,9 @@ def run_agent(
     revision_feedback: str | None = None,
     revision_context: dict[str, Any] | None = None,
 ) -> AgentResult:
+    """Roda o laço de chamadas de ferramentas e devolve a resposta final com o registro das
+    chamadas. Ao passar de `max_iterations`, pede uma resposta final sem novas ferramentas.
+    """
     tools_by_name = {t.name: t for t in tools}
     llm_with_tools = llm.bind_tools(tools) if tools else llm
 

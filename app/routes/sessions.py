@@ -22,6 +22,7 @@ router = APIRouter(tags=["sessions"])
 
 
 def _require_owned_session(user_id: int, session_id: str) -> None:
+    """Levanta 404 se a sessão não existe ou não é do usuário, sem diferenciar os dois casos."""
     if not session_belongs_to_user(user_id, session_id):
         raise HTTPException(status_code=404, detail="Sessão não encontrada.")
 
@@ -74,6 +75,9 @@ def get_history(session_id: str, user_id: int = Depends(get_current_user_id)):
     },
 )
 def close(session_id: str, user_id: int = Depends(get_current_user_id)):
+    """Encerra a sessão do usuário: salva o resumo na memória de longo prazo e marca a sessão como
+    fechada.
+    """
     _require_owned_session(user_id, session_id)
     try:
         close_session(session_id, user_id)

@@ -26,6 +26,9 @@ class HealthResponse(BaseModel):
     description="Não exige autenticação. Só confere se as configurações carregam; não testa bancos nem provedores de LLM.",
 )
 def health():
+    """Informa se a configuração carrega; o detalhe do erro fica só no log, porque a rota é
+    pública.
+    """
     issues = []
     try:
         get_settings()

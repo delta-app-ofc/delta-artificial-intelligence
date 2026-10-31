@@ -112,6 +112,9 @@ def _embed_model():
 
 
 def _ensure_collection() -> None:
+    """Garante a coleção e o índice de `user_id` no Qdrant, uma vez por processo. Coleção com
+    dimensão diferente da esperada levanta ConfigurationError e nunca é recriada.
+    """
     global _collection_initialized
     if _collection_initialized:
         return

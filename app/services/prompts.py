@@ -1208,7 +1208,7 @@ Pergunta do usuário: {question}
 Resposta do assistente: {answer}
 """
 
-_PERFIL_RESIDENCIAL = """\
+_PROFILE_RESIDENTIAL = """\
 
 ## Perfil do usuário: residencial
 - Trate o usuário como morador: fale de "sua casa", "sua residência" e do consumo doméstico.
@@ -1216,7 +1216,7 @@ _PERFIL_RESIDENCIAL = """\
 - A telemetria residencial não separa imóveis: não invente consumo por imóvel.
 """
 
-_PERFIL_ORGANIZACIONAL = """\
+_PROFILE_ORGANIZATIONAL = """\
 
 ## Perfil do usuário: comercial (organização)
 - Trate o usuário como responsável por uma organização com uma ou mais unidades: fale de
@@ -1228,7 +1228,7 @@ _PERFIL_ORGANIZACIONAL = """\
 - Alertas e janelas anômalas ainda não são separados por unidade: ao falar de vazamento, diga isso.
 """
 
-_PERFIL_SEM_VINCULO = """\
+_PROFILE_UNLINKED = """\
 
 ## Perfil do usuário: sem vínculo
 - A conta não está ligada a uma residência nem a uma organização, então não há dados
@@ -1236,20 +1236,20 @@ _PERFIL_SEM_VINCULO = """\
 - Oriente a vincular a conta; nenhum dado pessoal pode ser consultado.
 """
 
-_PERFIL_INDEFINIDO = """\
+_PROFILE_UNKNOWN = """\
 
 ## Perfil do usuário: não identificado
 - Não foi possível identificar o perfil da conta agora; não consulte nem suponha dados pessoais.
 """
 
-_PERFIS = {
-    "residential": _PERFIL_RESIDENCIAL,
-    "organizational": _PERFIL_ORGANIZACIONAL,
-    "none": _PERFIL_SEM_VINCULO,
-    "unknown": _PERFIL_INDEFINIDO,
+_PROFILES = {
+    "residential": _PROFILE_RESIDENTIAL,
+    "organizational": _PROFILE_ORGANIZATIONAL,
+    "none": _PROFILE_UNLINKED,
+    "unknown": _PROFILE_UNKNOWN,
 }
 
 
-def perfil_bloco(access_kind: str | None) -> str:
+def profile_block(access_kind: str | None) -> str:
     """Trecho de prompt do perfil do usuário; vazio quando o perfil não foi informado."""
-    return _PERFIS.get(access_kind, "") if access_kind else ""
+    return _PROFILES.get(access_kind, "") if access_kind else ""

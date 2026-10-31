@@ -80,8 +80,12 @@ def unavailable_agent_message(agent_names: list[str]) -> str | None:
 
 
 def greeting_response(access_kind: str | None) -> str:
+    """Saudação fixa do perfil; perfil não informado usa a residencial."""
     return _GREETINGS.get(access_kind or "residential", _GREETINGS["unknown"])
 
 
 def no_agent_response(access_kind: str | None) -> str:
+    """Orientação fixa para quando nenhum agente se aplica à pergunta; perfil não informado usa a
+    residencial.
+    """
     return _NO_AGENT_RESPONSES.get(access_kind or "residential", _NO_AGENT_RESPONSES["unknown"])

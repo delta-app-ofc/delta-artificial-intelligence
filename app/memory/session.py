@@ -26,6 +26,7 @@ def _collection():
 
 
 def _object_id(session_id: str) -> ObjectId | None:
+    """Converte o id público da sessão em ObjectId; devolve None se for inválido."""
     try:
         return ObjectId(session_id)
     except (InvalidId, TypeError):
@@ -33,6 +34,7 @@ def _object_id(session_id: str) -> ObjectId | None:
 
 
 def _shorten(text: str, limit: int) -> str:
+    """Compacta os espaços e corta o texto em `limit` caracteres, terminando com reticências."""
     text = " ".join((text or "").split())
     if len(text) <= limit:
         return text
@@ -157,6 +159,9 @@ def append_turn(
 
 
 def mark_session_closed(user_id: int, session_id: str) -> None:
+    """Marca a sessão de `user_id` como encerrada; sessão inválida, excluída ou de outro usuário
+    não muda nada.
+    """
     object_id = _object_id(session_id)
     if object_id is None:
         return
@@ -180,6 +185,9 @@ def session_needs_meta(user_id: int, session_id: str) -> bool:
 
 
 def set_session_meta(user_id: int, session_id: str, title: str, preview: str, icon: str) -> None:
+    """Grava título, prévia e ícone na sessão de `user_id`; ignora sessão inválida, excluída ou de
+    outro usuário.
+    """
     object_id = _object_id(session_id)
     if object_id is None:
         return

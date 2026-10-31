@@ -9,7 +9,7 @@ from app.config import ConfigurationError
 from app.agents._runtime import _message_text
 from app.observability.diagnostics import current_trace
 from app.graph.profile import allowed_agents
-from app.services.prompts import ROUTER_PROMPT, perfil_bloco
+from app.services.prompts import ROUTER_PROMPT, profile_block
 
 AGENT_REGISTRY: dict[str, str] = {
     "consumption": "app.agents.consumption.ConsumptionAgent",
@@ -32,6 +32,10 @@ class RoutingDecision(BaseModel):
 
 
 def classify(question: str, context: dict) -> RoutingDecision:
+    """Pede ao modelo rápido a intenção, a complexidade e os agentes da pergunta, considerando o
+    histórico recente e o perfil da conta. Descarta agentes desconhecidos ou fora do perfil.
+    Qualquer falha devolve intenção `unknown` sem agentes.
+    """
     import app.services.llms as _llm_module
     from langchain_core.messages import HumanMessage, SystemMessage
 
@@ -52,7 +56,7 @@ def classify(question: str, context: dict) -> RoutingDecision:
         if llm is None:
             raise ConfigurationError("Configure o provedor de linguagem selecionado para o roteador.")
         access_kind = context.get("access_kind")
-        system_prompt = ROUTER_PROMPT + perfil_bloco(access_kind)
+        system_prompt = ROUTER_PROMPT + profile_block(access_kind)
         allowed = allowed_agents(access_kind)
         if allowed is not None:
             system_prompt += (

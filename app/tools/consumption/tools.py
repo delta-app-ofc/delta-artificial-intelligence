@@ -68,6 +68,9 @@ def _read_period(
     period: analysis.ConsumptionPeriod,
     as_of: datetime,
 ) -> _ReadResult:
+    """Lê o consumo do período no escopo autorizado (Mongo para residencial, view SQL para
+    organizacional) e devolve agregado, fonte, granularidade e avisos.
+    """
     notes = list(period.notes)
     local_today = as_of.astimezone(ZoneInfo(period.timezone_name)).date()
     includes_today = period.start.date() <= local_today <= period.last_included_date
@@ -235,6 +238,9 @@ def build_tools(
     def _scope(
         unit_name: str | None, unit_id: int | None
     ) -> tuple[_Scope | None, dict[str, object] | None]:
+        """Resolve o escopo autorizado da consulta pelo perfil da conta. Devolve (escopo, None) ou
+        (None, resposta de erro da tool); a unidade só vale se pertencer ao usuário.
+        """
         needle = (unit_name or "").strip().casefold()
         if unit_name is not None and not needle:
             raise analysis.InvalidConsumptionInput("O nome da unidade não pode estar vazio.")
@@ -562,6 +568,9 @@ def build_tools(
         """
 
         def list_units() -> dict[str, object]:
+            """Lista as unidades organizacionais autorizadas; conta residencial ou sem vínculo
+            recebe a resposta de dados insuficientes.
+            """
             kind = access_kind or db_postgres.get_user_access_kind(user_id)
             if kind == "residential":
                 return _scope_failure(

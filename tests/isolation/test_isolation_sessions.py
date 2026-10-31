@@ -151,9 +151,9 @@ def test_user_id_enviado_pelo_cliente_e_ignorado(api):
 
 
 def test_fechar_sessao_de_outro_usuario_responde_404_e_nao_chama_o_resumo(api, monkeypatch):
-    chamadas = []
+    calls = []
     monkeypatch.setattr(
-        "app.routes.sessions.close_session", lambda session_id, user_id: chamadas.append((session_id, user_id))
+        "app.routes.sessions.close_session", lambda session_id, user_id: calls.append((session_id, user_id))
     )
     session_id = _chat(api, 7).json()["session_id"]
 
@@ -162,7 +162,7 @@ def test_fechar_sessao_de_outro_usuario_responde_404_e_nao_chama_o_resumo(api, m
 
     assert intruso.status_code == 404
     assert dono.status_code == 200
-    assert chamadas == [(session_id, 7)]
+    assert calls == [(session_id, 7)]
 
 
 def test_pergunta_bloqueada_nao_deixa_sessao_vazia(api, mongo_db, monkeypatch):

@@ -31,7 +31,7 @@ class FakeCursor:
 
 
 @pytest.fixture
-def banco(monkeypatch):
+def database(monkeypatch):
     """Cursor falso; qualquer consulta extra de autorização na API derruba o teste."""
     cursor = FakeCursor()
 
@@ -48,39 +48,39 @@ def banco(monkeypatch):
 
 
 # Cada item: (função, argumentos depois de user_id e property_ids).
-FUNCOES_ORGANIZACIONAIS = [
+ORGANIZATION_FUNCTIONS = [
     (db_postgres.organization_can_estimate, ()),
     (db_postgres.get_organization_consumption_history, (30, TODAY)),
     (db_postgres.get_organization_consumption_daily, (date(2026, 10, 1), date(2026, 10, 7))),
     (db_postgres.get_organization_last_billed_period, (TODAY,)),
     (db_postgres.get_organization_effective_rate, (TODAY,)),
 ]
-IDS = [f.__name__ for f, _ in FUNCOES_ORGANIZACIONAIS]
+IDS = [f.__name__ for f, _ in ORGANIZATION_FUNCTIONS]
 
 
-@pytest.mark.parametrize("funcao, extras", FUNCOES_ORGANIZACIONAIS, ids=IDS)
-def test_user_id_e_ids_vao_ao_banco_numa_unica_consulta(banco, funcao, extras):
+@pytest.mark.parametrize("function, extras", ORGANIZATION_FUNCTIONS, ids=IDS)
+def test_user_id_e_ids_vao_ao_banco_numa_unica_consulta(database, function, extras):
     """Ids de outra organização não são checados na API: o banco os descarta junto com o dono."""
-    funcao(1, [10, 20], *extras)
+    function(1, [10, 20], *extras)
 
-    assert len(banco.cursor.executed) == 1
-    _, params = banco.cursor.executed[0]
+    assert len(database.cursor.executed) == 1
+    _, params = database.cursor.executed[0]
     assert params[0] == 1 and params[1] == [10, 20]
 
 
-@pytest.mark.parametrize("funcao, extras", FUNCOES_ORGANIZACIONAIS, ids=IDS)
-def test_consulta_usa_o_filtro_de_dono_do_banco(banco, funcao, extras):
-    funcao(1, [10], *extras)
+@pytest.mark.parametrize("function, extras", ORGANIZATION_FUNCTIONS, ids=IDS)
+def test_consulta_usa_o_filtro_de_dono_do_banco(database, function, extras):
+    function(1, [10], *extras)
 
-    sql, _ = banco.cursor.executed[0]
+    sql, _ = database.cursor.executed[0]
     assert "fn_organization_" in sql or "fn_user_authorized_property_ids" in sql
 
 
-@pytest.mark.parametrize("funcao, extras", FUNCOES_ORGANIZACIONAIS, ids=IDS)
-def test_lista_vazia_nao_consulta_nada(banco, funcao, extras):
-    funcao(1, [], *extras)
+@pytest.mark.parametrize("function, extras", ORGANIZATION_FUNCTIONS, ids=IDS)
+def test_lista_vazia_nao_consulta_nada(database, function, extras):
+    function(1, [], *extras)
 
-    assert banco.cursor.executed == []
+    assert database.cursor.executed == []
 
 
 def test_cadastro_de_habito_recusado_nao_vaza_a_mensagem_do_banco(monkeypatch):

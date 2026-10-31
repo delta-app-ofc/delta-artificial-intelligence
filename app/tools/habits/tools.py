@@ -80,10 +80,14 @@ _NOT_RESIDENTIAL = {
 
 
 def build_tools(user_id: int, access_kind: str | None = None) -> list[BaseTool]:
+    """Monta as ferramentas de hábitos presas a `user_id` (o modelo nunca o informa); só funcionam
+    para conta residencial.
+    """
     validate_user_id(user_id)
 
     def _is_residential() -> bool:
         # Sem perfil informado, consulta a cada chamada; com ele, vale o da pergunta atual.
+        """Indica se a conta é residencial, usando o perfil informado ou consultando o banco."""
         return (access_kind or db_postgres.get_user_access_kind(user_id)) == "residential"
 
     @tool

@@ -7,17 +7,17 @@ import pytest
 
 from app.data import db_postgres
 from app.graph import profile, router, workflow
-from app.services.prompts import perfil_bloco
+from app.services.prompts import profile_block
 from app.tools.consumption import tools as consumption_tools
 from app.tools.forecast import tools as forecast_tools
 from app.tools.habits import tools as habits_tools
 from app.tools.models import OrganizationProperty
 
 TODAY = date(2026, 10, 25)
-AGORA = datetime(2026, 10, 25, 12, 0, tzinfo=timezone.utc)
+NOW = datetime(2026, 10, 25, 12, 0, tzinfo=timezone.utc)
 
 
-def por_nome(tools):
+def by_name(tools):
     return {t.name: t for t in tools}
 
 
@@ -182,63 +182,63 @@ def test_perfil_chega_ao_agente(monkeypatch):
 
 
 def test_bloco_de_prompt_por_perfil():
-    assert "casa" in perfil_bloco("residential")
-    comercial = perfil_bloco("organizational")
+    assert "casa" in profile_block("residential")
+    comercial = profile_block("organizational")
     assert "unidades" in comercial and "nunca de \"sua casa\"" in comercial
-    assert "sem vínculo" in perfil_bloco("none")
-    assert "não identificado" in perfil_bloco("unknown")
-    assert perfil_bloco(None) == ""
+    assert "sem vínculo" in profile_block("none")
+    assert "não identificado" in profile_block("unknown")
+    assert profile_block(None) == ""
 
 
 # --- tools não consultam o perfil de novo quando ele já foi resolvido ----------------------
 
 
 @pytest.fixture
-def sem_consulta_de_perfil(monkeypatch):
+def no_profile_lookup(monkeypatch):
     def proibido(user_id):
         raise AssertionError("o perfil já foi resolvido na pergunta; não deve consultar de novo")
 
     monkeypatch.setattr(db_postgres, "get_user_access_kind", proibido)
 
 
-def test_consumo_comercial_usa_o_perfil_informado(sem_consulta_de_perfil, monkeypatch):
+def test_consumo_comercial_usa_o_perfil_informado(no_profile_lookup, monkeypatch):
     unidades = [OrganizationProperty(10, "Filial Alfa", "São Paulo", "SP")]
     monkeypatch.setattr(db_postgres, "get_user_organization_properties", lambda uid: unidades)
-    tools = por_nome(consumption_tools.build_tools(1, clock=lambda: AGORA, access_kind="organizational"))
+    tools = by_name(consumption_tools.build_tools(1, clock=lambda: NOW, access_kind="organizational"))
 
     resposta = tools["list_consumption_units"].invoke({})
 
     assert resposta["status"] != "insufficient_data"
 
 
-def test_consumo_residencial_usa_o_perfil_informado(sem_consulta_de_perfil):
-    tools = por_nome(consumption_tools.build_tools(1, clock=lambda: AGORA, access_kind="residential"))
+def test_consumo_residencial_usa_o_perfil_informado(no_profile_lookup):
+    tools = by_name(consumption_tools.build_tools(1, clock=lambda: NOW, access_kind="residential"))
 
     resposta = tools["list_consumption_units"].invoke({})
 
     assert resposta["status"] == "insufficient_data"
 
 
-def test_habitos_usam_o_perfil_informado(sem_consulta_de_perfil):
-    comercial = por_nome(habits_tools.build_tools(1, access_kind="organizational"))
+def test_habitos_usam_o_perfil_informado(no_profile_lookup):
+    comercial = by_name(habits_tools.build_tools(1, access_kind="organizational"))
 
     assert comercial["list_habits"].invoke({})["status"] == "not_applicable"
 
 
-def test_previsao_usa_o_perfil_informado(sem_consulta_de_perfil, monkeypatch):
+def test_previsao_usa_o_perfil_informado(no_profile_lookup, monkeypatch):
     monkeypatch.setattr(db_postgres, "get_user_organization_properties", lambda uid: [])
-    tools = por_nome(forecast_tools.build_tools(1, TODAY, "organizational"))
+    tools = by_name(forecast_tools.build_tools(1, TODAY, "organizational"))
 
     assert "check_can_estimate" in tools
 
 
 def test_sem_perfil_informado_as_tools_consultam_como_antes(monkeypatch):
-    chamadas = []
+    calls = []
     monkeypatch.setattr(
-        db_postgres, "get_user_access_kind", lambda uid: chamadas.append(uid) or "residential"
+        db_postgres, "get_user_access_kind", lambda uid: calls.append(uid) or "residential"
     )
-    tools = por_nome(consumption_tools.build_tools(1, clock=lambda: AGORA))
+    tools = by_name(consumption_tools.build_tools(1, clock=lambda: NOW))
 
     tools["list_consumption_units"].invoke({})
 
-    assert chamadas == [1]
+    assert calls == [1]

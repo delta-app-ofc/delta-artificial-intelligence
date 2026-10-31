@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from langchain_core.messages import HumanMessage, SystemMessage
 
-from app.services.prompts import SYNTHESIS_PROMPT, perfil_bloco
+from app.services.prompts import SYNTHESIS_PROMPT, profile_block
 from app.agents._runtime import _message_text
 from app.observability.diagnostics import current_trace
 
@@ -20,7 +20,7 @@ def synthesize(question: str, answers: list[dict], access_kind: str | None = Non
 
     answers_text = "\n\n".join(f"[{a['agent'].upper()}]\n{a['answer']}" for a in answers)
     prompt = SYNTHESIS_PROMPT.format(n=len(answers), question=question, respostas=answers_text)
-    prompt += perfil_bloco(access_kind)
+    prompt += profile_block(access_kind)
 
     try:
         response = llm.invoke(
