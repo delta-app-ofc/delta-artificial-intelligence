@@ -232,6 +232,24 @@ def build_tools(
 
     now_provider = clock or (lambda: datetime.now(timezone.utc))
 
+    # Memória desta pergunta: o conjunto de tools é recriado a cada execução do agente, então
+    # nada aqui chega a outra pergunta ou a outro usuário.
+    memo_units: list[tuple[OrganizationProperty, ...]] = []
+    memo_reads: dict[tuple, _ReadResult] = {}
+
+    def _units() -> tuple[OrganizationProperty, ...]:
+        if not memo_units:
+            memo_units.append(tuple(db_postgres.get_user_organization_properties(user_id)))
+        return memo_units[0]
+
+    def _read(scope: _Scope, period: analysis.ConsumptionPeriod, as_of: datetime) -> _ReadResult:
+        key = (scope.kind, scope.property_ids, period, as_of)
+        if key not in memo_reads:
+            memo_reads[key] = _read_period(
+                user_id=user_id, scope=scope, period=period, as_of=as_of
+            )
+        return memo_reads[key]
+
     def _scope(
         unit_name: str | None, unit_id: int | None
     ) -> tuple[_Scope | None, dict[str, object] | None]:
@@ -266,7 +284,7 @@ def build_tools(
                 timezone=timezone_name,
             )
 
-        units = tuple(db_postgres.get_user_organization_properties(user_id))
+        units = _units()
         if not units:
             return None, _scope_failure(
                 "insufficient_data",
@@ -346,12 +364,7 @@ def build_tools(
         if error is not None:
             return error
         assert scope is not None
-        return _read_period(
-            user_id=user_id,
-            scope=scope,
-            period=period,
-            as_of=as_of,
-        )
+        return _read(scope, period, as_of)
 
     def _run_safely(action: Callable[[], dict[str, object]]) -> dict[str, object]:
         try:
@@ -452,12 +465,8 @@ def build_tools(
             if error is not None:
                 return error
             assert scope is not None
-            current_result = _read_period(
-                user_id=user_id, scope=scope, period=current, as_of=as_of
-            )
-            previous_result = _read_period(
-                user_id=user_id, scope=scope, period=previous, as_of=as_of
-            )
+            current_result = _read(scope, current, as_of)
+            previous_result = _read(scope, previous, as_of)
             both_have_data = (
                 current_result.aggregate.has_data and previous_result.aggregate.has_data
             )
@@ -576,7 +585,7 @@ def build_tools(
                     "Não há organização vinculada ao usuário.",
                     timezone=timezone_name,
                 )
-            units = db_postgres.get_user_organization_properties(user_id)
+            units = _units()
             if not units:
                 return _scope_failure(
                     "insufficient_data",
