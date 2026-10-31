@@ -37,8 +37,10 @@ explícitas, sem substituir uma variável vazia por um default local.
 
 - PostgreSQL aceita `DATABASE_URL` ou o conjunto completo `HOST_DB`,
   `PORT_DB`, `USER_DB`, `PASSWORD_DB`, `NAME_DB`, que tem precedência.
-  Abre uma conexão por operação, preserva opções da URI, aplica timeout de
-  conexão/consulta e fecha cursor e conexão mesmo em falhas.
+  Usa um pool de conexões por processo (`DB_POOL_MIN_SIZE`, `DB_POOL_MAX_SIZE` e
+  `DB_POOL_WAIT_SECONDS`; `workers × DB_POOL_MAX_SIZE` deve ficar abaixo do
+  `max_connections` do PostgreSQL), preserva opções da URI, aplica timeout de
+  conexão/consulta e devolve cursor e conexão ao pool mesmo em falhas.
 - MongoDB mantém clientes lazy separados para app e telemetria, reutilizados
   pelo processo, com datas aware, timeouts e fechamento explícito.
 - Credenciais não são exigidas no import. A validação ocorre por componente
@@ -60,8 +62,8 @@ somente em databases de teste isolados em loopback; veja os requisitos no
 
 Settings são snapshots em cache. Ao trocar configuração em um processo já
 em execução, recarregue os settings e descarte os clientes afetados:
-`clear_llm_cache()` para os modelos gerais e `close_clients()` para os dois
-clientes Mongo. Para liberar os clientes OpenAI, aguarde
+`clear_llm_cache()` para os modelos gerais, `close_clients()` para os dois
+clientes Mongo e `close_pool()` de `app.data.db_postgres` para o pool PostgreSQL. Para liberar os clientes OpenAI, aguarde
 `close_openai_clients()` de `app.services.llms`. Para o RAG, aguarde `close_rag_clients()` de
 `app.services.rag`; para o segundo juiz, aguarde `close_judge_clients()` de
 `app.agents.judge_specialist`. Faça essa recarga sem requisições em andamento.
@@ -582,6 +584,7 @@ uvicorn app.main:app --reload
 | Método | Rota | Descrição |
 |--------|------|-----------|
 | POST | `/chat` | Envia mensagem ao chatbot |
+| POST | `/chat/stream` | Igual ao `/chat`, com as etapas por SSE (`text/event-stream`); a resposta só sai ao final |
 | GET | `/health` | Status dos serviços configurados |
 | GET | `/sessions?limit=20&offset=0` | Lista as sessões do usuário autenticado, da mais recente à mais antiga |
 | GET | `/sessions/{session_id}/messages` | Histórico de uma sessão do usuário |
@@ -597,6 +600,11 @@ back-end ainda precisa emitir esse token.
 ids que o servidor não devolveu retornam 404) e devolve
 `{"response": "...", "agents_used": ["forecast"], "session_id": "...", "chart_data": null}`.
 Sessão de outro usuário e sessão inexistente respondem 404 idêntico, sem revelar se ela existe.
+
+`POST /chat/stream` recebe o mesmo corpo e checa JWT, sessão e histórico antes de abrir o fluxo (401, 404, 503).
+Depois devolve eventos `stage` (só o nome da etapa e um rótulo em português), um único `result` (mesmo JSON do
+`/chat`, depois da validação) ou `error` (`422` mensagem bloqueada, `500` falha). Leia com `fetch`, pois o
+`EventSource` não envia `Authorization`. Detalhes e medições em [`docs/reducao-latencia.md`](docs/reducao-latencia.md).
 
 `GET /sessions` devolve `{"sessions": [{"session_id", "title", "preview", "icon", "created_at",
 "updated_at", "is_open"}], "total": N}`. Use `limit=4` para a lista da home e `offset` no "ver todos".
