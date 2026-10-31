@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from time import perf_counter
 
-from app.memory.session import load_history_validated
+from app.memory.session import load_history_validated, to_chat_messages
 from app.observability.diagnostics import current_trace
 
 RECENT_TURNS = 6
@@ -131,11 +131,7 @@ def build_context(user_id: int, session_id: str, question: str) -> dict:
                     "outcome": "loaded" if history else "empty",
                 },
             )
-    recent = [
-        {"role": item["role"], "content": item["content"]}
-        for item in history[-RECENT_TURNS:]
-        if item.get("role") in ("human", "assistant")
-    ]
+    recent = to_chat_messages(history[-RECENT_TURNS:])
     return {
         "recent_messages": recent,
         "relevant_memory": find_relevant_memory(user_id, question),

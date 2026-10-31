@@ -112,6 +112,19 @@ def _message_text(msg: BaseMessage) -> str:
     return str(content)
 
 
+def _without_user_id(value: Any) -> Any:
+    """Remove as chaves user_id antes de mostrar a saída da tool ao modelo.
+
+    O modelo não precisa do identificador e não deve vê-lo: o escopo do usuário
+    é aplicado pelas tools, nunca por argumentos escolhidos pelo modelo.
+    """
+    if isinstance(value, dict):
+        return {k: _without_user_id(v) for k, v in value.items() if k != "user_id"}
+    if isinstance(value, (list, tuple)):
+        return [_without_user_id(item) for item in value]
+    return value
+
+
 def _run_tool(tool: BaseTool | None, name: str, args: dict) -> Any:
     candidate_name = getattr(tool, "name", None) if tool is not None else None
     safe_name = (
@@ -167,6 +180,9 @@ def run_agent(
     revision_feedback: str | None = None,
     revision_context: dict[str, Any] | None = None,
 ) -> AgentResult:
+    """Roda o laço de chamadas de ferramentas e devolve a resposta final com o registro das
+    chamadas. Ao passar de `max_iterations`, pede uma resposta final sem novas ferramentas.
+    """
     tools_by_name = {t.name: t for t in tools}
     llm_with_tools = llm.bind_tools(tools) if tools else llm
 
@@ -191,7 +207,7 @@ def run_agent(
             log.append(ToolCall(name=name, input=args, output=output))
             messages.append(
                 ToolMessage(
-                    content=json.dumps(output, default=str, ensure_ascii=False),
+                    content=json.dumps(_without_user_id(output), default=str, ensure_ascii=False),
                     tool_call_id=call.get("id") or name,
                 )
             )
