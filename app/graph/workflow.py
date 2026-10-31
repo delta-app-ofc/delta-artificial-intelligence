@@ -3,10 +3,12 @@ from __future__ import annotations
 
 import contextvars
 import json
+import queue
 import threading
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import asdict
 from time import perf_counter
+from typing import Iterator
 
 from langgraph.checkpoint.memory import MemorySaver
 from langgraph.graph import END, StateGraph
@@ -664,13 +666,14 @@ def _history_from_mongo(user_id: int, session_id: str) -> list[dict]:
     return to_chat_messages(history[-RECENT_TURNS:]) if history else []
 
 
-def _invoke_workflow(
+def _start_run(
     user_id: int,
     session_id: str,
     question: str,
     *,
     persist_session: bool,
-) -> GraphState:
+) -> tuple[GraphState, dict]:
+    """Monta o estado inicial e a configuração de uma execução do grafo."""
     config = {"configurable": {"thread_id": f"{user_id}:{session_id}"}}
     initial: GraphState = {
         "user_id": user_id, "session_id": session_id, "question": question,
@@ -688,6 +691,17 @@ def _invoke_workflow(
         initial["messages"] = to_chat_messages(history[-RECENT_TURNS:]) if history else []
         # Entra no estado para o nó de contexto não ler o MongoDB uma segunda vez.
         initial["_history"] = history
+    return initial, config
+
+
+def _invoke_workflow(
+    user_id: int,
+    session_id: str,
+    question: str,
+    *,
+    persist_session: bool,
+) -> GraphState:
+    initial, config = _start_run(user_id, session_id, question, persist_session=persist_session)
     try:
         return workflow.invoke(initial, config=config)
     finally:
@@ -726,3 +740,88 @@ def run_workflow(user_id: int, session_id: str, question: str, *,
             question,
             persist_session=persist_session,
         )
+
+
+# Etapa mostrada ao usuário depois que cada nó termina (a próxima a acontecer).
+# Só rótulos genéricos: nada da conta, da pergunta ou da resposta aparece aqui.
+_CHECKING = ("checking", "Verificando a mensagem")
+_STAGE_AFTER_NODE = {
+    "guardrail_input": ("understanding", "Entendendo a pergunta"),
+    "prepare": ("querying", "Consultando os dados"),
+    "execute": ("composing", "Montando a resposta"),
+    "synthesize": ("composing", "Montando a resposta"),
+    "respond": ("composing", "Montando a resposta"),
+    "compose": ("validating", "Validando a resposta"),
+    "revise": ("revising", "Revisando a resposta"),
+    "judge": ("finishing", "Finalizando"),
+    "publish": ("finishing", "Finalizando"),
+    "block": ("finishing", "Finalizando"),
+}
+STREAM_KEEPALIVE_SECONDS = 15
+
+
+def run_workflow_events(
+    user_id: int,
+    session_id: str,
+    question: str,
+    *,
+    persist_session: bool = True,
+    keepalive_seconds: float = STREAM_KEEPALIVE_SECONDS,
+) -> Iterator[dict]:
+    """Executa o grafo e devolve eventos de progresso; o texto da resposta só vem no evento final.
+
+    Eventos: {"type": "stage", "stage", "label"}, {"type": "keepalive"},
+    {"type": "final", "state"} e {"type": "failed"}. O grafo roda numa thread própria, dentro do
+    mesmo contexto de rastreamento da requisição, e entrega os eventos por uma fila.
+    """
+    events: queue.Queue = queue.Queue()
+    context = contextvars.copy_context()
+
+    def worker() -> None:
+        thread_id = f"{user_id}:{session_id}"
+        try:
+            def run() -> None:
+                initial, config = _start_run(
+                    user_id, session_id, question, persist_session=persist_session
+                )
+                last_stage = _CHECKING[0]
+                final_state: dict = {}
+                events.put({"type": "stage", "stage": _CHECKING[0], "label": _CHECKING[1]})
+                for mode, chunk in workflow.stream(
+                    initial, config=config, stream_mode=["updates", "values"]
+                ):
+                    if mode == "values":
+                        final_state = chunk
+                        continue
+                    for node in chunk:
+                        stage = _STAGE_AFTER_NODE.get(node)
+                        if stage and stage[0] != last_stage:
+                            last_stage = stage[0]
+                            events.put({"type": "stage", "stage": stage[0], "label": stage[1]})
+                events.put({"type": "final", "state": final_state})
+
+            if current_trace() is not None:
+                run()
+            else:
+                with capture(Trace("chat", user_id=user_id)):
+                    run()
+        except Exception as error:
+            if trace := current_trace():
+                trace.error("stream", error)
+            events.put({"type": "failed"})
+        finally:
+            if persist_session:
+                _forget_thread(thread_id)
+            events.put({"type": "end"})
+
+    threading.Thread(target=context.run, args=(worker,), daemon=True).start()
+
+    while True:
+        try:
+            item = events.get(timeout=keepalive_seconds)
+        except queue.Empty:
+            yield {"type": "keepalive"}
+            continue
+        if item["type"] == "end":
+            return
+        yield item
