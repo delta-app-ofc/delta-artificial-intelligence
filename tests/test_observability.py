@@ -324,3 +324,35 @@ def test_cost_projection_pdf_never_leaves_the_reports_folder():
     assert pdf_path("C:\\Windows\\x.pdf").parent.as_posix() == "relatorios"
     with pytest.raises(ValueError):
         pdf_path("../..")
+
+
+def _card_labels(summary, monkeypatch):
+    from app.observability import report
+    labels = []
+    original = report._Card.__init__
+
+    def spy(self, label, *args, **kwargs):
+        labels.append(label)
+        original(self, label, *args, **kwargs)
+
+    monkeypatch.setattr(report._Card, "__init__", spy)
+    summary["projection"] = metrics.project(summary)
+    build_pdf(summary)
+    return set(labels)
+
+
+EXPECTED_KPIS = {
+    "Índice de erros", "Sucesso", "Falhas", "Bloqueios", "Fallbacks", "Tempo total p95", "Mediana (p50)",
+    "Pior caso (p99)", "Orquestração", "Custo total", "Custo por requisição", "Chamadas ao modelo",
+    "Revisões do Juiz", "Embeddings", "Jev", "Usuários distintos", "Perguntas por usuário",
+    "Cliente que mais gasta", "Taxa de resolução", "Custo por resolução", "ROI", "Economia estimada",
+}
+
+
+def test_pdf_shows_every_kpi_even_without_measurements(monkeypatch):
+    assert EXPECTED_KPIS <= _card_labels(metrics.summarize([]), monkeypatch)
+
+
+def test_pdf_shows_every_kpi_with_measurements(monkeypatch):
+    summary = metrics.summarize([metrics.build_record(_trace(), "success", 1000.0)])
+    assert EXPECTED_KPIS <= _card_labels(summary, monkeypatch)

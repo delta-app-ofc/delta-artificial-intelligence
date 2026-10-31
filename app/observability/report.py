@@ -316,84 +316,87 @@ def build_pdf(summary: dict) -> bytes:
         Paragraph(f"Gerado em {datetime.now().strftime('%d/%m/%Y às %H:%M')} · "
                   f"{_num(summary['requests'])} requisições analisadas", _SUBTITLE),
     ]
-    if not measured:
-        story += [Spacer(1, 10), _Card("Sem requisições medidas", "Valores estimados", "premissas, não uso real", "bad"),
-                  Spacer(1, 4)]
-    else:
-        story += [
-            _section("Confiabilidade"),
-            _card_grid(columns=5, cards=[
-                _Card("Índice de erros", _pct(summary["error_rate"]), f"limite {_pct(slo['error_rate_limit'])}", error_tone),
-                _Card("Sucesso", _num(out["success"]), f"{_num(out['partial'])} parciais"),
-                _Card("Falhas", _num(out["error"]), "requisições com erro", "bad" if out["error"] else ""),
-                _Card("Bloqueios", _num(out["rejected"]), "guardrail ou Juiz"),
-                _Card("Fallbacks", _num(summary["fallback_calls"]), "chamadas ao modelo reserva"),
-            ]),
-            _section("Latência"),
-            _card_grid([
-                _Card("Tempo total p95", _secs(lat["p95"]), f"limite {_secs(slo['latency_p95_limit_ms'])} · {slo_text}", slo_tone),
-                _Card("Mediana (p50)", _secs(lat["p50"]), f"média {_secs(lat['avg'])}"),
-                _Card("Pior caso (p99)", _secs(lat["p99"])),
-                _Card("Orquestração", _secs(summary["overhead_ms"]["p50"]), "tempo entre etapas (p50)"),
-            ]),
-            _section("Custo"),
-            _card_grid([
-                _Card("Custo total", _usd(summary["cost_usd"]),
-                      f"{_num(summary['usage']['input_tokens'])} tokens de entrada · {_num(summary['usage']['output_tokens'])} de saída"),
-                _Card("Custo por requisição", _usd(summary["cost_per_request_usd"]),
-                      f"{_num(summary['volume_per_request'])} tokens em média"),
-                _Card("Chamadas ao modelo", str(summary["model_calls_per_request"]), "por requisição"),
-                _Card("Revisões do Juiz", _pct(summary["revision_rate"]), "requisições com correção"),
-                _Card("Embeddings", _usd(summary["embedding_cost_usd"]),
-                      f"{_num(summary['embedding_uncounted'])} chamadas sem contagem" if summary["embedding_uncounted"]
-                      else f"{_num(summary['usage']['embedding_tokens'])} tokens contados"),
-                _Card("Jev", _usd(summary["jev_cost_usd"]), f"{_num(summary['usage']['jev_tokens'])} tokens de entrada"),
-            ]),
-            _section("Uso"),
-            _card_grid([
-                _Card("Usuários distintos", _num(summary["distinct_users"]) if summary["distinct_users"] else "n/d",
-                      "no período analisado" if summary["distinct_users"] else "defina OBS_HASH_SECRET"),
-                _Card("Perguntas por usuário", _fmt(summary["questions_per_user"]), "medido, não cenário"),
-                _Card("Cliente que mais gasta", next(iter(summary["cost_by_client"]), "n/d"),
-                      _usd(next(iter(summary["cost_by_client"].values()))["cost_usd"]) if summary["cost_by_client"] else ""),
-            ]),
-            _section("Retorno"),
-            _card_grid([
-                _Card("Taxa de resolução", _pct(summary["resolution_rate"]), f"{_num(summary['resolutions'])} resoluções"),
-                _Card("Custo por resolução", _usd(summary["cost_per_resolution_usd"])),
-                _Card("ROI", _fmt(summary["roi"]), "retorno sobre o custo de IA"),
-                _Card("Economia estimada", _usd(summary["savings_usd"]), "atendimentos evitados menos custo"),
-            ]),
-            Spacer(1, 12),
-        ]
+    def card(label, value, hint="", tone=""):
+        """Sem requisições medidas, mostra n/d em vez de zeros que pareceriam medição."""
+        return _Card(label, value if measured else "n/d", hint if measured else "sem dados", tone if measured else "")
 
-        limit = slo["latency_p95_limit_ms"] / 1000
-        story.append(KeepTogether([_LinePanel("Tempo total por requisição", "LATÊNCIA",
-                                              [item["total_ms"] / 1000 for item in summary["series"]], limit), Spacer(1, 10)]))
-        nodes = sorted(summary["latency_by_node_ms"].items(), key=lambda kv: kv[1]["p95"], reverse=True)
+    if not measured:
+        story += [Spacer(1, 10), _Card("Sem requisições medidas", "Indicadores em n/d", "aparecem quando houver dados", "bad"),
+                  Spacer(1, 4)]
+    story += [
+        _section("Confiabilidade"),
+        _card_grid(columns=5, cards=[
+            card("Índice de erros", _pct(summary["error_rate"]), f"limite {_pct(slo['error_rate_limit'])}", error_tone),
+            card("Sucesso", _num(out["success"]), f"{_num(out['partial'])} parciais"),
+            card("Falhas", _num(out["error"]), "requisições com erro", "bad" if out["error"] else ""),
+            card("Bloqueios", _num(out["rejected"]), "guardrail ou Juiz"),
+            card("Fallbacks", _num(summary["fallback_calls"]), "chamadas ao modelo reserva"),
+        ]),
+        _section("Latência"),
+        _card_grid([
+            card("Tempo total p95", _secs(lat["p95"]), f"limite {_secs(slo['latency_p95_limit_ms'])} · {slo_text}", slo_tone),
+            card("Mediana (p50)", _secs(lat["p50"]), f"média {_secs(lat['avg'])}"),
+            card("Pior caso (p99)", _secs(lat["p99"])),
+            card("Orquestração", _secs(summary["overhead_ms"]["p50"]), "tempo entre etapas (p50)"),
+        ]),
+        _section("Custo"),
+        _card_grid([
+            card("Custo total", _usd(summary["cost_usd"]),
+                  f"{_num(summary['usage']['input_tokens'])} tokens de entrada · {_num(summary['usage']['output_tokens'])} de saída"),
+            card("Custo por requisição", _usd(summary["cost_per_request_usd"]),
+                  f"{_num(summary['volume_per_request'])} tokens em média"),
+            card("Chamadas ao modelo", str(summary["model_calls_per_request"]), "por requisição"),
+            card("Revisões do Juiz", _pct(summary["revision_rate"]), "requisições com correção"),
+            card("Embeddings", _usd(summary["embedding_cost_usd"]),
+                  f"{_num(summary['embedding_uncounted'])} chamadas sem contagem" if summary["embedding_uncounted"]
+                  else f"{_num(summary['usage']['embedding_tokens'])} tokens contados"),
+            card("Jev", _usd(summary["jev_cost_usd"]), f"{_num(summary['usage']['jev_tokens'])} tokens de entrada"),
+        ]),
+        _section("Uso"),
+        _card_grid([
+            card("Usuários distintos", _num(summary["distinct_users"]) if summary["distinct_users"] else "n/d",
+                  "no período analisado" if summary["distinct_users"] else "defina OBS_HASH_SECRET"),
+            card("Perguntas por usuário", _fmt(summary["questions_per_user"]), "medido, não cenário"),
+            card("Cliente que mais gasta", next(iter(summary["cost_by_client"]), "n/d"),
+                  _usd(next(iter(summary["cost_by_client"].values()))["cost_usd"]) if summary["cost_by_client"] else ""),
+        ]),
+        _section("Retorno"),
+        _card_grid([
+            card("Taxa de resolução", _pct(summary["resolution_rate"]), f"{_num(summary['resolutions'])} resoluções"),
+            card("Custo por resolução", _usd(summary["cost_per_resolution_usd"])),
+            card("ROI", _fmt(summary["roi"]), "retorno sobre o custo de IA"),
+            card("Economia estimada", _usd(summary["savings_usd"]), "atendimentos evitados menos custo"),
+        ]),
+        Spacer(1, 12),
+    ]
+
+    limit = slo["latency_p95_limit_ms"] / 1000
+    story.append(KeepTogether([_LinePanel("Tempo total por requisição", "LATÊNCIA",
+                                          [item["total_ms"] / 1000 for item in summary["series"]], limit), Spacer(1, 10)]))
+    nodes = sorted(summary["latency_by_node_ms"].items(), key=lambda kv: kv[1]["p95"], reverse=True)
+    story.append(KeepTogether([_BarPanel(
+        "Latência por etapa", "P50 · P95",
+        [(name, [(v["p50"] / 1000, CYAN, f"p50 {v['p50'] / 1000:.2f} s"), (v["p95"] / 1000, BLUE, f"p95 {v['p95'] / 1000:.2f} s")])
+         for name, v in nodes], legend=[("p50", CYAN), ("p95", BLUE)], bar_h=6, gap=6), Spacer(1, 10)]))
+    agents = sorted(summary["latency_by_agent_ms"].items(), key=lambda kv: kv[1]["p95"], reverse=True)
+    if agents:
         story.append(KeepTogether([_BarPanel(
-            "Latência por etapa", "P50 · P95",
+            "Latência por agente", "P50 · P95",
             [(name, [(v["p50"] / 1000, CYAN, f"p50 {v['p50'] / 1000:.2f} s"), (v["p95"] / 1000, BLUE, f"p95 {v['p95'] / 1000:.2f} s")])
-             for name, v in nodes], legend=[("p50", CYAN), ("p95", BLUE)], bar_h=6, gap=6), Spacer(1, 10)]))
-        agents = sorted(summary["latency_by_agent_ms"].items(), key=lambda kv: kv[1]["p95"], reverse=True)
-        if agents:
-            story.append(KeepTogether([_BarPanel(
-                "Latência por agente", "P50 · P95",
-                [(name, [(v["p50"] / 1000, CYAN, f"p50 {v['p50'] / 1000:.2f} s"), (v["p95"] / 1000, BLUE, f"p95 {v['p95'] / 1000:.2f} s")])
-                 for name, v in agents], legend=[("p50", CYAN), ("p95", BLUE)], bar_h=6, gap=6), Spacer(1, 10)]))
-        costs = [(n, v) for n, v in summary["cost_by_component_usd"].items() if v > 0]
-        story.append(KeepTogether([_BarPanel("Custo por componente", "USD",
-                                             [(n, [(v, BLUE, f"US$ {v:.4f}")]) for n, v in costs], bar_h=9), Spacer(1, 10)]))
-        clients = sorted(summary["cost_by_client"].items(), key=lambda kv: kv[1]["cost_usd"], reverse=True)
-        story.append(KeepTogether([_BarPanel("Custo por cliente", "APP · WEB",
-                                             [(n, [(v["cost_usd"], BLUE, f"US$ {v['cost_usd']:.4f} · {v['requests']} req.")])
-                                              for n, v in clients], bar_h=9), Spacer(1, 10)]))
-        story.append(KeepTogether([_BarPanel("Resultado das requisições", "ERROS", [
-            ("Sucesso", [(out["success"], BLUE, str(out["success"]))]),
-            ("Parcial", [(out["partial"], CYAN, str(out["partial"]))]),
-            ("Falha", [(out["error"], DANGER, str(out["error"]))]),
-            ("Bloqueada", [(out["rejected"], GRAY, str(out["rejected"]))]),
-        ], bar_h=9), Spacer(1, 10)]))
+             for name, v in agents], legend=[("p50", CYAN), ("p95", BLUE)], bar_h=6, gap=6), Spacer(1, 10)]))
+    costs = [(n, v) for n, v in summary["cost_by_component_usd"].items() if v > 0]
+    story.append(KeepTogether([_BarPanel("Custo por componente", "USD",
+                                         [(n, [(v, BLUE, f"US$ {v:.4f}")]) for n, v in costs], bar_h=9), Spacer(1, 10)]))
+    clients = sorted(summary["cost_by_client"].items(), key=lambda kv: kv[1]["cost_usd"], reverse=True)
+    story.append(KeepTogether([_BarPanel("Custo por cliente", "APP · WEB",
+                                         [(n, [(v["cost_usd"], BLUE, f"US$ {v['cost_usd']:.4f} · {v['requests']} req.")])
+                                          for n, v in clients], bar_h=9), Spacer(1, 10)]))
+    story.append(KeepTogether([_BarPanel("Resultado das requisições", "ERROS", [
+        ("Sucesso", [(out["success"], BLUE, str(out["success"]))]),
+        ("Parcial", [(out["partial"], CYAN, str(out["partial"]))]),
+        ("Falha", [(out["error"], DANGER, str(out["error"]))]),
+        ("Bloqueada", [(out["rejected"], GRAY, str(out["rejected"]))]),
+    ], bar_h=9), Spacer(1, 10)]))
 
     rows = [["CENÁRIO", "USUÁRIOS/SEM.", "PERGUNTAS/SEM.", "CUSTO/SEM. (US$)", "CUSTO/MÊS (US$)", "CUSTO/RESOLUÇÃO", "ROI"]]
     for row in project(summary):
