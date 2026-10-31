@@ -90,16 +90,25 @@ def test_summary_error_rate_cost_per_resolution_and_roi():
     assert summary["slo"]["ok"] is False
     assert summary["resolutions"] == 9
     assert summary["cost_per_resolution_usd"] == pytest.approx(summary["cost_usd"] / 9, rel=1e-3)
-    assert summary["roi"] == pytest.approx((9 * 6.0 - summary["cost_usd"]) / summary["cost_usd"], rel=1e-3)
+    assert summary["roi"] == pytest.approx((9 * 8.01 - summary["cost_usd"]) / summary["cost_usd"], rel=1e-3)
 
 
-def test_projection_for_100_and_1000_users():
+def test_projection_for_100_and_1000_users(monkeypatch):
+    _use_env(monkeypatch, OBS_QUESTIONS_PER_USER_WEEK="5")
     summary = metrics.summarize([metrics.build_record(_trace(), "success", 1000.0) for _ in range(4)])
     rows = {(r["scenario"], r["users_per_week"]): r for r in metrics.project(summary)}
     base100, base1000 = rows[("base", 100)], rows[("base", 1000)]
     assert base100["requests_per_week"] == 500
     assert base1000["cost_week_usd"] == pytest.approx(base100["cost_week_usd"] * 10, rel=1e-3)
-    assert rows[("pessimista", 100)]["cost_week_usd"] == pytest.approx(base100["cost_week_usd"] * 1.5, rel=1e-3)
+    # O pessimista usa o p95 medido do custo por requisição, não um fator inventado.
+    expected = 500 * summary["cost_p95_per_request_usd"]
+    assert rows[("pessimista", 100)]["cost_week_usd"] == pytest.approx(expected, rel=1e-3)
+
+
+def test_projection_without_measured_questions_is_unknown():
+    summary = metrics.summarize([metrics.build_record(_trace(), "success", 1000.0)])
+    assert summary["measured_questions_per_user_week"] is None
+    assert all(row["requests_per_week"] is None and row["cost_week_usd"] is None for row in metrics.project(summary))
 
 
 def test_empty_summary_does_not_divide_by_zero():
@@ -134,7 +143,7 @@ def test_pdf_is_generated():
 
 
 def test_settings_use_defaults_and_overrides(monkeypatch):
-    assert get_observability_config().obs_support_cost_usd == 6.0
+    assert get_observability_config().obs_support_cost_usd == 8.01
     _use_env(monkeypatch, OBS_SUPPORT_COST_USD="3.5", OBS_QUESTIONS_PER_USER_WEEK="10")
     assert metrics.assumptions()["support_cost_per_resolution_usd"] == 3.5
     assert metrics.assumptions()["questions_per_user_per_week"] == 10.0
@@ -209,7 +218,7 @@ def test_pdf_without_measurements_is_labeled_as_estimate():
 def test_every_priced_model_has_a_source():
     assert set(metrics.DEFAULT_PRICES) == set(metrics.PRICE_SOURCES)
     assert metrics.DEFAULT_PRICES["gpt-6-luna"] == (0.10, 0.50)
-    assert "openai/gpt-oss-120b" in metrics.summarize([])["unconfirmed_price_models"]
+    assert metrics.summarize([])["unconfirmed_price_models"] == []  # todos os preços têm página oficial
 
 
 def test_console_summary_keeps_token_counts_visible():

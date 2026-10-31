@@ -31,9 +31,9 @@ PRICE_SOURCES: dict[str, tuple[str, str]] = {
     "gemini-2.5-flash": ("https://ai.google.dev/gemini-api/docs/pricing", "oficial"),
     "gemini-embedding-001": ("https://ai.google.dev/gemini-api/docs/pricing", "oficial"),
     "gemini-embedding-2": ("https://ai.google.dev/gemini-api/docs/pricing", "oficial"),
-    "jev": ("https://www.eesel.ai/blog/typesafe-jev-pricing", "secundária"),
-    "openai/gpt-oss-120b": ("https://groq.com/pricing", "secundária"),
-    "openai/gpt-oss-20b": ("https://groq.com/pricing", "secundária"),
+    "jev": ("https://typesafe.ai", "oficial"),
+    "openai/gpt-oss-120b": ("https://console.groq.com/docs/model/openai/gpt-oss-120b", "oficial"),
+    "openai/gpt-oss-20b": ("https://console.groq.com/docs/model/openai/gpt-oss-20b", "oficial"),
 }
 UNCONFIRMED_PRICE_MODELS = {model for model, (_, kind) in PRICE_SOURCES.items() if kind != "oficial"}
 
@@ -53,7 +53,7 @@ def assumptions() -> dict:
     settings = get_observability_config()
     return {
         "support_cost_per_resolution_usd": settings.obs_support_cost_usd,
-        "questions_per_user_per_week": settings.obs_questions_per_user_week,
+        "questions_per_user_per_week": settings.obs_questions_per_user_week or None,
         "usd_to_brl": settings.obs_usd_to_brl,
     }
 
@@ -304,6 +304,9 @@ def summarize(records: list[dict]) -> dict:
         if r.get("user_hash"):
             item["_users"].add(r["user_hash"])
     users = {r["user_hash"] for r in records if r.get("user_hash")}
+    stamps = sorted(r["created_at"] for r in records if hasattr(r.get("created_at"), "timestamp"))
+    observed_days = round((stamps[-1] - stamps[0]).total_seconds() / 86400, 2) if len(stamps) > 1 else 0.0
+    per_user = sum(1 for r in records if r.get("user_hash")) / len(users) if users else None
     return {
         "requests": total,
         "cost_by_client": {name: {"requests": v["requests"], "cost_usd": round(v["cost_usd"], 6),
@@ -311,6 +314,10 @@ def summarize(records: list[dict]) -> dict:
                                   "resolutions": v["resolutions"], "users": len(v["_users"])}
                            for name, v in sorted(by_client.items(), key=lambda kv: kv[1]["cost_usd"], reverse=True)},
         "distinct_users": len(users),
+        "observed_days": observed_days,
+        # Só vira taxa semanal depois de uma semana inteira de dados; antes disso não há base para projetar.
+        "measured_questions_per_user_week": round(per_user / (observed_days / 7), 2) if per_user and observed_days >= 7 else None,
+        "cost_p95_per_request_usd": round(percentile([r["cost_usd"] for r in records], 95), 6) if records else None,
         "questions_per_user": round(sum(1 for r in records if r.get("user_hash")) / len(users), 2) if users else None,
         "embedding_cost_usd": round(sum(r.get("embedding_cost_usd", 0.0) for r in records), 6),
         "jev_cost_usd": round(sum(r.get("jev_cost_usd", 0.0) for r in records), 6),
@@ -353,19 +360,24 @@ def summarize(records: list[dict]) -> dict:
 def project(summary: dict, users_list: tuple[int, ...] = (100, 1000)) -> list[dict]:
     """Projeta custo e ROI por semana/mês a partir do custo médio real por pergunta."""
     ass = assumptions()
-    per_request = summary.get("cost_per_request_usd") or 0.0
+    questions = ass["questions_per_user_per_week"] or summary.get("measured_questions_per_user_week")
     resolution_rate = summary.get("resolution_rate") or 0.0
+    # Base = custo médio medido por requisição; pessimista = custo no p95 das requisições medidas.
+    scenarios = (("base", summary.get("cost_per_request_usd")), ("pessimista", summary.get("cost_p95_per_request_usd")))
     rows = []
-    for scenario, factor in (("base", 1.0), ("pessimista", 1.5)):
+    for scenario, per_request in scenarios:
         for users in users_list:
-            requests = users * ass["questions_per_user_per_week"]
-            week = requests * per_request * factor
-            resolved = requests * resolution_rate
+            known = questions is not None and per_request is not None
+            requests = users * questions if known else None
+            week = requests * per_request if known else None
+            resolved = requests * resolution_rate if known else None
             rows.append({
-                "scenario": scenario, "users_per_week": users, "requests_per_week": round(requests),
-                "cost_week_usd": round(week, 4), "cost_month_usd": round(week * 4.33, 4),
-                "cost_week_brl": round(week * ass["usd_to_brl"], 2),
-                "cost_per_resolution_usd": round(week / resolved, 6) if resolved else None,
-                "roi": roi(round(resolved), week) if week else None,
+                "scenario": scenario, "users_per_week": users,
+                "requests_per_week": round(requests) if known else None,
+                "cost_week_usd": round(week, 4) if known else None,
+                "cost_month_usd": round(week * 52 / 12, 4) if known else None,
+                "cost_week_brl": round(week * ass["usd_to_brl"], 2) if known else None,
+                "cost_per_resolution_usd": round(week / resolved, 6) if known and resolved else None,
+                "roi": roi(round(resolved), week) if known and week else None,
             })
     return rows

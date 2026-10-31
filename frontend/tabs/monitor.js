@@ -105,8 +105,10 @@ export default {
     const body = element('tbody');
     data.projection.forEach(row => {
       const tr = element('tr');
-      const cells = [row.scenario === 'base' ? 'Base' : 'Pessimista', num(row.users_per_week), num(row.requests_per_week),
-        row.cost_week_usd.toFixed(2), row.cost_month_usd.toFixed(2),
+      const cells = [row.scenario === 'base' ? 'Base' : 'Pessimista (p95)', num(row.users_per_week),
+        row.requests_per_week === null ? 'n/d' : num(row.requests_per_week),
+        row.cost_week_usd === null ? 'n/d' : row.cost_week_usd.toFixed(2),
+        row.cost_month_usd === null ? 'n/d' : row.cost_month_usd.toFixed(2),
         row.cost_per_resolution_usd === null ? 'n/d' : row.cost_per_resolution_usd.toFixed(4),
         row.roi === null ? 'n/d' : num(row.roi)];
       cells.forEach((value, index) => tr.append(element('td', index ? 'num' : '', value)));
@@ -117,8 +119,11 @@ export default {
     const ass = data.assumptions;
     const unconfirmed = data.unconfirmed_price_models.join(', ') || 'nenhum';
     const note = element('p', 'mon-note',
-      `Premissas: ${ass.questions_per_user_per_week} perguntas por usuário por semana (cenário, sem fonte), atendimento humano a US$ ${ass.support_cost_per_resolution_usd}, `
-      + `pessimista = custo × 1,5. Preço sem confirmação na página oficial: ${unconfirmed}. Fontes no relatório em PDF. Dados de teste não representam uso real.`);
+      `Premissas: atendimento humano a US$ ${ass.support_cost_per_resolution_usd} (Gartner, 2019) e dólar a R$ ${ass.usd_to_brl} (PTAX do Banco Central). `
+      + (ass.questions_per_user_per_week || data.measured_questions_per_user_week
+        ? `Perguntas por usuário por semana: ${ass.questions_per_user_per_week || data.measured_questions_per_user_week}. `
+        : `Perguntas por usuário por semana: sem medição (${data.observed_days} dia(s) de dados; a taxa precisa de 7 dias ou mais). `)
+      + `Pessimista = custo medido no p95. Preço sem confirmação na página oficial: ${unconfirmed}. Fontes no relatório em PDF.`);
     projection.append(projectionHead, scroll, note);
 
     target.replaceChildren(toolbar, groups, charts, projection);

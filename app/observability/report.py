@@ -397,8 +397,10 @@ def build_pdf(summary: dict) -> bytes:
 
     rows = [["CENÁRIO", "USUÁRIOS/SEM.", "PERGUNTAS/SEM.", "CUSTO/SEM. (US$)", "CUSTO/MÊS (US$)", "CUSTO/RESOLUÇÃO", "ROI"]]
     for row in project(summary):
-        rows.append(["Base" if row["scenario"] == "base" else "Pessimista", _num(row["users_per_week"]),
-                     _num(row["requests_per_week"]), f"{row['cost_week_usd']:.2f}", f"{row['cost_month_usd']:.2f}",
+        rows.append(["Base" if row["scenario"] == "base" else "Pessimista (p95)", _num(row["users_per_week"]),
+                     _fmt(row["requests_per_week"]) if row["requests_per_week"] is None else _num(row["requests_per_week"]),
+                     "n/d" if row["cost_week_usd"] is None else f"{row['cost_week_usd']:.2f}",
+                     "n/d" if row["cost_month_usd"] is None else f"{row['cost_month_usd']:.2f}",
                      "n/d" if row["cost_per_resolution_usd"] is None else f"{row['cost_per_resolution_usd']:.4f}",
                      "n/d" if row["roi"] is None else _num(row["roi"])])
     w = CONTENT_W
@@ -411,16 +413,24 @@ def build_pdf(summary: dict) -> bytes:
     notes = [
         "Resolução = resposta publicada sem erro e sem bloqueio do Juiz. Índice de erros = requisições com falha ÷ total. "
         "ROI = (resoluções × custo de um atendimento − custo de IA) ÷ custo de IA.",
-        f"Premissas: atendimento humano = US$ {ass['support_cost_per_resolution_usd']}; "
-        f"{ass['questions_per_user_per_week']} perguntas por usuário por semana (cenário, sem fonte); US$ 1 = R$ {ass['usd_to_brl']}; "
-        "Cenário pessimista = custo × 1,5.",
+        f"Premissas: atendimento humano = US$ {ass['support_cost_per_resolution_usd']} por contato (Gartner, 2019, canais atendidos "
+        "por pessoas, gartner.com/en/newsroom/press-releases/2019-09-25-gartner-says-only-9--of-customers-report-solving-thei); "
+        f"US$ 1 = R$ {ass['usd_to_brl']} (PTAX de venda do Banco Central em 30/10/2026, olinda.bcb.gov.br).",
+        "Perguntas por usuário por semana: "
+        + (f"{ass['questions_per_user_per_week']} (definido em OBS_QUESTIONS_PER_USER_WEEK)" if ass["questions_per_user_per_week"]
+           else (f"{summary['measured_questions_per_user_week']} (medido em {summary['observed_days']} dias de uso)"
+                 if summary["measured_questions_per_user_week"] else
+                 f"sem medição (há {summary['observed_days']} dia(s) de dados; a taxa semanal só é calculada com 7 dias ou mais), "
+                 "então a projeção aparece como n/d"))
+        + ". Não há fonte externa confiável para esse número.",
+        "Cenário base = custo médio medido por requisição; cenário pessimista = custo medido no percentil 95 das requisições.",
         f"Preços por modelo (tarifa Standard) e fontes: {sources}. Sem confirmação na página oficial: "
         + (", ".join(summary["unconfirmed_price_models"]) or "nenhum") + ". Sem preço cadastrado: "
         + (", ".join(summary["unpriced_models"]) or "nenhum") + ".",
-        "Custo de atendimento humano: faixa de referência de US$ 6 a 12 por contato, mediana de US$ 13,50 nos EUA "
-        "(Gartner, citado em stealthagents.com); são fontes de mercado, não dados da Delta.",
+        "Referência: a Gartner também publica mediana de US$ 13,50 por contato assistido (gartner.com/en/documents/5164231); "
+        "são valores de mercado, não dados da Delta. Informe o custo real em OBS_SUPPORT_COST_USD.",
         "O ROI considera só o custo de tokens dos modelos; hospedagem, bancos, desenvolvimento e manutenção não entram, "
-        "então ele é um limite superior. Embeddings não entram no custo.",
+        "então ele é um limite superior. Tokens de embedding e do Jev entram no custo.",
     ]
     story += [_section("Definições e premissas")] + [Paragraph(escape(note), _BODY) for note in notes]
     doc.build(story)
