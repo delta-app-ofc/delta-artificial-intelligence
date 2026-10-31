@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import logging
 import re
+import threading
 
 from app.memory.session import (
     _PREVIEW_MAX,
@@ -19,12 +20,18 @@ from app.services.prompts import SESSION_META_PROMPT
 
 logger = logging.getLogger(__name__)
 
+_in_flight: set[str] = set()
+_in_flight_lock = threading.Lock()
+
 ICONS = ICON_NAMES
 
 _PROMPT_TEXT_MAX = 1500
 
 
 def _parse_meta(raw: str) -> dict | None:
+    """Extrai título, prévia e ícone do JSON devolvido pela LLM. Devolve None se o JSON for
+    inválido ou faltar título ou prévia; ícone desconhecido vira `general`.
+    """
     match = re.search(r"\{.*\}", raw or "", re.DOTALL)
     if not match:
         return None
@@ -64,7 +71,12 @@ def refresh_session_meta(user_id: int, session_id: str, question: str, answer: s
     """Gera e grava título, prévia e ícone se a sessão ainda não os tem.
 
     Nunca levanta erro: sem metadados, a listagem usa o início das mensagens.
+    Se a mesma sessão já está sendo processada, não chama a LLM de novo.
     """
+    with _in_flight_lock:
+        if session_id in _in_flight:
+            return
+        _in_flight.add(session_id)
     try:
         if not session_needs_meta(user_id, session_id):
             return
@@ -74,3 +86,6 @@ def refresh_session_meta(user_id: int, session_id: str, question: str, answer: s
         set_session_meta(user_id, session_id, meta["title"], meta["preview"], meta["icon"])
     except Exception as exc:
         logger.warning("Metadados da sessão não gerados: %s", type(exc).__name__)
+    finally:
+        with _in_flight_lock:
+            _in_flight.discard(session_id)

@@ -105,6 +105,7 @@ def _context_node(state: GraphState) -> dict:
 
 
 def _route_node(state: GraphState) -> dict:
+    """Escolhe os agentes da pergunta; perfil sem agente liberado pula o roteador."""
     if allowed_agents(state.get("access_kind")) == frozenset():
         # Sem agente liberado para o perfil: nem chama o roteador.
         if trace := current_trace():
@@ -202,6 +203,10 @@ def execute_agent(
 
 
 def _execute_node(state: GraphState) -> dict:
+    """Executa os agentes selecionados em ordem, repassando as respostas anteriores como contexto.
+    Agente desconhecido ou fora do perfil vira aviso; numa revisão, cada agente recebe o parecer
+    do Juiz e o resultado anterior.
+    """
     question = state["question"]
     history = _recent_messages(state)
     if history:
@@ -268,6 +273,7 @@ def _execute_node(state: GraphState) -> dict:
 
 
 def _synthesize_node(state: GraphState) -> dict:
+    """Une as respostas quando mais de um agente teve sucesso; com menos de dois, não altera nada."""
     results = state.get("agent_results", [])
     successes = [result for result in results
                  if result.get("status") == "success" and result.get("answer")]
@@ -278,6 +284,9 @@ def _synthesize_node(state: GraphState) -> dict:
 
 
 def _respond_node(state: GraphState) -> dict:
+    """Define a resposta final: mensagem fixa para violação de privacidade, saudação ou pergunta
+    sem agente; senão, a resposta do agente (ou a união delas) e o primeiro gráfico disponível.
+    """
     with component("response"):
         if state.get("intent") == "privacy_violation":
             return {"response": ("Não tenho acesso a dados de outros usuários. "
@@ -320,6 +329,9 @@ def _compose_node(state: GraphState) -> dict:
 
 
 def _judge_node(state: GraphState) -> dict:
+    """Pede ao Agente Juiz a avaliação da candidata e decide a ação: aprovar, corrigir (uma única
+    vez) ou bloquear. Juiz indisponível conta como rejeição.
+    """
     candidate = state.get("candidate", "")
     revision_count = state.get("revision_count", 0)
     agent_results = state.get("agent_results", [])
@@ -433,6 +445,10 @@ def _after_judge(state: GraphState) -> str:
 
 
 def _guardrail_output_node(state: GraphState) -> dict:
+    """Aplica os guardrails de saída: troca a resposta recusada por uma mensagem segura, grava o
+    turno no histórico quando a sessão persiste e descarta o gráfico de resposta recusada ou de
+    outro usuário.
+    """
     if state.get("_blocked"):
         return {}
     with component("output_guard"):
@@ -470,7 +486,9 @@ def _guardrail_output_node(state: GraphState) -> dict:
             ).start()
 
     update: dict = {"response": safe, "messages": [{"role": "assistant", "content": safe}]}
-    if chart_mentions_other_user(state.get("chart_data"), state.get("user_id")):
+    if not result["ok"]:
+        update["chart_data"] = None
+    elif chart_mentions_other_user(state.get("chart_data"), state.get("user_id")):
         if trace := current_trace():
             trace.errors.append({"stage": "output_guard", "code": "chart_rejected",
                                  "message": "Gráfico com dados de outro usuário descartado."})
@@ -597,6 +615,7 @@ workflow = _graph.compile(checkpointer=MemorySaver())
 
 
 def _history_from_mongo(user_id: int, session_id: str) -> list[dict]:
+    """Carrega os últimos turnos da sessão no MongoDB; falha vira lista vazia."""
     try:
         history = load_history_validated(user_id, session_id)
     except Exception as error:
@@ -613,6 +632,9 @@ def _invoke_workflow(
     *,
     persist_session: bool,
 ) -> GraphState:
+    """Roda o grafo da pergunta a partir do estado inicial e libera o checkpoint ao final quando a
+    sessão persiste.
+    """
     config = {"configurable": {"thread_id": f"{user_id}:{session_id}"}}
     initial: GraphState = {
         "user_id": user_id, "session_id": session_id, "question": question,

@@ -46,7 +46,7 @@ _INJECTION_PATTERNS = [
     re.compile(r"\bmeu\s+(user[_\s-]?id|id)\s+(agora\s+)?(é|e|=)\s*\d+", re.I),
     re.compile(r"\buser[_\s-]?id\s*[:=]\s*\d+", re.I),
     re.compile(r"\b(usu[aá]rio|cliente)\s+(n[º°o]\.?\s*|id\s*|#)?\d+", re.I),
-    re.compile(r"\b(conta|dados|consumo|hist[oó]rico)\s+(do|da|de)\s+(outr[oa]s?|usu[aá]rio|cliente)\b", re.I),
+    re.compile(r"\b(conta|dados|consumo|hist[oó]rico)\s+(do|da|de)\s+(outr[oa]s?|usu[aá]rio|cliente)\b(?!\s+(?:m[eê]s|meses|semanas?|dias?|per[ií]odos?|anos?|datas?|vez|vezes)\b)", re.I),
 ]
 
 _INTERNAL_DATA_KEYWORDS = [

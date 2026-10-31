@@ -54,6 +54,18 @@ def test_routes_require_token(client, path, method):
     assert response.headers["www-authenticate"] == "Bearer"
 
 
+def test_chat_removes_new_empty_session_when_workflow_raises(client, monkeypatch):
+    def broken_workflow(user_id, session_id, question):
+        raise RuntimeError("falha no nó")
+
+    monkeypatch.setattr(chat_route, "run_workflow", broken_workflow)
+
+    with pytest.raises(RuntimeError):
+        _chat(client, 7)
+
+    assert memory._collection().count_documents({"user_id": 7}) == 0
+
+
 def test_chat_requires_token(client):
     assert client.post("/chat", json={"message": "oi"}).status_code == 401
 

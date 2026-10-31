@@ -55,20 +55,27 @@ def test_grafico_com_user_id_alheio_e_detectado_em_qualquer_nivel():
     assert guard_output.chart_mentions_other_user(None, 7) is False
 
 
-def _estado(resposta, chart=None, user_id=7):
+def _state(resposta, chart=None, user_id=7):
     return {"response": resposta, "chart_data": chart, "user_id": user_id, "session_id": "s",
             "question": "q", "pii_map": {}, "_persist_session": False}
 
 
 def test_no_de_saida_troca_resposta_com_dados_de_outro_usuario():
-    resultado = graph._guardrail_output_node(_estado("O usuário 42 consumiu 300 litros."))
+    resultado = graph._guardrail_output_node(_state("O usuário 42 consumiu 300 litros."))
 
     assert resultado["response"] == "Não foi possível processar a resposta."
 
 
+def test_no_de_saida_descarta_grafico_quando_a_resposta_e_recusada():
+    resultado = graph._guardrail_output_node(
+        _state("O usuário 42 consumiu 300 litros.", {"data": [{"x": [1, 2]}]}))
+
+    assert resultado["chart_data"] is None
+
+
 def test_no_de_saida_descarta_grafico_de_outro_usuario_e_mantem_o_proprio():
-    alheio = graph._guardrail_output_node(_estado("Segue o gráfico.", {"data": [{"user_id": 8}]}))
-    proprio = graph._guardrail_output_node(_estado("Segue o gráfico.", {"data": [{"user_id": 7}]}))
+    alheio = graph._guardrail_output_node(_state("Segue o gráfico.", {"data": [{"user_id": 8}]}))
+    proprio = graph._guardrail_output_node(_state("Segue o gráfico.", {"data": [{"user_id": 7}]}))
 
     assert alheio["chart_data"] is None
     assert "chart_data" not in proprio  # inalterado
@@ -102,6 +109,9 @@ def test_entrada_com_personificacao_e_bloqueada_antes_do_classificador(monkeypat
     "Qual minha previsão para a conta deste mês?",
     "Tenho um vazamento no banheiro?",
     "Meu consumo aumentou nos últimos 7 dias",
+    "Qual foi meu consumo de outro mês?",
+    "Quero ver a conta de outra semana.",
+    "Mostre o histórico de outros períodos.",
 ])
 def test_entrada_legitima_passa(monkeypatch, mensagem):
     modelo = SimpleNamespace(invoke=lambda msgs: SimpleNamespace(content="CATEGORIA: APROVADO"))
@@ -127,16 +137,16 @@ def test_run_agent_nao_mostra_user_id_ao_modelo_mas_guarda_no_registro():
 
     class FakeLLM:
         def __init__(self):
-            self.chamadas = 0
+            self.calls = 0
             self.vistas = []
 
         def bind_tools(self, tools):
             return self
 
         def invoke(self, messages):
-            self.chamadas += 1
+            self.calls += 1
             self.vistas = list(messages)
-            if self.chamadas == 1:
+            if self.calls == 1:
                 return AIMessage(content="", tool_calls=[{"name": "dados", "args": {}, "id": "1"}])
             return AIMessage(content="pronto")
 

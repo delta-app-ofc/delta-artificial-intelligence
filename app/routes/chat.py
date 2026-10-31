@@ -1,3 +1,5 @@
+import logging
+
 from fastapi import APIRouter, Depends, HTTPException
 
 from app.auth import get_current_user_id
@@ -7,6 +9,15 @@ from app.observability.diagnostics import current_trace
 from app.schemas import AUTH_ERRORS, SESSION_NOT_FOUND, ChatRequest, ChatResponse, ErrorResponse
 
 router = APIRouter(tags=["chat"])
+logger = logging.getLogger(__name__)
+
+
+def _discard_new_session(user_id: int, session_id: str) -> None:
+    """Remove a sessão recém-criada que ficou sem mensagens; falha na remoção só vai para o log."""
+    try:
+        discard_empty_session(user_id, session_id)
+    except Exception as exc:
+        logger.warning("Sessão vazia não removida: %s", type(exc).__name__)
 
 
 @router.post(
@@ -28,6 +39,10 @@ router = APIRouter(tags=["chat"])
     },
 )
 def chat(req: ChatRequest, user_id: int = Depends(get_current_user_id)):
+    """Responde à pergunta do usuário autenticado, criando a sessão quando `session_id` não vem.
+    Mensagem bloqueada pelos guardrails devolve 422 e não deixa a sessão criada por esta
+    chamada.
+    """
     created = False
     if trace := current_trace():
         trace.mode, trace.user_id = "chat", user_id
@@ -44,14 +59,16 @@ def chat(req: ChatRequest, user_id: int = Depends(get_current_user_id)):
     except Exception:
         raise HTTPException(status_code=503, detail="Histórico de conversas indisponível.")
 
-    state = run_workflow(user_id, session_id, req.message)
+    try:
+        state = run_workflow(user_id, session_id, req.message)
+    except Exception:
+        if created:
+            _discard_new_session(user_id, session_id)
+        raise
 
     if state.get("_blocked"):
         if created:
-            try:
-                discard_empty_session(user_id, session_id)
-            except Exception:
-                pass
+            _discard_new_session(user_id, session_id)
         raise HTTPException(status_code=422, detail=state["response"])
 
     return ChatResponse(

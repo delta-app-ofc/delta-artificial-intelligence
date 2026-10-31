@@ -86,6 +86,20 @@ def test_refresh_stores_meta_once_with_real_mongo(mongo_db, use_model):
     assert len(model.prompts) == 1  # a LLM só é chamada enquanto não há título
 
 
+def test_refresh_skips_session_already_in_flight(mongo_db, use_model):
+    model = use_model(FakeModel('{"title": "T", "preview": "P", "icon": "tips"}'))
+    session_id = memory.create_session(7)
+    session_meta._in_flight.add(session_id)
+
+    try:
+        session_meta.refresh_session_meta(7, session_id, "q", "a")
+    finally:
+        session_meta._in_flight.discard(session_id)
+
+    assert model.prompts == []
+    assert memory.session_needs_meta(7, session_id) is True
+
+
 def test_refresh_never_raises_and_keeps_fallback(mongo_db, use_model):
     use_model(FakeModel(error=RuntimeError("provedor fora do ar")))
     session_id = memory.create_session(7)
