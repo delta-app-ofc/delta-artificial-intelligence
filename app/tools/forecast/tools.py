@@ -38,7 +38,7 @@ def _serialize(value: Any) -> Any:
     return value
 
 
-def build_tools(user_id: int, today: date) -> list[BaseTool]:
+def build_tools(user_id: int, today: date, access_kind: str | None = None) -> list[BaseTool]:
     """Cria as tools já amarradas a user_id e à data de referência.
 
     O user_id NUNCA é um argumento exposto ao LLM — ele não pode inventá-lo.
@@ -59,7 +59,7 @@ def build_tools(user_id: int, today: date) -> list[BaseTool]:
           property_name não bateu nenhuma unidade.
         - ("none", None, None): usuário sem residência nem organização.
         """
-        kind = db_postgres.get_user_access_kind(user_id)
+        kind = access_kind or db_postgres.get_user_access_kind(user_id)
         if kind != "organizational":
             return kind, None, None
 

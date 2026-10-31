@@ -79,12 +79,12 @@ _NOT_RESIDENTIAL = {
 }
 
 
-def build_tools(user_id: int) -> list[BaseTool]:
+def build_tools(user_id: int, access_kind: str | None = None) -> list[BaseTool]:
     validate_user_id(user_id)
 
     def _is_residential() -> bool:
-        # Consulta a cada chamada: uma mudança de vínculo vale já na próxima tool.
-        return db_postgres.get_user_access_kind(user_id) == "residential"
+        # Sem perfil informado, consulta a cada chamada; com ele, vale o da pergunta atual.
+        return (access_kind or db_postgres.get_user_access_kind(user_id)) == "residential"
 
     @tool
     def list_habits() -> dict:

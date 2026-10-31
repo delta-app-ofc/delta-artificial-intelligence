@@ -8,7 +8,8 @@ from pydantic import BaseModel
 from app.config import ConfigurationError
 from app.agents._runtime import _message_text
 from app.observability.diagnostics import current_trace
-from app.services.prompts import ROUTER_PROMPT
+from app.graph.profile import allowed_agents
+from app.services.prompts import ROUTER_PROMPT, perfil_bloco
 
 AGENT_REGISTRY: dict[str, str] = {
     "consumption": "app.agents.consumption.ConsumptionAgent",
@@ -27,6 +28,7 @@ class RoutingDecision(BaseModel):
     intent: str
     complexity: Literal["simple", "medium", "complex"]
     agents: list[str]
+    unavailable: list[str] = []
 
 
 def classify(question: str, context: dict) -> RoutingDecision:
@@ -49,8 +51,16 @@ def classify(question: str, context: dict) -> RoutingDecision:
         llm = _llm_module.llm_rapido
         if llm is None:
             raise ConfigurationError("Configure o provedor de linguagem selecionado para o roteador.")
+        access_kind = context.get("access_kind")
+        system_prompt = ROUTER_PROMPT + perfil_bloco(access_kind)
+        allowed = allowed_agents(access_kind)
+        if allowed is not None:
+            system_prompt += (
+                "\nAgentes disponíveis para este usuário: "
+                f"{', '.join(sorted(allowed))}. Não selecione outros.\n"
+            )
         response = llm.invoke(
-            [SystemMessage(content=ROUTER_PROMPT), HumanMessage(content=user_text)]
+            [SystemMessage(content=system_prompt), HumanMessage(content=user_text)]
         )
         content = _message_text(response) if hasattr(response, "content") else str(response)
         try:
@@ -64,6 +74,9 @@ def classify(question: str, context: dict) -> RoutingDecision:
         if trace := current_trace():
             trace.skipped_agents.extend(name for name in decision.agents if name not in known)
         decision.agents = list(dict.fromkeys(name for name in decision.agents if name in known))
+        if allowed is not None:
+            decision.unavailable = [name for name in decision.agents if name not in allowed]
+            decision.agents = [name for name in decision.agents if name in allowed]
         return decision
     except Exception as error:
         if trace := current_trace():
@@ -71,7 +84,7 @@ def classify(question: str, context: dict) -> RoutingDecision:
     return RoutingDecision(intent="unknown", complexity="simple", agents=[])
 
 
-def load_agent(name: str, user_id: int):
+def load_agent(name: str, user_id: int, access_kind: str | None = None):
     """Instancia um especialista e diferencia implementações pendentes."""
     import importlib
 
@@ -80,4 +93,6 @@ def load_agent(name: str, user_id: int):
     cls = getattr(module, class_name, None)
     if cls is None or not callable(getattr(cls, "run", None)):
         raise AgentNotImplemented(name)
-    return cls(user_id=user_id)
+    if access_kind is None:
+        return cls(user_id=user_id)
+    return cls(user_id=user_id, access_kind=access_kind)

@@ -1151,7 +1151,8 @@ Complexidade:
 
 Regra de privacidade: se a pergunta perguntar sobre outros usuários, rankings de clientes,
 "melhor" ou "pior" usuário, comparações entre residências de usuários distintos, quem consome
-mais no sistema, ou dados de terceiros não autorizados, retorne exatamente:
+mais no sistema, ou dados de terceiros não autorizados, retorne exatamente
+(comparar as unidades da própria organização do usuário não é violação):
 {"intent": "privacy_violation", "complexity": "simple", "agents": []}
 
 Retorne JSON exatamente neste formato (sem markdown, sem texto antes ou depois):
@@ -1206,3 +1207,49 @@ Pergunta do usuário: {question}
 
 Resposta do assistente: {answer}
 """
+
+_PERFIL_RESIDENCIAL = """\
+
+## Perfil do usuário: residencial
+- Trate o usuário como morador: fale de "sua casa", "sua residência" e do consumo doméstico.
+- Hábitos de consumo, meta diária e previsão da residência fazem sentido neste perfil.
+- A telemetria residencial não separa imóveis: não invente consumo por imóvel.
+"""
+
+_PERFIL_ORGANIZACIONAL = """\
+
+## Perfil do usuário: comercial (organização)
+- Trate o usuário como responsável por uma organização com uma ou mais unidades: fale de
+  "suas unidades" e "sua organização", nunca de "sua casa".
+- Sempre diga qual unidade (ou "todas as unidades") e qual período a resposta cobre.
+- Comparar ou ranquear as unidades da própria organização é permitido; dados de outras
+  organizações ou de outros usuários nunca.
+- Não ofereça hábitos domésticos, rotina pessoal nem dicas de economia residencial.
+- Alertas e janelas anômalas ainda não são separados por unidade: ao falar de vazamento, diga isso.
+"""
+
+_PERFIL_SEM_VINCULO = """\
+
+## Perfil do usuário: sem vínculo
+- A conta não está ligada a uma residência nem a uma organização, então não há dados
+  pessoais para consultar.
+- Responda só com conhecimento geral do produto e oriente a vincular a conta.
+"""
+
+_PERFIL_INDEFINIDO = """\
+
+## Perfil do usuário: não identificado
+- Não foi possível identificar o perfil da conta agora; não consulte nem suponha dados pessoais.
+"""
+
+_PERFIS = {
+    "residential": _PERFIL_RESIDENCIAL,
+    "organizational": _PERFIL_ORGANIZACIONAL,
+    "none": _PERFIL_SEM_VINCULO,
+    "unknown": _PERFIL_INDEFINIDO,
+}
+
+
+def perfil_bloco(access_kind: str | None) -> str:
+    """Trecho de prompt do perfil do usuário; vazio quando o perfil não foi informado."""
+    return _PERFIS.get(access_kind, "") if access_kind else ""
