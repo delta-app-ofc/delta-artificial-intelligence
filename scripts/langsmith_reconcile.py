@@ -8,8 +8,8 @@ e mostra tokens, custo e latência do LangSmith ao lado do cálculo local.
 from __future__ import annotations
 
 import argparse
-import os
 
+from app.config import get_observability_config
 from app.observability.langsmith import enable_langsmith
 from app.observability.metrics import load_records, summarize
 
@@ -23,7 +23,7 @@ def main() -> None:
 
     from langsmith import Client
 
-    project = os.environ.get("LANGSMITH_PROJECT", "default")
+    project = get_observability_config().langsmith_project
     runs = list(Client().list_runs(project_name=project, is_root=True, limit=args.limit))
     tokens = sum(run.total_tokens or 0 for run in runs)
     cost = sum(float(run.total_cost or 0) for run in runs)

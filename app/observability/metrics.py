@@ -5,14 +5,13 @@ from collections import deque
 from datetime import datetime, timezone
 import json
 import math
-import os
 from threading import Lock
 from typing import Any
 
-from app.config import get_settings
+from app.config import get_observability_config, get_settings
 
 # USD por 1 milhão de tokens: (entrada, saída). Preço do gpt-6-luna é premissa:
-# confirme na conta e sobrescreva com OBS_PRICES_JSON.
+# confirme na conta e sobrescreva com OBS_PRICES_JSON (lido em app/config.py).
 DEFAULT_PRICES: dict[str, tuple[float, float]] = {
     "gemini-2.5-flash": (0.30, 2.50),
     "openai/gpt-oss-120b": (0.15, 0.60),
@@ -21,8 +20,6 @@ DEFAULT_PRICES: dict[str, tuple[float, float]] = {
 }
 ASSUMED_PRICE_MODELS = {"gpt-6-luna"}
 
-LATENCY_P95_LIMIT_MS = 8_000
-ERROR_RATE_LIMIT = 0.05
 COLLECTION = "observability_requests"
 RECORDED_MODES = {"chat", "judge"}
 AGENT_NAMES = {"consumption", "forecast", "leak", "habits", "rag"}
@@ -31,33 +28,24 @@ _recent: deque = deque(maxlen=_MAX_MEMORY)
 _lock = Lock()
 
 
-def _env_float(name: str, default: float) -> float:
-    try:
-        value = float(os.environ.get(name, default))
-    except ValueError:
-        return default
-    return value if math.isfinite(value) and value >= 0 else default
-
-
 def assumptions() -> dict:
-    """Premissas de negócio, todas ajustáveis por variável de ambiente."""
+    """Premissas de negócio vindas dos settings (variáveis OBS_*)."""
+    settings = get_observability_config()
     return {
-        "support_cost_per_resolution_usd": _env_float("OBS_SUPPORT_COST_PER_RESOLUTION_USD", 2.0),
-        "jev_cost_per_evaluation_usd": _env_float("OBS_JEV_COST_PER_EVALUATION_USD", 0.0),
-        "questions_per_user_per_week": _env_float("OBS_QUESTIONS_PER_USER_WEEK", 5.0),
-        "usd_to_brl": _env_float("OBS_USD_TO_BRL", 5.5),
+        "support_cost_per_resolution_usd": settings.obs_support_cost_usd,
+        "jev_cost_per_evaluation_usd": settings.obs_jev_cost_usd,
+        "questions_per_user_per_week": settings.obs_questions_per_user_week,
+        "usd_to_brl": settings.obs_usd_to_brl,
     }
 
 
 def prices() -> dict[str, tuple[float, float]]:
+    """Tabela interna, sobrescrita pelos preços de OBS_PRICES_JSON, se houver."""
     table = dict(DEFAULT_PRICES)
-    raw = os.environ.get("OBS_PRICES_JSON")
+    raw = get_observability_config().obs_prices_json
     if raw:
-        try:
-            for model, pair in json.loads(raw).items():
-                table[model] = (float(pair[0]), float(pair[1]))
-        except (ValueError, TypeError, IndexError, AttributeError):
-            pass
+        for model, pair in json.loads(raw).items():
+            table[model] = (float(pair[0]), float(pair[1]))
     return table
 
 
@@ -193,6 +181,8 @@ def summarize(records: list[dict]) -> dict:
     cost = sum(r["cost_usd"] for r in records)
     total_lat = _latency([r["total_ms"] for r in records])
     error_rate = errors / total if total else 0.0
+    settings = get_observability_config()
+    p95_limit, error_limit = settings.obs_latency_p95_limit_ms, settings.obs_error_rate_limit
     nodes: dict[str, list[float]] = {}
     agents: dict[str, list[float]] = {}
     cost_by_component: dict[str, float] = {}
@@ -224,8 +214,8 @@ def summarize(records: list[dict]) -> dict:
         "roi": roi(resolutions, cost),
         "fallback_calls": sum(r.get("fallback_calls", 0) for r in records),
         "unpriced_models": sorted({m for r in records for m in r.get("unpriced_models", [])}),
-        "slo": {"latency_p95_limit_ms": LATENCY_P95_LIMIT_MS, "error_rate_limit": ERROR_RATE_LIMIT,
-                "ok": total_lat["p95"] <= LATENCY_P95_LIMIT_MS and error_rate <= ERROR_RATE_LIMIT},
+        "slo": {"latency_p95_limit_ms": p95_limit, "error_rate_limit": error_limit,
+                "ok": total_lat["p95"] <= p95_limit and error_rate <= error_limit},
         "series": [{"at": r["created_at"].isoformat() if hasattr(r["created_at"], "isoformat") else str(r["created_at"]),
                     "total_ms": r["total_ms"], "cost_usd": r["cost_usd"]} for r in records[-100:]],
         "assumed_price_models": sorted(ASSUMED_PRICE_MODELS),

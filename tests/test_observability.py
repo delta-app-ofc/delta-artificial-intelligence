@@ -5,17 +5,30 @@ from types import SimpleNamespace
 
 import pytest
 
+from app.config import ConfigurationError, get_observability_config, get_settings
 from app.observability import metrics
 from app.observability.diagnostics import ModelDiagnostics, Trace, capture, component
 from app.observability.report import build_pdf
 
 
+def _use_env(monkeypatch, **values):
+    """Recarrega os settings com as variáveis dadas (APP_ENV=test ignora o .env)."""
+    monkeypatch.setenv("APP_ENV", "test")
+    for name in ("OBS_PRICES_JSON", "OBS_SUPPORT_COST_USD", "OBS_QUESTIONS_PER_USER_WEEK", "OBS_USD_TO_BRL",
+                 "OBS_JEV_COST_USD", "OBS_ERROR_RATE_LIMIT", "LANGSMITH_TRACING", "LANGSMITH_API_KEY"):
+        monkeypatch.delenv(name, raising=False)
+    for name, value in values.items():
+        monkeypatch.setenv(name, value)
+    get_settings(refresh=True)
+
+
 @pytest.fixture(autouse=True)
 def _clean(monkeypatch):
-    for name in ("OBS_PRICES_JSON", "OBS_SUPPORT_COST_PER_RESOLUTION_USD", "OBS_QUESTIONS_PER_USER_WEEK",
-                 "OBS_JEV_COST_PER_EVALUATION_USD"):
-        monkeypatch.delenv(name, raising=False)
+    _use_env(monkeypatch)
     metrics.clear_memory()
+    yield
+    monkeypatch.undo()
+    get_settings(refresh=True)
 
 
 def _trace(blocked: bool = False) -> Trace:
@@ -40,7 +53,7 @@ def test_model_cost_uses_price_table():
 
 
 def test_prices_can_be_overridden(monkeypatch):
-    monkeypatch.setenv("OBS_PRICES_JSON", '{"gpt-6-luna": [2, 4]}')
+    _use_env(monkeypatch, OBS_PRICES_JSON='{"gpt-6-luna": [2, 4]}')
     assert metrics.model_cost("gpt-6-luna", 1_000_000, 1_000_000) == pytest.approx(6.0)
 
 
@@ -118,3 +131,32 @@ def test_pdf_is_generated():
     summary["projection"] = metrics.project(summary)
     pdf = build_pdf(summary)
     assert pdf.startswith(b"%PDF") and len(pdf) > 1000
+
+
+def test_settings_use_defaults_and_overrides(monkeypatch):
+    assert get_observability_config().obs_support_cost_usd == 2.0
+    _use_env(monkeypatch, OBS_SUPPORT_COST_USD="3.5", OBS_QUESTIONS_PER_USER_WEEK="10")
+    assert metrics.assumptions()["support_cost_per_resolution_usd"] == 3.5
+    assert metrics.assumptions()["questions_per_user_per_week"] == 10.0
+
+
+@pytest.mark.parametrize("name,value", [
+    ("OBS_SUPPORT_COST_USD", "-1"), ("OBS_USD_TO_BRL", "abc"), ("OBS_ERROR_RATE_LIMIT", "2"),
+    ("OBS_PRICES_JSON", "not-json"), ("LANGSMITH_TRACING", "talvez"),
+])
+def test_invalid_settings_raise_clear_error(monkeypatch, name, value):
+    _use_env(monkeypatch, **{name: value})
+    with pytest.raises(ConfigurationError, match=name):
+        get_observability_config()
+
+
+def test_langsmith_needs_key_and_stays_off_by_default(monkeypatch):
+    from app.observability.langsmith import enable_langsmith
+    for name in ("LANGSMITH_TRACING", "LANGSMITH_API_KEY", "LANGSMITH_PROJECT"):
+        monkeypatch.setenv(name, "x")  # o undo do monkeypatch remove o que enable_langsmith exporta
+    assert enable_langsmith() is False
+    _use_env(monkeypatch, LANGSMITH_TRACING="true")
+    with pytest.raises(ConfigurationError, match="LANGSMITH_API_KEY"):
+        enable_langsmith()
+    _use_env(monkeypatch, LANGSMITH_TRACING="true", LANGSMITH_API_KEY="chave-de-teste")
+    assert enable_langsmith() is True

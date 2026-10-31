@@ -29,12 +29,16 @@ Só requisições de chat completo (`/chat` e as abas Chat e Juiz) são registra
 
 ## Premissas (ajuste pelo `.env`)
 
+Todas são lidas e validadas em `app/config.py` (`get_observability_config`), como as demais configurações; valor inválido ou negativo gera erro claro.
+
 | Variável | Padrão | Significado |
 | --- | --- | --- |
-| `OBS_SUPPORT_COST_PER_RESOLUTION_USD` | 2.0 | custo de um atendimento humano (premissa, sem fonte) |
+| `OBS_SUPPORT_COST_USD` | 2.0 | custo de um atendimento humano (premissa, sem fonte) |
 | `OBS_QUESTIONS_PER_USER_WEEK` | 5 | perguntas por usuário por semana (premissa) |
 | `OBS_USD_TO_BRL` | 5.5 | câmbio da projeção |
-| `OBS_JEV_COST_PER_EVALUATION_USD` | 0 | custo do Jev por avaliação; ele não passa pelo LangChain, então é informado à mão |
+| `OBS_JEV_COST_USD` | 0 | custo do Jev por avaliação; ele não passa pelo LangChain, então é informado à mão |
+| `OBS_LATENCY_P95_LIMIT_MS` | 8000 | limite do p95 do tempo total no SLO |
+| `OBS_ERROR_RATE_LIMIT` | 0.05 | limite do índice de erros no SLO (entre 0 e 1) |
 | `OBS_PRICES_JSON` | tabela interna | sobrescreve preços, ex. `{"gpt-6-luna": [1.0, 8.0]}` |
 
 Preços por 1 milhão de tokens (entrada/saída, USD): Gemini 2.5 Flash 0,30/2,50; gpt-oss-120b 0,15/0,60; gpt-oss-20b 0,075/0,30. O preço do `gpt-6-luna` (1,00/8,00) é **premissa**: confirme na conta e sobrescreva. O cenário pessimista multiplica o custo por 1,5.
@@ -44,7 +48,7 @@ Limites: embeddings não entram no custo; tokens vêm do que o provedor devolve;
 ## LangSmith (opcional)
 
 1. Crie a chave em smith.langchain.com (Settings → API Keys).
-2. No `.env` local (já ignorado pelo Git) defina `LANGSMITH_TRACING=true`, `LANGSMITH_API_KEY=...` e `LANGSMITH_PROJECT=delta-ai`. Nunca coloque a chave em arquivos versionados.
+2. No `.env` local (já ignorado pelo Git; lido por `app/config.py`) defina `LANGSMITH_TRACING=true`, `LANGSMITH_API_KEY=...` e `LANGSMITH_PROJECT=delta-ai`. Nunca coloque a chave em arquivos versionados.
 3. Suba a API normalmente: os traces aparecem no projeto, agrupados por `session_id`.
 4. `python -m scripts.langsmith_reconcile` compara tokens, custo e latência do LangSmith com o cálculo local.
 

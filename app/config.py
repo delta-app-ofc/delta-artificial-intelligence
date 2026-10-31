@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import math
 import os
 from dataclasses import dataclass, field
@@ -182,6 +183,16 @@ class Settings:
     openai_model: str = "gpt-6-luna"
     openai_reasoning_effort: str = "medium"
     llm_provider: str = "openai"
+    obs_support_cost_usd: float = 2.0
+    obs_questions_per_user_week: float = 5.0
+    obs_usd_to_brl: float = 5.5
+    obs_jev_cost_usd: float = 0.0
+    obs_latency_p95_limit_ms: float = 8000.0
+    obs_error_rate_limit: float = 0.05
+    obs_prices_json: str | None = None
+    langsmith_tracing: bool = False
+    langsmith_api_key: str | None = field(default=None, repr=False)
+    langsmith_project: str = "delta-ai"
     _parse_errors: tuple[tuple[str, str], ...] = field(default=(), repr=False)
 
 
@@ -262,7 +273,32 @@ def load_settings(
         else:
             fallback_enabled = raw_fallback.casefold() == "true"
 
+    langsmith_tracing = False
+    if "LANGSMITH_TRACING" in values:
+        raw_tracing = values["LANGSMITH_TRACING"]
+        if raw_tracing is None or raw_tracing.casefold() not in {"true", "false"}:
+            parse_errors.append(("LANGSMITH_TRACING", "use true ou false"))
+        else:
+            langsmith_tracing = raw_tracing.casefold() == "true"
+
+    obs_prices_json = values.get("OBS_PRICES_JSON")
+    if obs_prices_json is not None:
+        try:
+            prices = json.loads(obs_prices_json)
+            for pair in prices.values():
+                if len(pair) != 2 or not all(math.isfinite(float(item)) and float(item) >= 0 for item in pair):
+                    raise ValueError
+        except (ValueError, TypeError, AttributeError):
+            parse_errors.append(("OBS_PRICES_JSON", 'use um JSON como {"modelo": [entrada, saida]}'))
+            obs_prices_json = None
+
     numeric_settings = {
+        "OBS_SUPPORT_COST_USD": (Settings.obs_support_cost_usd, float, "deve ser um número finito"),
+        "OBS_QUESTIONS_PER_USER_WEEK": (Settings.obs_questions_per_user_week, float, "deve ser um número finito"),
+        "OBS_USD_TO_BRL": (Settings.obs_usd_to_brl, float, "deve ser um número finito"),
+        "OBS_JEV_COST_USD": (Settings.obs_jev_cost_usd, float, "deve ser um número finito"),
+        "OBS_LATENCY_P95_LIMIT_MS": (Settings.obs_latency_p95_limit_ms, float, "deve ser um número finito"),
+        "OBS_ERROR_RATE_LIMIT": (Settings.obs_error_rate_limit, float, "deve ser um número finito"),
         "LLM_TIMEOUT_SECONDS": (15.0, float, "deve ser um número finito"),
         "JEV_TIMEOUT_SECONDS": (5.0, float, "deve ser um número finito"),
         "JEV_CONFIDENCE_THRESHOLD": (Settings.jev_confidence_threshold, float, "deve ser um número finito"),
@@ -293,6 +329,12 @@ def load_settings(
             parsed_numbers[name] = default
         else:
             parsed_numbers[name] = parsed_value
+
+    for name in ("OBS_SUPPORT_COST_USD", "OBS_QUESTIONS_PER_USER_WEEK", "OBS_USD_TO_BRL",
+                 "OBS_JEV_COST_USD", "OBS_LATENCY_P95_LIMIT_MS", "OBS_ERROR_RATE_LIMIT"):
+        if parsed_numbers[name] < 0:
+            parse_errors.append((name, "não pode ser negativo"))
+            parsed_numbers[name] = numeric_settings[name][0]
 
     return Settings(
         app_env=app_env,
@@ -331,6 +373,16 @@ def load_settings(
         rag_document_path=values.get(
             "RAG_DOCUMENT_PATH", "app/knowledge/delta-main-source.md"
         ),
+        obs_support_cost_usd=parsed_numbers["OBS_SUPPORT_COST_USD"],
+        obs_questions_per_user_week=parsed_numbers["OBS_QUESTIONS_PER_USER_WEEK"],
+        obs_usd_to_brl=parsed_numbers["OBS_USD_TO_BRL"],
+        obs_jev_cost_usd=parsed_numbers["OBS_JEV_COST_USD"],
+        obs_latency_p95_limit_ms=parsed_numbers["OBS_LATENCY_P95_LIMIT_MS"],
+        obs_error_rate_limit=parsed_numbers["OBS_ERROR_RATE_LIMIT"],
+        obs_prices_json=obs_prices_json,
+        langsmith_tracing=langsmith_tracing,
+        langsmith_api_key=values.get("LANGSMITH_API_KEY"),
+        langsmith_project=values.get("LANGSMITH_PROJECT") or Settings.langsmith_project,
         _parse_errors=tuple(parse_errors),
     )
 
@@ -364,6 +416,23 @@ def get_judge_config(*, settings: Settings | None = None) -> Settings:
             problems.append(f"{name} deve estar entre 0 e 1")
     if problems:
         raise ConfigurationError(f"Configuração do Juiz inválida: {', '.join(problems)}.")
+    return current
+
+
+def get_observability_config(*, settings: Settings | None = None) -> Settings:
+    """Retorna os settings de observabilidade e LangSmith já validados."""
+    current = settings or get_settings()
+    problems = [
+        f"{name}: {message}"
+        for name, message in current._parse_errors
+        if name.startswith(("OBS_", "LANGSMITH_")) or name == "APP_ENV"
+    ]
+    if not 0 <= current.obs_error_rate_limit <= 1:
+        problems.append("OBS_ERROR_RATE_LIMIT deve estar entre 0 e 1")
+    if current.langsmith_tracing and not current.langsmith_api_key:
+        problems.append("LANGSMITH_API_KEY ausente com LANGSMITH_TRACING=true")
+    if problems:
+        raise ConfigurationError(f"Configuração de observabilidade inválida: {', '.join(problems)}.")
     return current
 
 
