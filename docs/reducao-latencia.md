@@ -29,7 +29,7 @@ modelo nem de Juiz:
 | Guarda em paralelo com contexto e roteador | sim | testes unitários e de grafo com modelos falsos | não com LLM real |
 | Histórico lido uma vez | sim | testes unitários | não |
 | `OPENAI_FAST_REASONING_EFFORT` | sim (opcional, desligado) | testes de configuração | **não**: depende da chave paga |
-| `POST /chat/stream` (SSE) | sim | testes de rota e de gerador; servidor real com `curl -N` | latência percebida não medida |
+| `POST /chat/stream` (SSE), com plano e progresso por tool | sim | testes de rota, de gerador e do grafo real; servidor real com `curl -N` | latência percebida não medida |
 | Tools em lote / em paralelo | **não** (avaliado) | — | **pendente**: ver "Experimento pendente" |
 
 **Medições com LLM real não foram feitas nesta entrega.** A equipe tem uma camada de observabilidade própria; as
@@ -154,10 +154,19 @@ idêntico para sessão alheia ou inexistente, 503). Depois de aberto, o status �
 
 | Evento | Conteúdo |
 | --- | --- |
-| `stage` | `{"stage": "checking\|understanding\|querying\|composing\|validating\|revising\|finishing", "label": "texto em português"}`. Só indica a etapa: **não carrega dados da conta, da pergunta ou da resposta** |
+| `stage` | `{"stage": "checking\|understanding\|planning\|working\|composing\|validating\|revising\|finishing", "label": "texto em português"}`. Só indica a etapa: **não carrega dados da conta, da pergunta ou da resposta** |
 | `result` | O mesmo JSON do `/chat`, enviado **uma única vez, depois da validação** (Juiz e guardrail de saída) |
 | `error` | `{"status": 422, "detail": "..."}` se a mensagem foi bloqueada; `{"status": 500, "detail": "...", "request_id": "..."}` se o processamento falhou |
 | `: keep-alive` | Comentário SSE a cada 15 s sem evento, para proxies não derrubarem a conexão |
+
+**Plano e progresso por consulta.** Depois que o roteador escolhe os agentes, sai um `planning` com a frase do que
+será consultado (por exemplo, "Vou consultar o seu consumo e a previsão de consumo"; para conta comercial, "o consumo
+das suas unidades"). Durante a execução, cada agente e cada tool emitem um `working` ("Consultando o consumo das suas
+unidades", "Lendo o consumo registrado", "Calculando a previsão"). Rótulos iguais em sequência aparecem uma vez só
+(se o modelo pedir o mesmo resumo 3 vezes, a linha não se repete). Os textos ficam em
+`app/observability/progress.py`, são **fixos por nome de agente e de tool**, e nada escolhido pelo modelo (período,
+nome de unidade, parâmetros) entra no rótulo, porque ainda não passou pela validação do Juiz. Tool sem rótulo
+cadastrado não gera evento. O custo é praticamente nulo: sem chamada extra de LLM, só um item na fila por evento.
 
 **A resposta nunca é enviada aos poucos.** Ela só sai depois de julgada, então não há risco de mostrar texto não
 validado. Uma sessão criada para uma mensagem bloqueada ou que falhou é removida, como no `/chat`.
@@ -226,6 +235,8 @@ Branch `feat/reduz-latencia-chat` (a partir de `feat/historico-conversas`):
 - [x] Memória de consumo por pergunta: unidades e leituras por período (`b8e6101`), com 9 testes.
 - [x] Guarda de entrada em paralelo com contexto e roteador; histórico lido uma vez (`7935429`), com 12 testes.
 - [x] `POST /chat/stream` por SSE e `run_workflow_events` (`3304f72`), com 17 testes.
+- [x] Plano ("Vou consultar ...") e progresso por agente e por tool no SSE, com rótulos fixos e 21 testes
+  (`app/observability/progress.py`).
 - [x] Documentação (este arquivo, README e AGENTS.md).
 - [ ] Medição de latência, tokens e custo com LLM real: **pendente**, pelos painéis de observabilidade.
 - [ ] Tools em paralelo e tool em lote: **pendentes**, dependem dessa medição.

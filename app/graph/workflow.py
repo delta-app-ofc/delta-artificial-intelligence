@@ -28,6 +28,12 @@ from app.observability.diagnostics import (
     current_trace,
     safe_error,
 )
+from app.observability.progress import (
+    plan_label,
+    report_agent_started,
+    reset_progress_sink,
+    set_progress_sink,
+)
 from app.graph.profile import (
     allowed_agents,
     greeting_response,
@@ -236,6 +242,7 @@ def execute_agent(
         with component(name):
             if trace:
                 trace.executed_agents.append(name)
+            report_agent_started(name, access_kind)
             if revision_feedback or revision_context:
                 result = agent.run(
                     question,
@@ -747,7 +754,6 @@ def run_workflow(user_id: int, session_id: str, question: str, *,
 _CHECKING = ("checking", "Verificando a mensagem")
 _STAGE_AFTER_NODE = {
     "guardrail_input": ("understanding", "Entendendo a pergunta"),
-    "prepare": ("querying", "Consultando os dados"),
     "execute": ("composing", "Montando a resposta"),
     "synthesize": ("composing", "Montando a resposta"),
     "respond": ("composing", "Montando a resposta"),
@@ -773,6 +779,8 @@ def run_workflow_events(
     Eventos: {"type": "stage", "stage", "label"}, {"type": "keepalive"},
     {"type": "final", "state"} e {"type": "failed"}. O grafo roda numa thread própria, dentro do
     mesmo contexto de rastreamento da requisição, e entrega os eventos por uma fila.
+    Depois do roteador sai um "planning" ("Vou consultar ...") e, durante a execução, um
+    "working" por agente e por tool, sempre com rótulos fixos (app/observability/progress.py).
     """
     events: queue.Queue = queue.Queue()
     context = contextvars.copy_context()
@@ -784,20 +792,39 @@ def run_workflow_events(
                 initial, config = _start_run(
                     user_id, session_id, question, persist_session=persist_session
                 )
-                last_stage = _CHECKING[0]
+                last_label = ""
                 final_state: dict = {}
-                events.put({"type": "stage", "stage": _CHECKING[0], "label": _CHECKING[1]})
-                for mode, chunk in workflow.stream(
-                    initial, config=config, stream_mode=["updates", "values"]
-                ):
-                    if mode == "values":
-                        final_state = chunk
-                        continue
-                    for node in chunk:
-                        stage = _STAGE_AFTER_NODE.get(node)
-                        if stage and stage[0] != last_stage:
-                            last_stage = stage[0]
-                            events.put({"type": "stage", "stage": stage[0], "label": stage[1]})
+
+                def emit(stage: str, label: str) -> None:
+                    # Rótulos iguais em sequência (ex.: a mesma tool 3 vezes) aparecem uma vez só.
+                    nonlocal last_label
+                    if label != last_label:
+                        last_label = label
+                        events.put({"type": "stage", "stage": stage, "label": label})
+
+                token = set_progress_sink(emit)
+                try:
+                    emit(*_CHECKING)
+                    for mode, chunk in workflow.stream(
+                        initial, config=config, stream_mode=["updates", "values"]
+                    ):
+                        if mode == "values":
+                            final_state = chunk
+                            continue
+                        for node, update in chunk.items():
+                            if node == "prepare":
+                                update = update if isinstance(update, dict) else {}
+                                label = plan_label(
+                                    update.get("selected_agents") or [], update.get("access_kind")
+                                )
+                                if label:
+                                    emit("planning", label)
+                                continue
+                            stage = _STAGE_AFTER_NODE.get(node)
+                            if stage:
+                                emit(*stage)
+                finally:
+                    reset_progress_sink(token)
                 events.put({"type": "final", "state": final_state})
 
             if current_trace() is not None:

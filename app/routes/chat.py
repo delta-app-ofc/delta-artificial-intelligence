@@ -82,8 +82,10 @@ def chat(req: ChatRequest, user_id: int = Depends(get_current_user_id)):
 
 STREAM_EVENTS_DESCRIPTION = (
     "Eventos `text/event-stream`:\n\n"
-    "- `stage`: `{\"stage\": \"checking|understanding|querying|composing|validating|revising|finishing\", "
-    "\"label\": \"texto para exibir\"}`. Só indica a etapa; não traz dados da conta nem da resposta.\n"
+    "- `stage`: `{\"stage\": \"checking|understanding|planning|working|composing|validating|revising|finishing\", "
+    "\"label\": \"texto para exibir\"}`. `planning` diz o que será consultado (\"Vou consultar o seu consumo e a "
+    "previsão de consumo\") e `working` acompanha cada consulta. Os textos são fixos e não trazem dados da conta, "
+    "da pergunta nem da resposta.\n"
     "- `result`: o mesmo JSON do `POST /chat`, enviado **uma vez, só depois que a resposta foi validada**.\n"
     "- `error`: `{\"status\": 422|500, \"detail\": \"...\"}` quando a mensagem é bloqueada ou o processamento falha.\n"
     "- comentário `: keep-alive` a cada 15 s sem evento.\n\n"

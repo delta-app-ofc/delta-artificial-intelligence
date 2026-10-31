@@ -14,6 +14,7 @@ from langchain_core.messages import (
 )
 from langchain_core.tools import BaseTool
 from app.observability.diagnostics import current_component, current_trace, safe_error
+from app.observability.progress import report_tool_started
 
 DEFAULT_MAX_ITERATIONS = 6
 
@@ -132,6 +133,7 @@ def _run_tool(tool: BaseTool | None, name: str, args: dict) -> Any:
         if isinstance(candidate_name, str) and candidate_name
         else "unknown_tool"
     )
+    report_tool_started(safe_name)
     trace = current_trace()
     started = perf_counter()
     if trace:

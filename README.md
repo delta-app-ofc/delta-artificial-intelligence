@@ -602,7 +602,7 @@ ids que o servidor não devolveu retornam 404) e devolve
 Sessão de outro usuário e sessão inexistente respondem 404 idêntico, sem revelar se ela existe.
 
 `POST /chat/stream` recebe o mesmo corpo e checa JWT, sessão e histórico antes de abrir o fluxo (401, 404, 503).
-Depois devolve eventos `stage` (só o nome da etapa e um rótulo em português), um único `result` (mesmo JSON do
+Depois devolve eventos `stage` (etapa e rótulo fixo em português, incluindo o plano "Vou consultar ..." e uma linha por consulta), um único `result` (mesmo JSON do
 `/chat`, depois da validação) ou `error` (`422` mensagem bloqueada, `500` falha). Leia com `fetch`, pois o
 `EventSource` não envia `Authorization`. Detalhes e medições em [`docs/reducao-latencia.md`](docs/reducao-latencia.md).
 

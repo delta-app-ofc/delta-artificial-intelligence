@@ -216,7 +216,7 @@ def roda(monkeypatch, grafo, **kwargs):
 CHUNKS = [
     ("updates", {"guardrail_input": {"question": "oi"}}),
     ("values", {"response": ""}),
-    ("updates", {"prepare": {"intent": "x"}}),
+    ("updates", {"prepare": {"intent": "x", "selected_agents": ["consumption"], "access_kind": "residential"}}),
     ("updates", {"execute": {"agent_results": []}}),
     ("updates", {"synthesize": {}}),
     ("updates", {"respond": {"response": RESPOSTA}}),
@@ -234,7 +234,7 @@ def test_eventos_de_etapa_sem_repeticao_e_estado_final(monkeypatch):
     itens = roda(monkeypatch, grafo)
 
     etapas = [item["stage"] for item in itens if item["type"] == "stage"]
-    assert etapas == ["checking", "understanding", "querying", "composing", "validating", "finishing"]
+    assert etapas == ["checking", "understanding", "planning", "composing", "validating", "finishing"]
     assert itens[-1] == {"type": "final", "state": {"response": RESPOSTA, "selected_agents": ["consumption"]}}
     assert grafo.stream_mode == ["updates", "values"]
 
