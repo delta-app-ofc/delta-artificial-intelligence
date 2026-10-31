@@ -190,6 +190,7 @@ class Settings:
     obs_latency_p95_limit_ms: float = 8000.0
     obs_error_rate_limit: float = 0.05
     obs_prices_json: str | None = None
+    obs_hash_secret: str | None = field(default=None, repr=False)
     langsmith_tracing: bool = False
     langsmith_api_key: str | None = field(default=None, repr=False)
     langsmith_project: str = "delta-ai"
@@ -380,6 +381,7 @@ def load_settings(
         obs_latency_p95_limit_ms=parsed_numbers["OBS_LATENCY_P95_LIMIT_MS"],
         obs_error_rate_limit=parsed_numbers["OBS_ERROR_RATE_LIMIT"],
         obs_prices_json=obs_prices_json,
+        obs_hash_secret=values.get("OBS_HASH_SECRET"),
         langsmith_tracing=langsmith_tracing,
         langsmith_api_key=values.get("LANGSMITH_API_KEY"),
         langsmith_project=values.get("LANGSMITH_PROJECT") or Settings.langsmith_project,
@@ -427,6 +429,8 @@ def get_observability_config(*, settings: Settings | None = None) -> Settings:
         for name, message in current._parse_errors
         if name.startswith(("OBS_", "LANGSMITH_")) or name == "APP_ENV"
     ]
+    if current.obs_hash_secret is not None and len(current.obs_hash_secret) < 16:
+        problems.append("OBS_HASH_SECRET deve ter ao menos 16 caracteres")
     if not 0 <= current.obs_error_rate_limit <= 1:
         problems.append("OBS_ERROR_RATE_LIMIT deve estar entre 0 e 1")
     if current.langsmith_tracing and not current.langsmith_api_key:

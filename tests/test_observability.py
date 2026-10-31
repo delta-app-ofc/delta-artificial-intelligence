@@ -15,7 +15,7 @@ def _use_env(monkeypatch, **values):
     """Recarrega os settings com as variáveis dadas (APP_ENV=test ignora o .env)."""
     monkeypatch.setenv("APP_ENV", "test")
     for name in ("OBS_PRICES_JSON", "OBS_SUPPORT_COST_USD", "OBS_QUESTIONS_PER_USER_WEEK", "OBS_USD_TO_BRL",
-                 "OBS_JEV_COST_USD", "OBS_ERROR_RATE_LIMIT", "LANGSMITH_TRACING", "LANGSMITH_API_KEY"):
+                 "OBS_JEV_COST_USD", "OBS_ERROR_RATE_LIMIT", "OBS_HASH_SECRET", "LANGSMITH_TRACING", "LANGSMITH_API_KEY"):
         monkeypatch.delenv(name, raising=False)
     for name, value in values.items():
         monkeypatch.setenv(name, value)
@@ -233,3 +233,46 @@ def test_database_failure_is_skipped_for_a_while(monkeypatch):
     metrics.load_records()
     metrics.load_records()
     assert len(calls) == 1
+
+
+def test_client_comes_from_header_or_playground_path():
+    assert metrics.client_from_scope({"path": "/chat", "headers": [(b"x-client", b"WEB")]}) == "web"
+    assert metrics.client_from_scope({"path": "/chat", "headers": [(b"x-client", b"app")]}) == "app"
+    assert metrics.client_from_scope({"path": "/chat", "headers": [(b"x-client", b"geladeira")]}) == "unknown"
+    assert metrics.client_from_scope({"path": "/chat", "headers": []}) == "unknown"
+    assert metrics.client_from_scope({"path": "/playground/chat", "headers": []}) == "playground"
+
+
+def test_user_hash_needs_secret_and_is_stable(monkeypatch):
+    assert metrics.user_hash(7) is None
+    _use_env(monkeypatch, OBS_HASH_SECRET="segredo-com-mais-de-16")
+    first, again, other = metrics.user_hash(7), metrics.user_hash(7), metrics.user_hash(8)
+    assert first == again and first != other and "7" != first and len(first) == 32
+    _use_env(monkeypatch, OBS_HASH_SECRET="curto")
+    with pytest.raises(ConfigurationError, match="OBS_HASH_SECRET"):
+        get_observability_config()
+
+
+def test_embeddings_enter_the_cost(monkeypatch):
+    trace = _trace()
+    trace.models.append({"component": "rag", "kind": "embedding", "model": "gemini-embedding-2-preview",
+                         "status": "success", "chars": 4_000_000, "duration_ms": 10})
+    record = metrics.build_record(trace, "success", 100.0)
+    assert record["embedding_tokens"] == 1_000_000
+    assert record["embedding_cost_usd"] == pytest.approx(0.20)
+    assert record["cost_usd"] == pytest.approx(record["llm_cost_usd"] + 0.20)
+    assert record["by_component"]["embeddings"]["cost_usd"] == pytest.approx(0.20)
+    assert record["input_tokens"] == 1100  # tokens de embedding não entram nos de chat
+
+
+def test_cost_by_client_and_distinct_users(monkeypatch):
+    _use_env(monkeypatch, OBS_HASH_SECRET="segredo-com-mais-de-16")
+    records = []
+    for client, user in (("app", 1), ("app", 1), ("web", 2)):
+        trace = _trace()
+        trace.client, trace.user_id = client, user
+        records.append(metrics.build_record(trace, "success", 100.0))
+    summary = metrics.summarize(records)
+    assert summary["distinct_users"] == 2 and summary["questions_per_user"] == 1.5
+    assert summary["cost_by_client"]["app"]["requests"] == 2 and summary["cost_by_client"]["web"]["users"] == 1
+    assert list(summary["cost_by_client"])[0] == "app"  # o que mais gasta vem primeiro

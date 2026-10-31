@@ -344,6 +344,17 @@ def build_pdf(summary: dict) -> bytes:
                       f"{_num(summary['volume_per_request'])} tokens em média"),
                 _Card("Chamadas ao modelo", str(summary["model_calls_per_request"]), "por requisição"),
                 _Card("Revisões do Juiz", _pct(summary["revision_rate"]), "requisições com correção"),
+                _Card("Embeddings", _usd(summary["embedding_cost_usd"]),
+                      f"{_num(summary['usage']['embedding_tokens'])} tokens estimados"),
+                _Card("Jev", _usd(summary["jev_cost_usd"]), "custo configurado por avaliação"),
+            ]),
+            _section("Uso"),
+            _card_grid([
+                _Card("Usuários distintos", _num(summary["distinct_users"]) if summary["distinct_users"] else "n/d",
+                      "no período analisado" if summary["distinct_users"] else "defina OBS_HASH_SECRET"),
+                _Card("Perguntas por usuário", _fmt(summary["questions_per_user"]), "medido, não cenário"),
+                _Card("Cliente que mais gasta", next(iter(summary["cost_by_client"]), "n/d"),
+                      _usd(next(iter(summary["cost_by_client"].values()))["cost_usd"]) if summary["cost_by_client"] else ""),
             ]),
             _section("Retorno"),
             _card_grid([
@@ -372,6 +383,10 @@ def build_pdf(summary: dict) -> bytes:
         costs = [(n, v) for n, v in summary["cost_by_component_usd"].items() if v > 0]
         story.append(KeepTogether([_BarPanel("Custo por componente", "USD",
                                              [(n, [(v, BLUE, f"US$ {v:.4f}")]) for n, v in costs], bar_h=9), Spacer(1, 10)]))
+        clients = sorted(summary["cost_by_client"].items(), key=lambda kv: kv[1]["cost_usd"], reverse=True)
+        story.append(KeepTogether([_BarPanel("Custo por cliente", "APP · WEB",
+                                             [(n, [(v["cost_usd"], BLUE, f"US$ {v['cost_usd']:.4f} · {v['requests']} req.")])
+                                              for n, v in clients], bar_h=9), Spacer(1, 10)]))
         story.append(KeepTogether([_BarPanel("Resultado das requisições", "ERROS", [
             ("Sucesso", [(out["success"], BLUE, str(out["success"]))]),
             ("Parcial", [(out["partial"], CYAN, str(out["partial"]))]),

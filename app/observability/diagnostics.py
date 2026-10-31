@@ -43,7 +43,7 @@ _ALLOWED_EVENT_METADATA = {
 # Contagens numéricas de uso do modelo não são tokens de autenticação.
 _TOKEN_USAGE_FIELDS = {
     "input_tokens", "output_tokens", "total_tokens", "cached_tokens",
-    "cached_input_tokens", "reasoning_tokens",
+    "cached_input_tokens", "reasoning_tokens", "embedding_tokens",
 }
 _SECRET_KEY = re.compile(
     r"password|senha|secret|api.?key|authorization|pii.?map|token|credential|private.?key",
@@ -305,6 +305,7 @@ class Trace:
     mode: str
     user_id: int | str | None = None
     test_label: str | None = None
+    client: str = "unknown"
     request_id: str = field(default_factory=lambda: uuid4().hex)
     started: float = field(default_factory=perf_counter)
     models: list = field(default_factory=list)
@@ -681,7 +682,7 @@ class ModelDiagnostics(BaseCallbackHandler):
 
 
 @contextmanager
-def embedding_call(model: str):
+def embedding_call(model: str, chars: int = 0):
     """Registra embeddings, que não passam pelos callbacks de modelos de chat."""
     trace = current_trace()
     component_name = current_component()
@@ -693,6 +694,7 @@ def embedding_call(model: str):
         "fallback": False,
         "duration_ms": 0,
         "kind": "embedding",
+        "chars": max(0, int(chars)),
     }
     start = perf_counter()
     if trace:

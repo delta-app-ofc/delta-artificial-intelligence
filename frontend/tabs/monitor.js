@@ -62,7 +62,13 @@ export default {
         kpi('Custo total', usd(data.cost_usd), `${num(data.usage.input_tokens)} tokens de entrada · ${num(data.usage.output_tokens)} de saída`),
         kpi('Custo por requisição', usd(data.cost_per_request_usd), `${num(data.volume_per_request)} tokens em média`),
         kpi('Chamadas ao modelo', String(data.model_calls_per_request), 'por requisição'),
-        kpi('Revisões do Juiz', pct(data.revision_rate), 'requisições com correção')),
+        kpi('Revisões do Juiz', pct(data.revision_rate), 'requisições com correção'),
+        kpi('Embeddings', usd(data.embedding_cost_usd), `${num(data.usage.embedding_tokens)} tokens estimados`),
+        kpi('Jev', usd(data.jev_cost_usd), 'custo configurado por avaliação')),
+      group('Uso',
+        kpi('Usuários distintos', data.distinct_users ? num(data.distinct_users) : 'n/d', data.distinct_users ? 'no período analisado' : 'defina OBS_HASH_SECRET'),
+        kpi('Perguntas por usuário', data.questions_per_user === null ? 'n/d' : String(data.questions_per_user), 'medido, não cenário'),
+        kpi('Cliente que mais gasta', Object.keys(data.cost_by_client)[0] || 'n/d', Object.keys(data.cost_by_client).length ? usd(Object.values(data.cost_by_client)[0].cost_usd) : '')),
       group('Retorno',
         kpi('Taxa de resolução', pct(data.resolution_rate), `${num(data.resolutions)} resoluções`),
         kpi('Custo por resolução', usd(data.cost_per_resolution_usd)),
@@ -84,6 +90,7 @@ export default {
       panel('Latência por etapa', 'mon-nodes', 'P50 · P95'),
       panel('Custo por componente', 'mon-cost', 'USD'),
       panel('Resultado das requisições', 'mon-outcomes', 'ERROS'),
+      panel('Custo por cliente', 'mon-clients', 'APP · WEB'),
     );
 
     const projection = element('section', 'panel mon-table-panel');
@@ -167,6 +174,14 @@ export default {
       marker: { color: color.blue }, text: costs.map(([, value]) => `US$ ${value.toFixed(4)}`), textposition: 'outside', cliponaxis: false,
       hovertemplate: '%{y} · US$ %{x:.5f}<extra></extra>' }],
     base({ xaxis: { title: { text: 'US$', standoff: 8 }, range: [0, Math.max(...costs.map(([, v]) => v)) * 1.4] },
+      rest: { margin: { l: 16, r: 24, t: 12, b: 48 } } }), config);
+
+    const clients = Object.entries(data.cost_by_client).sort((a, b) => a[1].cost_usd - b[1].cost_usd);
+    if (!clients.length) empty('mon-clients');
+    else draw('mon-clients', [{ y: clients.map(([name]) => name), x: clients.map(([, v]) => v.cost_usd), type: 'bar', orientation: 'h',
+      marker: { color: color.blue }, text: clients.map(([, v]) => `US$ ${v.cost_usd.toFixed(4)} · ${v.requests} req.`), textposition: 'outside', cliponaxis: false,
+      hovertemplate: '%{y} · US$ %{x:.5f}<extra></extra>' }],
+    base({ xaxis: { title: { text: 'US$', standoff: 8 }, range: [0, Math.max(...clients.map(([, v]) => v.cost_usd)) * 1.7] },
       rest: { margin: { l: 16, r: 24, t: 12, b: 48 } } }), config);
 
     const results = [['Sucesso', out.success, color.blue], ['Parcial', out.partial, color.light], ['Falha', out.error, color.danger], ['Bloqueada', out.rejected, color.muted]].reverse();

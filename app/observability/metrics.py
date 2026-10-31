@@ -3,6 +3,8 @@ from __future__ import annotations
 
 from collections import deque
 from datetime import datetime, timezone
+import hashlib
+import hmac
 import json
 import math
 from time import monotonic
@@ -18,12 +20,16 @@ DEFAULT_PRICES: dict[str, tuple[float, float]] = {
     "openai/gpt-oss-120b": (0.15, 0.60),
     "openai/gpt-oss-20b": (0.075, 0.30),
     "gpt-6-luna": (0.10, 0.50),
+    "gemini-embedding-001": (0.15, 0.0),
+    "gemini-embedding-2": (0.20, 0.0),
 }
 # Fonte de cada preço. "oficial" = página do provedor; "secundária" = agregadores,
 # ainda não conferida na página do provedor.
 PRICE_SOURCES: dict[str, tuple[str, str]] = {
     "gpt-6-luna": ("https://developers.openai.com/api/docs/pricing", "oficial"),
     "gemini-2.5-flash": ("https://ai.google.dev/gemini-api/docs/pricing", "oficial"),
+    "gemini-embedding-001": ("https://ai.google.dev/gemini-api/docs/pricing", "oficial"),
+    "gemini-embedding-2": ("https://ai.google.dev/gemini-api/docs/pricing", "oficial"),
     "openai/gpt-oss-120b": ("https://groq.com/pricing", "secundária"),
     "openai/gpt-oss-20b": ("https://groq.com/pricing", "secundária"),
 }
@@ -61,8 +67,40 @@ def prices() -> dict[str, tuple[float, float]]:
     return table
 
 
+CLIENTS = ("app", "web", "playground")
+_CHARS_PER_TOKEN = 4  # estimativa: a API de embeddings não devolve a contagem de tokens
+
+
+def client_from_scope(scope) -> str:
+    """Cliente que chamou a API: cabeçalho X-Client (app ou web) ou o console de testes."""
+    if scope.get("path", "").startswith("/playground"):
+        return "playground"
+    for key, value in scope.get("headers", []):
+        if key == b"x-client":
+            name = value.decode("latin-1").strip().casefold()
+            return name if name in CLIENTS else "unknown"
+    return "unknown"
+
+
+def user_hash(user_id) -> str | None:
+    """HMAC do usuário com segredo do servidor: conta usuários distintos sem guardar o id."""
+    secret = get_observability_config().obs_hash_secret
+    if not secret or user_id is None:
+        return None
+    return hmac.new(secret.encode(), str(user_id).encode(), hashlib.sha256).hexdigest()[:32]
+
+
+def _price_for(model: str) -> tuple[float, float] | None:
+    table = prices()
+    if model in table:
+        return table[model]
+    # Modelos de embedding chegam com sufixo (ex.: gemini-embedding-2-preview).
+    matches = [name for name in table if name.startswith("gemini-embedding") and model.startswith(name)]
+    return table[max(matches, key=len)] if matches else None
+
+
 def model_cost(model: str, input_tokens: int, output_tokens: int) -> float:
-    pair = prices().get(model)
+    pair = _price_for(model)
     if pair is None:
         return 0.0
     return (input_tokens * pair[0] + output_tokens * pair[1]) / 1_000_000
@@ -98,6 +136,17 @@ def build_record(trace, outcome: str, total_ms: float) -> dict:
         agent["model_ms"] += float(call.get("duration_ms") or 0)
         agent["cost_usd"] += model_cost(call.get("model") or "", tokens_in, tokens_out)
 
+    embedding_tokens, embedding_cost, embedding_ms = 0, 0.0, 0.0
+    for call in models:
+        if call.get("kind") != "embedding":
+            continue
+        tokens = math.ceil(int(call.get("chars") or 0) / _CHARS_PER_TOKEN)
+        embedding_tokens += tokens
+        embedding_cost += model_cost(call.get("model") or "", tokens, 0)
+        embedding_ms += float(call.get("duration_ms") or 0)
+        if _price_for(call.get("model") or "") is None:
+            unknown_models.add(call.get("model"))
+
     judge_runs = sum(1 for e in events if e.get("event") == "graph.node.end" and e.get("component") == "judge")
     jev_cost = judge_runs * assumptions()["jev_cost_per_evaluation_usd"]
     llm_cost = sum(item["cost_usd"] for item in by_agent.values())
@@ -113,16 +162,24 @@ def build_record(trace, outcome: str, total_ms: float) -> dict:
         "nodes_ms": {k: round(v, 1) for k, v in nodes.items()},
         "agents_ms": {k: round(v, 1) for k, v in stages.items() if k in AGENT_NAMES},
         "overhead_ms": round(max(0.0, total_ms - sum(nodes.values())), 1),
+        "client": getattr(trace, "client", "unknown"),
+        **({"user_hash": digest} if (digest := user_hash(trace.user_id)) else {}),
         "revisions": sum(1 for e in events if e.get("component") == "revise" and e.get("event") == "graph.node.end"),
         "input_tokens": sum(item["input_tokens"] for item in by_agent.values()),
         "output_tokens": sum(item["output_tokens"] for item in by_agent.values()),
+        "embedding_tokens": embedding_tokens,
         "model_calls": sum(item["calls"] for item in by_agent.values()),
         "fallback_calls": sum(1 for c in models if c.get("fallback")),
-        "by_component": {k: {**v, "cost_usd": round(v["cost_usd"], 8), "model_ms": round(v["model_ms"], 1)}
-                         for k, v in by_agent.items()},
+        "by_component": {
+            **{k: {**v, "cost_usd": round(v["cost_usd"], 8), "model_ms": round(v["model_ms"], 1)} for k, v in by_agent.items()},
+            **({"embeddings": {"calls": sum(1 for c in models if c.get("kind") == "embedding"), "input_tokens": embedding_tokens,
+                               "output_tokens": 0, "model_ms": round(embedding_ms, 1), "cost_usd": round(embedding_cost, 8)}}
+               if embedding_tokens else {}),
+        },
         "llm_cost_usd": round(llm_cost, 8),
+        "embedding_cost_usd": round(embedding_cost, 8),
         "jev_cost_usd": round(jev_cost, 8),
-        "cost_usd": round(llm_cost + jev_cost, 8),
+        "cost_usd": round(llm_cost + embedding_cost + jev_cost, 8),
         "unpriced_models": sorted(m for m in unknown_models if m),
     }
 
@@ -230,8 +287,25 @@ def summarize(records: list[dict]) -> dict:
             agents.setdefault(name, []).append(ms)
         for name, item in r.get("by_component", {}).items():
             cost_by_component[name] = cost_by_component.get(name, 0.0) + item["cost_usd"]
+    by_client: dict[str, dict] = {}
+    for r in records:
+        item = by_client.setdefault(r.get("client", "unknown"), {"requests": 0, "cost_usd": 0.0, "resolutions": 0, "_users": set()})
+        item["requests"] += 1
+        item["cost_usd"] += r["cost_usd"]
+        item["resolutions"] += 1 if r.get("resolved") else 0
+        if r.get("user_hash"):
+            item["_users"].add(r["user_hash"])
+    users = {r["user_hash"] for r in records if r.get("user_hash")}
     return {
         "requests": total,
+        "cost_by_client": {name: {"requests": v["requests"], "cost_usd": round(v["cost_usd"], 6),
+                                  "cost_per_request_usd": round(v["cost_usd"] / v["requests"], 6),
+                                  "resolutions": v["resolutions"], "users": len(v["_users"])}
+                           for name, v in sorted(by_client.items(), key=lambda kv: kv[1]["cost_usd"], reverse=True)},
+        "distinct_users": len(users),
+        "questions_per_user": round(sum(1 for r in records if r.get("user_hash")) / len(users), 2) if users else None,
+        "embedding_cost_usd": round(sum(r.get("embedding_cost_usd", 0.0) for r in records), 6),
+        "jev_cost_usd": round(sum(r.get("jev_cost_usd", 0.0) for r in records), 6),
         "outcomes": {"success": total - errors - rejected - partial, "partial": partial,
                      "error": errors, "rejected": rejected},
         "error_rate": round(error_rate, 4),
@@ -239,7 +313,8 @@ def summarize(records: list[dict]) -> dict:
         "latency_by_node_ms": {k: _latency(v) for k, v in nodes.items()},
         "latency_by_agent_ms": {k: _latency(v) for k, v in agents.items()},
         "overhead_ms": _latency([r.get("overhead_ms", 0.0) for r in records]),
-        "usage": {"input_tokens": sum(r["input_tokens"] for r in records),
+        "usage": {"embedding_tokens": sum(r.get("embedding_tokens", 0) for r in records),
+                  "input_tokens": sum(r["input_tokens"] for r in records),
                   "output_tokens": sum(r["output_tokens"] for r in records)},
         "cost_usd": round(cost, 6),
         "cost_per_request_usd": round(cost / total, 6) if total else 0.0,

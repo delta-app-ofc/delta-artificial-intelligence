@@ -185,7 +185,7 @@ def index_document(document: RagDocument, *, client, embeddings) -> int:
     model = embedding_model_name()
 
     texts = ["\n".join((*chunk.headings, chunk.text)) for chunk in document.chunks]
-    with embedding_call(model):
+    with embedding_call(model, chars=sum(len(text) for text in texts)):
         vectors = embeddings.embed_documents(texts, task_type="RETRIEVAL_DOCUMENT")
 
     if len(vectors) != len(document.chunks):
@@ -272,7 +272,7 @@ def search_document(document: RagDocument, question: str, *, client, embeddings,
     if not _revision_is_complete(document, client=client):
         raise ValueError("Revisão ausente ou incompleta. Indexe o documento atual antes de consultar.")
 
-    with embedding_call(embedding_model_name()):
+    with embedding_call(embedding_model_name(), chars=len(question)):
         vector = embeddings.embed_query(question, task_type="RETRIEVAL_QUERY")
     response = client.query_points(
         COLLECTION, query=vector, query_filter=_revision_filter(document), limit=top_k,

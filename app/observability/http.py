@@ -7,7 +7,7 @@ from starlette.responses import JSONResponse
 from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
 from app.observability.diagnostics import Trace, capture
-from app.observability.metrics import record_request
+from app.observability.metrics import client_from_scope, record_request
 
 
 class RequestTracingMiddleware:
@@ -23,6 +23,7 @@ class RequestTracingMiddleware:
 
         # O servidor gera o ID; não copia identificadores arbitrários do cliente.
         trace = Trace(mode="http", user_id=None, test_label=None)
+        trace.client = client_from_scope(scope)
         scope.setdefault("state", {})["request_id"] = trace.request_id
         status_code = 500
         response_started = False
