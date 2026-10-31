@@ -94,7 +94,11 @@ def agent_status(name: str) -> dict:
     "/config",
     response_model=PlaygroundConfigResponse,
     summary="Configuração do console de testes",
-    description="Lista os agentes testáveis e se cada um está disponível. Só existe em desenvolvimento e teste.",
+    description=(
+        "Lista os agentes testáveis e se cada um está disponível. Vem ativo em desenvolvimento e teste; "
+        "em outros ambientes só com DELTA_PLAYGROUND_ENABLED=true e, como não exige autenticação, "
+        "o acesso precisa ser restrito por fora."
+    ),
     responses=PLAYGROUND_DISABLED,
 )
 def config():
@@ -206,8 +210,9 @@ def run_test(req: PlaygroundRequest, mode: str):
     summary="Testa o fluxo completo do chat",
     description=(
         "Executa guardrails, roteador, agentes, síntese e Juiz com o usuário fixo de teste, "
-        "sem autenticação e sem gravar histórico no fluxo. Erros das etapas vêm em diagnostics, "
-        "com status 200."
+        "sem autenticação. O fluxo não grava histórico, mas a rota salva a pergunta e a resposta se o "
+        "session_id informado for de uma sessão existente do usuário de teste. Erros das etapas vêm "
+        "em diagnostics, com status 200."
     ),
     responses=PLAYGROUND_DISABLED,
 )
