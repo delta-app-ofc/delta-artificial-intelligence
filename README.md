@@ -617,6 +617,29 @@ Sessão de outro usuário e sessão inexistente respondem 404 idêntico, sem rev
 - Fora do alcance deste repositório: funções SQL `fn_*` e permissões do banco (`delta-sql-database`), papéis
   dentro de uma organização e a emissão do JWT.
 
+#### Critérios da Fase 6
+
+| Critério | Situação | Onde está |
+| --- | --- | --- |
+| Identidade propagada pelo fluxo | Implementado e testado | `user_id` vem do JWT (`app/auth.py`), passa por `run_workflow` e fica preso nas tools por `build_tools(user_id)` |
+| Filtros de autorização nas tools de dados | Implementado e testado | `_authorize_property_ids` nas funções organizacionais de `db_postgres.py`; escritas de sessão filtradas por `user_id`; validação de `user_id` e de `days` nas tools |
+| Acesso cruzado bloqueado | Implementado e testado | 404 igual para sessão alheia e inexistente; `validate_ownership` na saída; padrões de personificação na entrada |
+| Testes de isolamento | Implementados | `tests/isolation/` (auth, sessões, camada de dados, tools e guardrails); os de sessão usam MongoDB real |
+
+Os testes de tools e da camada de dados usam bancos substituídos (fakes), então não provam o comportamento
+do PostgreSQL real.
+
+#### Limites e pendências conhecidos
+
+- Funções SQL `fn_*` e permissões do banco (RLS) ficam no `delta-sql-database` e não foram verificadas aqui.
+- Não há papéis dentro de uma organização: todo usuário vinculado a ela vê todas as unidades (decisão de produto).
+- O `/playground` não exige autenticação e vem ativo em desenvolvimento e teste; não foi alterado nesta entrega.
+- O classificador de injeção do guardrail de entrada segue "fail-open": se a LLM falhar, a mensagem passa
+  (disponibilidade acima de bloqueio).
+- `create_habit` não é idempotente (depende da função SQL); resumos de longo prazo gravados antes da
+  autenticação podem ter `user_id` forjado e não são verificáveis pelo código.
+- A emissão do JWT é do back-end e ainda não existe; a checagem de mutação dos filtros ainda não foi executada.
+
 Testes de histórico e de isolamento usam MongoDB real em um banco descartável `delta_test_*`
 (`DELTA_TEST_MONGO_URI`, padrão `mongodb://localhost:27018` do `docker-compose.dev.yml`) e são pulados sem
 MongoDB. Os de isolamento ficam em `tests/isolation/`. O acesso da IA ao `chat_sessions` exige a role
