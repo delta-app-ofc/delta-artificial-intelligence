@@ -1,4 +1,4 @@
-"""Camada de dados PostgreSQL: funções organizacionais só aceitam propriedades do próprio usuário."""
+"""Camada de dados PostgreSQL: o user_id vai ao banco, que filtra as propriedades do usuário."""
 
 from contextlib import contextmanager
 from datetime import date
@@ -8,8 +8,6 @@ import psycopg2.errors
 import pytest
 
 from app.data import db_postgres
-from app.tools.exceptions import UnauthorizedAccessError
-from app.tools.models import OrganizationProperty
 
 TODAY = date(2026, 10, 25)
 
@@ -34,18 +32,17 @@ class FakeCursor:
 
 @pytest.fixture
 def banco(monkeypatch):
-    """O usuário 1 tem as propriedades 10 e 11; o usuário 2, a 20."""
-    donos = {
-        1: [OrganizationProperty(10, "Filial A", "SP", "SP"), OrganizationProperty(11, "Filial B", "SP", "SP")],
-        2: [OrganizationProperty(20, "Filial C", "RJ", "RJ")],
-    }
+    """Cursor falso; qualquer consulta extra de autorização na API derruba o teste."""
     cursor = FakeCursor()
 
     @contextmanager
     def fake_cursor():
         yield cursor
 
-    monkeypatch.setattr(db_postgres, "get_user_organization_properties", lambda uid: donos.get(uid, []))
+    def sem_consulta_extra(user_id):
+        raise AssertionError("a autorização é do banco: não deve haver consulta extra")
+
+    monkeypatch.setattr(db_postgres, "get_user_organization_properties", sem_consulta_extra)
     monkeypatch.setattr(db_postgres, "_cursor", fake_cursor)
     return SimpleNamespace(cursor=cursor)
 
@@ -62,37 +59,21 @@ IDS = [f.__name__ for f, _ in FUNCOES_ORGANIZACIONAIS]
 
 
 @pytest.mark.parametrize("funcao, extras", FUNCOES_ORGANIZACIONAIS, ids=IDS)
-def test_propriedade_de_outro_usuario_e_recusada_sem_consultar(banco, funcao, extras):
-    with pytest.raises(UnauthorizedAccessError):
-        funcao(1, [20], *extras)
-
-    assert banco.cursor.executed == []
-
-
-@pytest.mark.parametrize("funcao, extras", FUNCOES_ORGANIZACIONAIS, ids=IDS)
-def test_lista_mista_e_recusada_por_inteiro(banco, funcao, extras):
-    """Uma propriedade própria misturada com uma alheia não passa."""
-    with pytest.raises(UnauthorizedAccessError):
-        funcao(1, [10, 20], *extras)
-
-    assert banco.cursor.executed == []
-
-
-@pytest.mark.parametrize("funcao, extras", FUNCOES_ORGANIZACIONAIS, ids=IDS)
-def test_usuario_sem_organizacao_nao_consulta_nada(banco, funcao, extras):
-    with pytest.raises(UnauthorizedAccessError):
-        funcao(3, [10], *extras)
-
-    assert banco.cursor.executed == []
-
-
-@pytest.mark.parametrize("funcao, extras", FUNCOES_ORGANIZACIONAIS, ids=IDS)
-def test_propriedades_proprias_consultam_so_esses_ids(banco, funcao, extras):
-    funcao(1, [10, 11], *extras)
+def test_user_id_e_ids_vao_ao_banco_numa_unica_consulta(banco, funcao, extras):
+    """Ids de outra organização não são checados na API: o banco os descarta junto com o dono."""
+    funcao(1, [10, 20], *extras)
 
     assert len(banco.cursor.executed) == 1
     _, params = banco.cursor.executed[0]
-    assert params[0] == [10, 11]
+    assert params[0] == 1 and params[1] == [10, 20]
+
+
+@pytest.mark.parametrize("funcao, extras", FUNCOES_ORGANIZACIONAIS, ids=IDS)
+def test_consulta_usa_o_filtro_de_dono_do_banco(banco, funcao, extras):
+    funcao(1, [10], *extras)
+
+    sql, _ = banco.cursor.executed[0]
+    assert "fn_organization_" in sql or "fn_user_authorized_property_ids" in sql
 
 
 @pytest.mark.parametrize("funcao, extras", FUNCOES_ORGANIZACIONAIS, ids=IDS)

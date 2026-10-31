@@ -608,8 +608,10 @@ Sessão de outro usuário e sessão inexistente respondem 404 idêntico, sem rev
 - O `user_id` entra pelo token e segue preso às tools por `build_tools(user_id)`; o modelo nunca o recebe
   como argumento nem o vê nas saídas das tools.
 - As tools de previsão, vazamento e hábitos validam o `user_id` (inteiro positivo) e limitam janelas de
-  `days` a 1..366. As funções organizacionais de `app/data/db_postgres.py` recebem o `user_id` e recusam
-  propriedades que não pertençam às organizações dele (`UnauthorizedAccessError`).
+  `days` a 1..366. As funções organizacionais de `app/data/db_postgres.py` enviam o `user_id` ao banco na
+  mesma consulta; as funções `fn_organization_*` (e `fn_user_authorized_property_ids`, do
+  `delta-sql-database`) descartam ids de propriedades que não sejam das organizações dele, então um id
+  alheio devolve resultado vazio. Isso exige a versão do banco com `p_user_id` nessas funções.
 - O guardrail de entrada bloqueia tentativas de agir como outro usuário; o de saída bloqueia respostas que
   citem o id de outro usuário e descarta gráficos com `user_id` alheio.
 - O checkpoint do LangGraph é apagado depois de cada chat (o histórico vem do MongoDB), o id do ponto de
@@ -622,7 +624,7 @@ Sessão de outro usuário e sessão inexistente respondem 404 idêntico, sem rev
 | Critério | Situação | Onde está |
 | --- | --- | --- |
 | Identidade propagada pelo fluxo | Implementado e testado | `user_id` vem do JWT (`app/auth.py`), passa por `run_workflow` e fica preso nas tools por `build_tools(user_id)` |
-| Filtros de autorização nas tools de dados | Implementado e testado | `_authorize_property_ids` nas funções organizacionais de `db_postgres.py`; escritas de sessão filtradas por `user_id`; validação de `user_id` e de `days` nas tools |
+| Filtros de autorização nas tools de dados | Implementado e testado | `user_id` enviado às `fn_organization_*`, que filtram no banco com `fn_user_authorized_property_ids`; escritas de sessão filtradas por `user_id`; validação de `user_id` e de `days` nas tools |
 | Acesso cruzado bloqueado | Implementado e testado | 404 igual para sessão alheia e inexistente; `validate_ownership` na saída; padrões de personificação na entrada |
 | Testes de isolamento | Implementados | `tests/isolation/` (auth, sessões, camada de dados, tools e guardrails); os de sessão usam MongoDB real |
 

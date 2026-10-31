@@ -13,7 +13,6 @@ from app.tools.exceptions import (
     DatabaseConnectionError,
     DatabaseQueryError,
     RegionRateNotFound,
-    UnauthorizedAccessError,
 )
 from app.tools.models import ConsumptionPoint, LastWaterBill, OrganizationProperty
 
@@ -158,17 +157,6 @@ def get_last_water_bill(user_id: int) -> LastWaterBill | None:
     )
 
 
-def _authorize_property_ids(user_id: int, property_ids: list[int]) -> None:
-    """Garante que todas as propriedades pertencem às organizações de user_id.
-
-    Os ids já devem vir de get_user_organization_properties; esta conferência
-    impede que uma chamada futura consulte propriedades de outra organização.
-    """
-    allowed = {item.property_id for item in get_user_organization_properties(user_id)}
-    if not set(property_ids) <= allowed:
-        raise UnauthorizedAccessError()
-
-
 def get_user_access_kind(user_id: int) -> Literal["residential", "organizational", "none"]:
     """Resolve como o usuário se relaciona com propriedades.
 
@@ -205,16 +193,16 @@ def get_user_organization_properties(user_id: int) -> list[OrganizationProperty]
 
 def organization_can_estimate(user_id: int, property_ids: list[int]) -> bool:
     """Elegibilidade organizacional: existe telemetria real (com tarifa já
-    calculada) para pelo menos uma das propriedades.
+    calculada) para pelo menos uma das propriedades do usuário. O banco
+    descarta ids de outras organizações (fn_user_authorized_property_ids).
 
     Usa fn_organization_can_estimate do banco, equivalente organizacional de
     fn_user_can_estimate.
     """
     if not property_ids:
         return False
-    _authorize_property_ids(user_id, property_ids)
     with _cursor() as cur:
-        cur.execute("SELECT fn_organization_can_estimate(%s);", (property_ids,))
+        cur.execute("SELECT fn_organization_can_estimate(%s, %s);", (user_id, property_ids))
         row = cur.fetchone()
     return bool(row[0]) if row is not None else False
 
@@ -232,11 +220,10 @@ def get_organization_consumption_history(
     """
     if not property_ids:
         return []
-    _authorize_property_ids(user_id, property_ids)
     with _cursor() as cur:
         cur.execute(
-            "SELECT full_date, total_liters FROM fn_organization_consumption_history(%s, %s, %s);",
-            (property_ids, days, today),
+            "SELECT full_date, total_liters FROM fn_organization_consumption_history(%s, %s, %s, %s);",
+            (user_id, property_ids, days, today),
         )
         rows = cur.fetchall()
     points = []
@@ -265,7 +252,6 @@ def get_organization_consumption_daily(
     """
     if not property_ids:
         return []
-    _authorize_property_ids(user_id, property_ids)
     if (
         not isinstance(start_date, date)
         or isinstance(start_date, datetime)
@@ -281,11 +267,11 @@ def get_organization_consumption_daily(
             """
             SELECT full_date, total_liters
               FROM dw.vw_ft_consumption_daily
-             WHERE property_id = ANY(%s)
+             WHERE property_id IN (SELECT UNNEST(fn_user_authorized_property_ids(%s, %s)))
                AND full_date BETWEEN %s AND %s
              ORDER BY full_date, property_id;
             """,
-            (property_ids, start_date, end_date),
+            (user_id, property_ids, start_date, end_date),
         )
         rows = cur.fetchall()
     return [(row[0], row[1]) for row in rows]
@@ -301,14 +287,13 @@ def get_organization_last_billed_period(
     """
     if not property_ids:
         return None
-    _authorize_property_ids(user_id, property_ids)
     with _cursor() as cur:
         cur.execute(
             """
             SELECT reference_month, total_liters, total_cost
-              FROM fn_organization_last_billed_period(%s, %s);
+              FROM fn_organization_last_billed_period(%s, %s, %s);
             """,
-            (property_ids, today),
+            (user_id, property_ids, today),
         )
         row = cur.fetchone()
     if row is None or row[1] is None:
@@ -433,11 +418,10 @@ def get_organization_effective_rate(
     """
     if not property_ids:
         return None
-    _authorize_property_ids(user_id, property_ids)
     with _cursor() as cur:
         cur.execute(
-            "SELECT fn_organization_effective_rate(%s, %s, %s);",
-            (property_ids, today, window_days),
+            "SELECT fn_organization_effective_rate(%s, %s, %s, %s);",
+            (user_id, property_ids, today, window_days),
         )
         row = cur.fetchone()
     if row is None or row[0] is None:
