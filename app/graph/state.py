@@ -28,6 +28,7 @@ class GraphState(MessagesState, total=False):
     question: str
     relevant_memory: list[str]
     recent_messages: list[dict]
+    _history: list[dict] | None
     _persist_session: bool
     candidate: str
     previous_candidate: str | None

@@ -16,6 +16,7 @@ from app.observability.langsmith import enable_langsmith
 async def lifespan(app: FastAPI):
     """Mantém clientes lazy por processo e fecha-os após as requisições terminarem."""
     from app.agents.judge_specialist import close_judge_clients
+    from app.data.db_postgres import close_pool
     from app.services.rag import close_rag_clients
     from app.services.llms import close_openai_clients
 
@@ -28,7 +29,10 @@ async def lifespan(app: FastAPI):
             try:
                 await close_judge_clients()
             finally:
-                await close_openai_clients()
+                try:
+                    await close_openai_clients()
+                finally:
+                    close_pool()
 
 
 enable_langsmith()
