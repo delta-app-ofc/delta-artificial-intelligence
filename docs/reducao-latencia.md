@@ -26,15 +26,15 @@ modelo nem de Juiz:
 | --- | --- | --- | --- |
 | Pool de conexões PostgreSQL | sim | testes unitários, concorrência e PostgreSQL real (só leitura) | sim, localmente (tabela abaixo) |
 | Memória de consumo por pergunta | sim | testes unitários | não (reduz idas ao banco; ganho depende do banco) |
-| Guarda em paralelo com contexto e roteador | sim | testes unitários e de grafo com modelos falsos | não com LLM real |
+| Guarda em paralelo com contexto e roteador | sim | testes unitários e de grafo com modelos falsos | sim, com `gpt-6-luna`: 2,5 s → 1,4 s no início da pergunta |
 | Histórico lido uma vez | sim | testes unitários | não |
-| `OPENAI_FAST_REASONING_EFFORT` | sim (opcional, desligado) | testes de configuração | **não**: depende da chave paga |
-| `POST /chat/stream` (SSE), com plano e progresso por tool | sim | testes de rota, de gerador e do grafo real; servidor real com `curl -N` | latência percebida não medida |
+| `OPENAI_FAST_REASONING_EFFORT` | sim (opcional, desligado) | testes de configuração | sim, com `gpt-6-luna`: **sem ganho relevante** nas chamadas rápidas |
+| `POST /chat/stream` (SSE), com plano e progresso por tool | sim | testes de rota, de gerador e do grafo real; servidor real | sim: os rótulos não somam tempo; o primeiro chega em 0,3-0,4 s |
 | Tools em lote / em paralelo | **não** (avaliado) | — | **pendente**: ver "Experimento pendente" |
 
-**Medições com LLM real não foram feitas nesta entrega.** A equipe tem uma camada de observabilidade própria; as
-medições de latência, tokens e custo devem ser feitas pelos painéis dela depois que esta mudança for aplicada
-(veja "Como medir antes e depois").
+**Houve uma rodada pontual com a IA real** (`gpt-6-luna`), a pedido, descrita em "Medição com a IA real". Ela é
+pequena (uma execução por pergunta) e com bancos locais. A medição contínua de latência, tokens e custo deve ser feita
+pelos painéis de observabilidade da equipe depois que esta mudança for aplicada (veja "Como medir antes e depois").
 
 ## 1. Pool de conexões PostgreSQL
 
@@ -130,9 +130,9 @@ só começava depois dele.
 - O histórico validado é lido **uma vez** em `_start_run` e reaproveitado pelo contexto (`_history` no estado).
   Se a leitura inicial falhar, o contexto tenta de novo e registra o erro, como antes.
 
-**Ganho esperado.** Sai do caminho crítico uma chamada de LLM rápida (a menor das duas), tipicamente de 0,5 a 2 s por
-pergunta com provedor externo. **Não medido com LLM real.** Quando a guarda bloqueia, uma chamada do roteador pode ter
-sido gasta à toa (aceito).
+**Ganho medido** (`gpt-6-luna`, 4 repetições após aquecimento): guarda 1,4 s e roteador 1,1 s; os dois em série
+levavam **2,5 s** e em paralelo **1,4 s**, ou seja, cerca de 1 s a menos por pergunta. Quando a guarda bloqueia, uma
+chamada do roteador pode ter sido gasta à toa (aceito).
 
 **Como reverter.** Religar `guardrail_input → context → route` em série e chamar `validate_input` no nó de entrada.
 
@@ -141,8 +141,9 @@ sido gasta à toa (aceito).
 `OPENAI_FAST_REASONING_EFFORT` (`none`, `low`, `medium`, `high`, `xhigh` ou `max`) define o nível de raciocínio
 **só** das chamadas rápidas (guarda, roteador, síntese e título da sessão) quando `LLM_PROVIDER=openai`. Sem a
 variável, vale `OPENAI_REASONING_EFFORT`, ou seja, **nada muda até a equipe ligar**. Nenhum modelo, prompt ou o Juiz
-foi alterado. Recomendação para testar: `low`, conferindo antes se o roteamento continua correto. O efeito em
-latência e custo deve ser medido nos painéis.
+foi alterado. **Resultado medido** (`gpt-6-luna`, 4 repetições): com `medium` a guarda levou 1,38 s e o roteador 1,11 s; com `low`,
+1,13 s e 1,34 s. **Sem diferença além do ruído**, então a recomendação é **não ligar** por enquanto. O efeito em
+custo (tokens de raciocínio) não foi medido.
 
 ## 5. Etapas por SSE: `POST /chat/stream`
 
@@ -181,6 +182,39 @@ houver proxy reverso, mantenha `X-Accel-Buffering: no` (já enviado) e desative 
 
 Verificado com o servidor real (`uvicorn`) e `curl -N`: cinco eventos `stage`, depois `result`; 401 sem token e 404 em
 sessão inexistente.
+
+## Medição com a IA real (gpt-6-luna)
+
+Rodada pontual, feita a pedido, com a IA completa (guarda, roteador, agente, Juiz) e `POST /chat/stream`. **Limites:**
+uma execução por pergunta (o provedor varia de uma chamada para outra), PostgreSQL e MongoDB **locais e descartáveis**
+(sem rede de banco remoto), conta residencial sem telemetria no MongoDB, raciocínio padrão (`medium`). Serve para
+entender onde o tempo vai, não como benchmark.
+
+**Tempo total até o `result`:**
+
+| Pergunta | Tempo | Etapas principais |
+| --- | --- | --- |
+| Hábitos (residencial) | 8,1 s | plano em 2,6 s; agente 4,5 s; Juiz 1,0 s |
+| Previsão (residencial) | 8,7 s | plano em 1,7 s; agente 6,3 s; Juiz 0,6 s |
+| Qual unidade consumiu mais (comercial) | 12,0 s | plano em 2,2 s; agente 8,0 s (listar unidades, ler consumo, redigir); Juiz 1,6 s |
+
+**Onde o tempo vai:** o agente especialista (as voltas do modelo com tools e a redação da resposta) é de 55% a 70% do
+total; guarda + roteador somam cerca de 1,4 s (em paralelo); o Juiz leva de 0,4 a 1,6 s. Em outra repetição com
+`OPENAI_FAST_REASONING_EFFORT=low`, o Juiz de uma pergunta levou 6,3 s: uma variação do provedor, sem relação com `low`.
+Banco, regras e LangGraph juntos levam de 0 a 10 ms.
+
+**Os rótulos não adicionam tempo.** O fluxo de etapas só reporta o que já acontece: cada rótulo é um item na fila
+(microssegundos) emitido durante a espera. O `/chat/stream` e o `/chat` fazem o mesmo trabalho e têm a mesma duração
+total; o que muda é que a pessoa vê "Vou consultar o consumo das suas unidades" depois de cerca de 2 s em vez de
+uma tela parada por 8 a 12 s. O primeiro rótulo ("Verificando a mensagem") chega em 0,3-0,4 s.
+
+**Cuidado ao medir no Windows:** o cliente que usa `localhost` perde cerca de 2,4 s por conexão nova (tenta IPv6 antes
+de IPv4). Uma medição minha inicial mostrou 24,6 s para a pergunta comercial, sendo cerca de 3 s desse atraso do
+cliente e o resto variação do provedor; com `127.0.0.1` a mesma pergunta levou 12,0 s. Meça com `127.0.0.1`.
+
+**Conclusão:** a IA completa leva de 8 a 12 s nestas perguntas, e o ganho que ainda existe está no agente especialista
+(modelo, número de voltas e tamanho da resposta) e na espera, não em banco nem em rótulos. A decisão sobre o experimento
+de tools em lote deve olhar o número de voltas do agente nos painéis.
 
 ## Experimento pendente: consumo em lote e tools em paralelo
 
@@ -238,5 +272,6 @@ Branch `feat/reduz-latencia-chat` (a partir de `feat/historico-conversas`):
 - [x] Plano ("Vou consultar ...") e progresso por agente e por tool no SSE, com rótulos fixos e 21 testes
   (`app/observability/progress.py`).
 - [x] Documentação (este arquivo, README e AGENTS.md).
-- [ ] Medição de latência, tokens e custo com LLM real: **pendente**, pelos painéis de observabilidade.
+- [x] Rodada pontual com a IA real (`gpt-6-luna`): latência por etapa, guarda em paralelo e `low` (seção "Medição com a IA real").
+- [ ] Medição contínua de latência, tokens e custo: **pendente**, pelos painéis de observabilidade.
 - [ ] Tools em paralelo e tool em lote: **pendentes**, dependem dessa medição.
