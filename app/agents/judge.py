@@ -207,6 +207,13 @@ class JudgeAgent:
             ):
                 raise ValueError("Critério inválido na resposta do Juiz.")
             usage = response.usage.model_dump(mode="json")
+            if trace := current_trace():
+                with trace.lock:
+                    trace.models.append({
+                        "component": "judge", "kind": "jev", "provider": "typesafe", "model": response.model,
+                        "status": "success", "input_tokens": usage.get("input_tokens") or 0,
+                        "output_tokens": usage.get("output_tokens") or 0, "fallback": False, "duration_ms": 0,
+                    })
             request = {
                 "stage": "criteria", "model": response.model,
                 "request_id": response.request_id, "usage": usage,

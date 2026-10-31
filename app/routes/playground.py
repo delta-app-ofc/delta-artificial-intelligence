@@ -30,6 +30,8 @@ def require_playground():
         raise HTTPException(404, "Console de testes desativado.")
 
 
+PLAYGROUND_DISABLED = {404: {"description": "Console de testes desativado."}}
+
 router = APIRouter(prefix="/playground", tags=["playground"], dependencies=[Depends(require_playground)])
 
 
@@ -247,6 +249,21 @@ def test_agent(name: str, req: PlaygroundRequest):
     if name not in {*AGENT_REGISTRY, "judge"}:
         raise HTTPException(404, "Agente de teste desconhecido.")
     return run_test(req, name)
+
+
+@router.get("/observability", summary="Métricas de observabilidade do console",
+            description="Mesmo resumo de /observability/summary, sem token, para a aba Monitor.",
+            responses=PLAYGROUND_DISABLED)
+def observability_summary():
+    from app.routes.monitor import build_summary
+    return public_data(build_summary())
+
+
+@router.get("/observability/report.pdf", summary="Relatório de observabilidade em PDF",
+            responses=PLAYGROUND_DISABLED, response_class=Response)
+def observability_report():
+    from app.routes.monitor import pdf_response
+    return pdf_response()
 
 
 @lru_cache(maxsize=1)
