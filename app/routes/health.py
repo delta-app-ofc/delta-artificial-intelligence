@@ -1,3 +1,4 @@
+import logging
 from typing import Literal
 
 from fastapi import APIRouter
@@ -6,6 +7,7 @@ from pydantic import BaseModel, Field
 from app.config import get_settings
 
 router = APIRouter(tags=["health"])
+logger = logging.getLogger(__name__)
 
 
 class HealthResponse(BaseModel):
@@ -27,6 +29,8 @@ def health():
     issues = []
     try:
         get_settings()
-    except Exception as exc:
-        issues.append(str(exc))
+    except Exception:
+        # A rota é pública: o detalhe da configuração vai só para o log.
+        logger.exception("Configuração inválida detectada no /health.")
+        issues.append("Configuração inválida; consulte os logs do servidor.")
     return {"status": "ok" if not issues else "degraded", "issues": issues}

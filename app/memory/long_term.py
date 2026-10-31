@@ -123,12 +123,13 @@ def _ensure_collection() -> None:
 
     needs_create = _COLLECTION not in existing
     if not needs_create:
-        # Recria se a coleção foi criada com dimensão errada.
+        # Nunca apaga a coleção: dimensão errada é um problema de configuração a corrigir à mão.
         info = client.get_collection(_COLLECTION)
         current_size = info.config.params.vectors.size
         if current_size != _VECTOR_SIZE:
-            client.delete_collection(_COLLECTION)
-            needs_create = True
+            raise ConfigurationError(
+                f"A coleção {_COLLECTION} tem dimensão {current_size}, mas o esperado é {_VECTOR_SIZE}."
+            )
 
     if needs_create:
         client.create_collection(
@@ -193,7 +194,8 @@ def save_summary(user_id: int, session_id: str, messages: list[dict]) -> None:
             collection_name=_COLLECTION,
             points=[
                 PointStruct(
-                    id=str(uuid.uuid5(uuid.NAMESPACE_URL, session_id)),
+                    # O id inclui o user_id: sessões de usuários diferentes nunca compartilham o ponto.
+                    id=str(uuid.uuid5(uuid.NAMESPACE_URL, f"{user_id}:{session_id}")),
                     vector=vector,
                     payload={"user_id": user_id, "session_id": session_id, "summary": summary_text},
                 )

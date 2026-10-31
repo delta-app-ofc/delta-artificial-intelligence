@@ -2,7 +2,7 @@ from fastapi import APIRouter, Depends, HTTPException
 
 from app.auth import get_current_user_id
 from app.graph.workflow import run_workflow
-from app.memory.session import create_session, session_belongs_to_user
+from app.memory.session import create_session, discard_empty_session, session_belongs_to_user
 from app.observability.diagnostics import current_trace
 from app.schemas import AUTH_ERRORS, SESSION_NOT_FOUND, ChatRequest, ChatResponse, ErrorResponse
 
@@ -28,6 +28,7 @@ router = APIRouter(tags=["chat"])
     },
 )
 def chat(req: ChatRequest, user_id: int = Depends(get_current_user_id)):
+    created = False
     if trace := current_trace():
         trace.mode, trace.user_id = "chat", user_id
     try:
@@ -37,6 +38,7 @@ def chat(req: ChatRequest, user_id: int = Depends(get_current_user_id)):
             session_id = req.session_id
         else:
             session_id = create_session(user_id)
+            created = True
     except HTTPException:
         raise
     except Exception:
@@ -45,6 +47,11 @@ def chat(req: ChatRequest, user_id: int = Depends(get_current_user_id)):
     state = run_workflow(user_id, session_id, req.message)
 
     if state.get("_blocked"):
+        if created:
+            try:
+                discard_empty_session(user_id, session_id)
+            except Exception:
+                pass
         raise HTTPException(status_code=422, detail=state["response"])
 
     return ChatResponse(

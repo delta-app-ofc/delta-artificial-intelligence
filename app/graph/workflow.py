@@ -15,7 +15,7 @@ from app.graph.router import AGENT_REGISTRY, AgentNotImplemented, classify, load
 from app.graph.state import AgentOutput, GraphState
 from app.graph.synthesis import synthesize
 from app.guardrails.input import validate_input
-from app.guardrails.output import validate_output
+from app.guardrails.output import chart_mentions_other_user, validate_output, validate_ownership
 from app.memory.session import append_turn, load_history_validated, to_chat_messages
 from app.observability.diagnostics import (
     Trace,
@@ -24,17 +24,16 @@ from app.observability.diagnostics import (
     current_trace,
     safe_error,
 )
+from app.graph.profile import (
+    allowed_agents,
+    greeting_response,
+    no_agent_response,
+    resolve_access_kind,
+    unavailable_agent_message,
+)
 from app.services.session_meta import refresh_session_meta
 
 RECENT_TURNS = 6
-_GREETING_RESPONSE = (
-    "Oi! Posso ajudar com seu consumo de água, previsões, alertas e hábitos. "
-    "O que você gostaria de saber?"
-)
-_NO_AGENT_RESPONSE = (
-    "Não entendi o que você gostaria de saber. Posso ajudar com previsão de consumo, "
-    "detecção de vazamentos ou seus hábitos de água."
-)
 _AGENT_FAILURE_RESPONSE = "Não foi possível obter uma resposta neste momento. Tente novamente."
 _REVISION_FALLBACK = (
     "Revise a candidata conforme os critérios pendentes e use somente as evidências disponíveis."
@@ -100,13 +99,16 @@ def _after_guardrail_input(state: GraphState) -> str:
 
 def _context_node(state: GraphState) -> dict:
     with component("context"):
-        return build_context(state["user_id"], state["session_id"], state["question"])
+        context = build_context(state["user_id"], state["session_id"], state["question"])
+        context["access_kind"] = resolve_access_kind(state["user_id"])
+        return context
 
 
 def _route_node(state: GraphState) -> dict:
     context = {
         "recent_messages": state.get("recent_messages") or _recent_messages(state),
         "relevant_memory": state.get("relevant_memory", []),
+        "access_kind": state.get("access_kind"),
     }
     with component("router"):
         decision = classify(state["question"], context)
@@ -115,6 +117,7 @@ def _route_node(state: GraphState) -> dict:
         trace.selected_agents = list(decision.agents)
     return {"intent": decision.intent, "complexity": decision.complexity,
             "selected_agents": decision.agents,
+            "unavailable_agents": decision.unavailable,
             "agent_used": ", ".join(decision.agents) if decision.agents else "unknown"}
 
 
@@ -142,11 +145,12 @@ def execute_agent(
     *,
     revision_feedback: str | None = None,
     revision_context: dict | None = None,
+    access_kind: str | None = None,
 ) -> dict:
     """Executa o mesmo especialista usado pelas abas individuais e pelo grafo."""
     trace = current_trace()
     try:
-        agent = load_agent(name, user_id)
+        agent = load_agent(name, user_id, access_kind)
     except AgentNotImplemented:
         if trace:
             trace.skipped_agents.append(name)
@@ -201,7 +205,13 @@ def _execute_node(state: GraphState) -> dict:
     results = []
     warnings = list(state.get("warnings", []))
     revision_count = state.get("revision_count", 0)
+    allowed = allowed_agents(state.get("access_kind"))
     for name in state.get("selected_agents", []):
+        if allowed is not None and name not in allowed:
+            warnings.append(f"Agente {name} não se aplica ao perfil da conta; ignorado.")
+            if trace := current_trace():
+                trace.skipped_agents.append(name)
+            continue
         if name not in AGENT_REGISTRY:
             warnings.append(f"Agente desconhecido ignorado: {name}")
             if trace := current_trace():
@@ -229,6 +239,7 @@ def _execute_node(state: GraphState) -> dict:
             name,
             state["user_id"],
             agent_question,
+            access_kind=state.get("access_kind"),
             revision_feedback=state.get("revision_feedback") if revision_count else None,
             revision_context={
                 "candidate": state.get("previous_candidate") or "",
@@ -257,7 +268,7 @@ def _synthesize_node(state: GraphState) -> dict:
     if len(successes) < 2:
         return {}
     with component("synthesis"):
-        return synthesize(state["question"], successes) or {}
+        return synthesize(state["question"], successes, state.get("access_kind")) or {}
 
 
 def _respond_node(state: GraphState) -> dict:
@@ -271,7 +282,12 @@ def _respond_node(state: GraphState) -> dict:
         results = state.get("agent_results", [])
         selected = state.get("selected_agents", [])
         if not selected:
-            response = _GREETING_RESPONSE if state.get("intent") == "greeting" else _NO_AGENT_RESPONSE
+            access_kind = state.get("access_kind")
+            if state.get("intent") == "greeting":
+                response = greeting_response(access_kind)
+            else:
+                response = (unavailable_agent_message(state.get("unavailable_agents", []))
+                            or no_agent_response(access_kind))
             return {"response": response, "chart_data": None}
         successes = [result for result in results
                      if result.get("status") == "success" and result.get("answer")]
@@ -302,6 +318,7 @@ def _judge_node(state: GraphState) -> dict:
     revision_count = state.get("revision_count", 0)
     agent_results = state.get("agent_results", [])
     context = {
+        "access_kind": state.get("access_kind"),
         "selected_agents": state.get("selected_agents", []),
         "agent_errors": [result.get("agent") for result in agent_results
                          if result.get("status") != "success"],
@@ -414,6 +431,10 @@ def _guardrail_output_node(state: GraphState) -> dict:
         return {}
     with component("output_guard"):
         result = validate_output(state.get("response") or "", state.get("pii_map") or {})
+        if result["ok"]:
+            ownership = validate_ownership(result["response"], state.get("user_id"))
+            if not ownership["ok"]:
+                result = ownership
     if not result["ok"]:
         if trace := current_trace():
             trace.event(
@@ -441,7 +462,14 @@ def _guardrail_output_node(state: GraphState) -> dict:
                 args=(state["user_id"], state["session_id"], state["question"], safe),
                 daemon=True,
             ).start()
-    return {"response": safe, "messages": [{"role": "assistant", "content": safe}]}
+
+    update: dict = {"response": safe, "messages": [{"role": "assistant", "content": safe}]}
+    if chart_mentions_other_user(state.get("chart_data"), state.get("user_id")):
+        if trace := current_trace():
+            trace.errors.append({"stage": "output_guard", "code": "chart_rejected",
+                                 "message": "Gráfico com dados de outro usuário descartado."})
+        update["chart_data"] = None
+    return update
 
 
 def _node_outcome(name: str, result: dict) -> str | None:
@@ -592,7 +620,24 @@ def _invoke_workflow(
     }
     if not workflow.get_state(config).values.get("messages"):
         initial["messages"] = _history_from_mongo(user_id, session_id)
-    return workflow.invoke(initial, config=config)
+    try:
+        return workflow.invoke(initial, config=config)
+    finally:
+        if persist_session:
+            _forget_thread(config["configurable"]["thread_id"])
+
+
+def _forget_thread(thread_id: str) -> None:
+    """Apaga o estado da execução da memória do processo.
+
+    No chat o histórico vem do MongoDB a cada pergunta; guardar o checkpoint só
+    acumularia mensagens e PII em RAM sem limite. O console de testes não grava
+    histórico e continua usando o checkpoint para manter a conversa.
+    """
+    try:
+        workflow.checkpointer.delete_thread(thread_id)
+    except Exception:
+        pass
 
 
 def run_workflow(user_id: int, session_id: str, question: str, *,

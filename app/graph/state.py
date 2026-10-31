@@ -22,6 +22,8 @@ class GraphState(MessagesState, total=False):
     """`messages` (herdado) acumula a conversa entre as perguntas da mesma sessão."""
 
     user_id: int
+    access_kind: str
+    unavailable_agents: list[str]
     session_id: str
     question: str
     relevant_memory: list[str]

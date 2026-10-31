@@ -9,13 +9,14 @@ from langchain_core.messages import AIMessage, ToolMessage
 from app.agents._runtime import AgentResult, ToolCall, build_revision_messages
 from app.config import ConfigurationError
 from app.observability.diagnostics import current_trace
-from app.services.prompts import RAG_PROMPT_COMPLETO
+from app.services.prompts import RAG_PROMPT_COMPLETO, perfil_bloco
 from app.tools.rag import search_knowledge_base
 
 
 class RagAgent:
-    def __init__(self, user_id: int, llm: Any = None) -> None:
+    def __init__(self, user_id: int, llm: Any = None, access_kind: str | None = None) -> None:
         self.user_id = user_id
+        self.access_kind = access_kind
 
         if llm is None:
             from app.services.llms import llm_rapido
@@ -28,7 +29,7 @@ class RagAgent:
         self.agent = create_agent(
             model=llm,
             tools=[search_knowledge_base],
-            system_prompt=RAG_PROMPT_COMPLETO,
+            system_prompt=RAG_PROMPT_COMPLETO + perfil_bloco(access_kind),
         )
 
     def run(

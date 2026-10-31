@@ -561,12 +561,14 @@ Aplicados em duas camadas (defesa em profundidade): na rota HTTP
 
 - **Sessão** (`app/memory/session.py`): histórico na coleção `chat_sessions` do
   `db_delta_app` (schema oficial do `delta-mongo-database`). O `session_id` da API é o
-  `_id` da sessão em texto e é sempre criado pelo servidor. `append_turn` e
-  `load_history_validated` só operam em sessões do próprio usuário.
+  `_id` da sessão em texto e é sempre criado pelo servidor (`create_session`); `/chat` só
+  continua sessões que o servidor devolveu. `append_turn`, `load_history_validated` e
+  `session_belongs_to_user` só operam em sessões do próprio usuário; sessões marcadas
+  como excluídas (`is_deleted`) são ignoradas.
 - **Título, prévia e ícone** (`app/services/session_meta.py`): na primeira troca da
   conversa, a LLM rápida gera `title`, `preview` e `icon` (um valor de `ICONS`), gravados na
   sessão em segundo plano. Sem eles, a listagem usa o início das mensagens e o ícone `general`.
-  Esses três campos ainda precisam ser documentados no `delta-mongo-database`/`delta-handbook`.
+  Esses três campos estão documentados no `delta-mongo-database` e no `delta-handbook`.
 - **Longo prazo** (`app/memory/long_term.py`): embeddings Gemini armazenados no
   Qdrant. Consultada pelo nó `context` quando a pergunta referencia o passado.
 
@@ -581,24 +583,92 @@ uvicorn app.main:app --reload
 |--------|------|-----------|
 | POST | `/chat` | Envia mensagem ao chatbot |
 | GET | `/health` | Status dos serviços configurados |
-| GET | `/sessions?limit=20&offset=0` | Lista as sessões do usuário, da mais recente à mais antiga |
-| GET | `/sessions/{session_id}/messages` | Histórico de uma sessão |
-| POST | `/sessions/{session_id}/close` | Encerra uma sessão |
+| GET | `/sessions?limit=20&offset=0` | Lista as sessões do usuário autenticado, da mais recente à mais antiga |
+| GET | `/sessions/{session_id}/messages` | Histórico de uma sessão do usuário |
+| POST | `/sessions/{session_id}/close` | Encerra uma sessão do usuário |
 
-Todas as rotas, exceto `/health`, exigem `Authorization: Bearer <JWT>`: token HS256 assinado com
-`JWT_SECRET` (32 caracteres ou mais), com os claims `sub` (o `user_id`) e `exp`. O `user_id` vem
-só do token; o cliente não o envia. Sem `JWT_SECRET` configurado, as rotas respondem 503.
-O back-end ainda precisa emitir esse token.
+Todas as rotas, exceto `/health` e `/playground`, exigem `Authorization: Bearer <token>`. O token é um JWT
+assinado com HS256 e o segredo `JWT_SECRET` (32 caracteres ou mais), com dois campos: `sub` (o id do usuário,
+inteiro positivo) e `exp` (até quando o token vale). O `user_id` vem só do token; o cliente não o envia. Sem
+`JWT_SECRET` configurado, as rotas respondem 503, e token ausente, inválido ou expirado responde 401. O
+back-end ainda precisa emitir esse token.
 
-`POST /chat` aceita `{"message": "Quanto consumi?"}` (e `session_id` para continuar uma conversa
-existente; ids que o servidor não devolveu retornam 404) e devolve
+`POST /chat` aceita `{"message": "Quanto consumi?"}` (e `session_id` para continuar uma conversa existente;
+ids que o servidor não devolveu retornam 404) e devolve
 `{"response": "...", "agents_used": ["forecast"], "session_id": "...", "chart_data": null}`.
+Sessão de outro usuário e sessão inexistente respondem 404 idêntico, sem revelar se ela existe.
 
 `GET /sessions` devolve `{"sessions": [{"session_id", "title", "preview", "icon", "created_at",
 "updated_at", "is_open"}], "total": N}`. Use `limit=4` para a lista da home e `offset` no "ver todos".
 Ícones possíveis: `routine`, `habits`, `summary`, `report`, `savings`, `leak`, `forecast`,
-`consumption`, `tips`, `general`. Sessão de outro usuário ou inexistente responde 404.
+`consumption`, `tips`, `general`.
 
-Testes de histórico usam MongoDB real em um banco descartável `delta_test_historico`
-(`DELTA_TEST_MONGO_URI`, padrão `mongodb://localhost:27018` do `docker-compose.dev.yml`) e são
-pulados sem MongoDB. O acesso da IA ao `chat_sessions` exige a role `role_api_service`.
+### Perfis de usuário (residencial e comercial)
+
+A IA é a mesma, mas se comporta conforme o perfil da conta. O perfil vem de `fn_user_access_kind`
+(`residential`, `organizational` ou `none`; se houver os dois vínculos, vale o residencial) e é descoberto
+**uma vez por pergunta**, no nó de contexto do grafo (`app/graph/profile.py`). Se o banco não responder, o perfil
+fica `unknown` e só o agente de documentação (RAG) é liberado; nunca se assume um perfil.
+
+| Perfil | Agentes liberados | Linguagem e regras |
+| --- | --- | --- |
+| Residencial | consumo, previsão, vazamento, hábitos, RAG | fala de casa e residência; não separa consumo por imóvel |
+| Comercial (organização) | consumo, previsão, vazamento, RAG | fala de unidades e organização; declara unidade e período; compara só as próprias unidades; sem hábitos |
+| Sem vínculo | RAG | explica que falta vincular a conta |
+
+- O roteador recebe o perfil e não escolhe agentes que não servem a ele; se alguém pedir hábitos numa conta
+  comercial, a resposta explica que hábitos são só residenciais.
+- Cada agente, a síntese e o Juiz recebem um trecho de prompt do perfil (`perfil_bloco` em
+  `app/services/prompts.py`); o Juiz trata resposta fora do perfil como erro corrigível.
+- As tools de consumo, previsão e hábitos usam o perfil já resolvido, sem consultar o banco a cada chamada
+  (sem perfil informado, como no `/playground`, continuam consultando como antes).
+- **Ainda não implementado:** vazamento por unidade para contas comerciais. Os alertas e janelas anômalas do
+  MongoDB só têm `user_id` e `device_id`; separar por unidade exige uma função nova no `delta-sql-database`
+  (dispositivos por propriedade autorizada). Até lá o prompt comercial avisa que o vazamento não é separado por
+  unidade. O RAG também ainda não filtra capítulos por perfil (só o prompt orienta).
+- Os testes (`tests/user_profile/`) usam modelo falso e bancos substituídos; não comprovam a qualidade das
+  respostas com os provedores reais.
+
+### Isolamento de dados entre usuários
+
+- O `user_id` entra pelo token e segue preso às tools por `build_tools(user_id)`; o modelo nunca o recebe
+  como argumento nem o vê nas saídas das tools.
+- As tools de previsão, vazamento e hábitos validam o `user_id` (inteiro positivo) e limitam janelas de
+  `days` a 1..366. As funções organizacionais de `app/data/db_postgres.py` enviam o `user_id` ao banco na
+  mesma consulta; as funções `fn_organization_*` (e `fn_user_authorized_property_ids`, do
+  `delta-sql-database`) descartam ids de propriedades que não sejam das organizações dele, então um id
+  alheio devolve resultado vazio. Isso exige a versão do banco com `p_user_id` nessas funções.
+- O guardrail de entrada bloqueia tentativas de agir como outro usuário; o de saída bloqueia respostas que
+  citem o id de outro usuário e descarta gráficos com `user_id` alheio.
+- O checkpoint do LangGraph é apagado depois de cada chat (o histórico vem do MongoDB), o id do ponto de
+  memória de longo prazo inclui o `user_id`, o CORS não permite credenciais e `/health` não expõe detalhes.
+- Fora do alcance deste repositório: funções SQL `fn_*` e permissões do banco (`delta-sql-database`), papéis
+  dentro de uma organização e a emissão do JWT.
+
+#### Critérios da Fase 6
+
+| Critério | Situação | Onde está |
+| --- | --- | --- |
+| Identidade propagada pelo fluxo | Implementado e testado | `user_id` vem do JWT (`app/auth.py`), passa por `run_workflow` e fica preso nas tools por `build_tools(user_id)` |
+| Filtros de autorização nas tools de dados | Implementado e testado | `user_id` enviado às `fn_organization_*`, que filtram no banco com `fn_user_authorized_property_ids`; escritas de sessão filtradas por `user_id`; validação de `user_id` e de `days` nas tools |
+| Acesso cruzado bloqueado | Implementado e testado | 404 igual para sessão alheia e inexistente; `validate_ownership` na saída; padrões de personificação na entrada |
+| Testes de isolamento | Implementados | `tests/isolation/` (auth, sessões, camada de dados, tools e guardrails); os de sessão usam MongoDB real |
+
+Os testes de tools e da camada de dados usam bancos substituídos (fakes), então não provam o comportamento
+do PostgreSQL real.
+
+#### Limites e pendências conhecidos
+
+- Funções SQL `fn_*` e permissões do banco (RLS) ficam no `delta-sql-database` e não foram verificadas aqui.
+- Não há papéis dentro de uma organização: todo usuário vinculado a ela vê todas as unidades (decisão de produto).
+- O `/playground` não exige autenticação e vem ativo em desenvolvimento e teste; não foi alterado nesta entrega.
+- O classificador de injeção do guardrail de entrada segue "fail-open": se a LLM falhar, a mensagem passa
+  (disponibilidade acima de bloqueio).
+- `create_habit` não é idempotente (depende da função SQL); resumos de longo prazo gravados antes da
+  autenticação podem ter `user_id` forjado e não são verificáveis pelo código.
+- A emissão do JWT é do back-end e ainda não existe; a checagem de mutação dos filtros ainda não foi executada.
+
+Testes de histórico e de isolamento usam MongoDB real em um banco descartável `delta_test_*`
+(`DELTA_TEST_MONGO_URI`, padrão `mongodb://localhost:27018` do `docker-compose.dev.yml`) e são pulados sem
+MongoDB. Os de isolamento ficam em `tests/isolation/`. O acesso da IA ao `chat_sessions` exige a role
+`role_api_service`.

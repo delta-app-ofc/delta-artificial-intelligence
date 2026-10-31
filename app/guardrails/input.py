@@ -39,6 +39,14 @@ _INJECTION_PATTERNS = [
     re.compile(r"###\s*instruction", re.I),
     re.compile(r"override\s+(your\s+)?instructions?", re.I),
     re.compile(r"desconsider[ea]\s+(suas\s+)?instru[çc][oõ]es", re.I),
+    # Tentativas de agir como outro usuário ou de consultar dados de outro usuário.
+    re.compile(r"\baj[ao]\s+como\s+(o\s+|um\s+)?(usu[aá]rio|cliente|outr[oa]|admin)", re.I),
+    re.compile(r"\bfinj[ae]\s+(que\s+)?(ser|sou|é)\b", re.I),
+    re.compile(r"como\s+se\s+eu\s+fosse\s+(o\s+|um\s+)?(usu[aá]rio|cliente|outr[oa]|admin)", re.I),
+    re.compile(r"\bmeu\s+(user[_\s-]?id|id)\s+(agora\s+)?(é|e|=)\s*\d+", re.I),
+    re.compile(r"\buser[_\s-]?id\s*[:=]\s*\d+", re.I),
+    re.compile(r"\b(usu[aá]rio|cliente)\s+(n[º°o]\.?\s*|id\s*|#)?\d+", re.I),
+    re.compile(r"\b(conta|dados|consumo|hist[oó]rico)\s+(do|da|de)\s+(outr[oa]s?|usu[aá]rio|cliente)\b", re.I),
 ]
 
 _INTERNAL_DATA_KEYWORDS = [
