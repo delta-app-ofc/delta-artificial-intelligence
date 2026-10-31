@@ -18,6 +18,7 @@ from langchain_core.tools import BaseTool, tool
 from app.data import db_mongo, db_postgres
 from app.tools.exceptions import RegionRateNotFound
 from app.tools.forecast import calculations as calc
+from app.tools.validation import days_error, validate_user_id
 
 # Janela padrão de histórico consultada no MongoDB (dias).
 DEFAULT_HISTORY_DAYS = 45
@@ -37,11 +38,12 @@ def _serialize(value: Any) -> Any:
     return value
 
 
-def build_tools(user_id: int, today: date) -> list[BaseTool]:
+def build_tools(user_id: int, today: date, access_kind: str | None = None) -> list[BaseTool]:
     """Cria as tools já amarradas a user_id e à data de referência.
 
     O user_id NUNCA é um argumento exposto ao LLM — ele não pode inventá-lo.
     """
+    validate_user_id(user_id)
 
     def _resolve_scope(property_name: str | None):
         """Resolve o escopo (propriedade(s)) do user_id para esta chamada.
@@ -57,7 +59,7 @@ def build_tools(user_id: int, today: date) -> list[BaseTool]:
           property_name não bateu nenhuma unidade.
         - ("none", None, None): usuário sem residência nem organização.
         """
-        kind = db_postgres.get_user_access_kind(user_id)
+        kind = access_kind or db_postgres.get_user_access_kind(user_id)
         if kind != "organizational":
             return kind, None, None
 
@@ -114,7 +116,7 @@ def build_tools(user_id: int, today: date) -> list[BaseTool]:
         if kind == "residential":
             return {"status": "ok", "can_estimate": db_postgres.user_can_estimate(user_id)}
         if kind == "organizational":
-            return {"status": "ok", "can_estimate": db_postgres.organization_can_estimate(ids)}
+            return {"status": "ok", "can_estimate": db_postgres.organization_can_estimate(user_id, ids)}
         return _scope_error_response(kind, candidates)
 
     @tool
@@ -137,7 +139,7 @@ def build_tools(user_id: int, today: date) -> list[BaseTool]:
         if kind == "residential":
             bill = db_postgres.get_last_water_bill(user_id)
         elif kind == "organizational":
-            bill = db_postgres.get_organization_last_billed_period(ids, today)
+            bill = db_postgres.get_organization_last_billed_period(user_id, ids, today)
         else:
             return _scope_error_response(kind, candidates)
         if bill is None:
@@ -159,11 +161,13 @@ def build_tools(user_id: int, today: date) -> list[BaseTool]:
         as unidades são somados. Este parâmetro não tem efeito para usuários
         com propriedade residencial própria.
         """
+        if invalid := days_error(days):
+            return invalid
         kind, ids, candidates = _resolve_scope(property_name)
         if kind == "residential":
             points = db_mongo.get_consumption_history(user_id, days)
         elif kind == "organizational":
-            points = db_postgres.get_organization_consumption_history(ids, days, today)
+            points = db_postgres.get_organization_consumption_history(user_id, ids, days, today)
         else:
             return _scope_error_response(kind, candidates)
         return {
@@ -205,7 +209,7 @@ def build_tools(user_id: int, today: date) -> list[BaseTool]:
         """
         kind, ids, candidates = _resolve_scope(property_name)
         if kind == "organizational":
-            rate = db_postgres.get_organization_effective_rate(ids, today)
+            rate = db_postgres.get_organization_effective_rate(user_id, ids, today)
             if rate is None:
                 return {
                     "status": "insufficient_data",
@@ -250,6 +254,8 @@ def build_tools(user_id: int, today: date) -> list[BaseTool]:
         as unidades são somados. Este parâmetro não tem efeito para usuários
         com propriedade residencial própria.
         """
+        if invalid := days_error(history_days, "history_days"):
+            return invalid
         kind, ids, candidates = _resolve_scope(property_name)
         if kind not in ("residential", "organizational"):
             return _scope_error_response(kind, candidates)
@@ -257,7 +263,7 @@ def build_tools(user_id: int, today: date) -> list[BaseTool]:
         can_estimate = (
             db_postgres.user_can_estimate(user_id)
             if kind == "residential"
-            else db_postgres.organization_can_estimate(ids)
+            else db_postgres.organization_can_estimate(user_id, ids)
         )
         if not can_estimate:
             return {
@@ -281,9 +287,11 @@ def build_tools(user_id: int, today: date) -> list[BaseTool]:
                 except RegionRateNotFound:
                     region_rate = None
         else:
-            history = db_postgres.get_organization_consumption_history(ids, history_days, today)
-            last_bill = db_postgres.get_organization_last_billed_period(ids, today)
-            region_rate = db_postgres.get_organization_effective_rate(ids, today)
+            history = db_postgres.get_organization_consumption_history(
+                user_id, ids, history_days, today
+            )
+            last_bill = db_postgres.get_organization_last_billed_period(user_id, ids, today)
+            region_rate = db_postgres.get_organization_effective_rate(user_id, ids, today)
 
         result = calc.calculate_full_forecast(
             can_estimate=can_estimate,

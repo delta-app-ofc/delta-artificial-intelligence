@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 from contextlib import contextmanager
 from datetime import date, datetime, timedelta
 from decimal import Decimal
@@ -14,6 +15,8 @@ from app.tools.exceptions import (
     RegionRateNotFound,
 )
 from app.tools.models import ConsumptionPoint, LastWaterBill, OrganizationProperty
+
+logger = logging.getLogger(__name__)
 
 
 def get_conn():
@@ -188,9 +191,10 @@ def get_user_organization_properties(user_id: int) -> list[OrganizationProperty]
     ]
 
 
-def organization_can_estimate(property_ids: list[int]) -> bool:
+def organization_can_estimate(user_id: int, property_ids: list[int]) -> bool:
     """Elegibilidade organizacional: existe telemetria real (com tarifa já
-    calculada) para pelo menos uma das propriedades.
+    calculada) para pelo menos uma das propriedades do usuário. O banco
+    descarta ids de outras organizações (fn_user_authorized_property_ids).
 
     Usa fn_organization_can_estimate do banco, equivalente organizacional de
     fn_user_can_estimate.
@@ -198,13 +202,13 @@ def organization_can_estimate(property_ids: list[int]) -> bool:
     if not property_ids:
         return False
     with _cursor() as cur:
-        cur.execute("SELECT fn_organization_can_estimate(%s);", (property_ids,))
+        cur.execute("SELECT fn_organization_can_estimate(%s, %s);", (user_id, property_ids))
         row = cur.fetchone()
     return bool(row[0]) if row is not None else False
 
 
 def get_organization_consumption_history(
-    property_ids: list[int], days: int, today: date
+    user_id: int, property_ids: list[int], days: int, today: date
 ) -> list[ConsumptionPoint]:
     """Histórico diário (litros) somado por dia entre as propriedades
     informadas, via fn_organization_consumption_history (janela de `days`
@@ -218,8 +222,8 @@ def get_organization_consumption_history(
         return []
     with _cursor() as cur:
         cur.execute(
-            "SELECT full_date, total_liters FROM fn_organization_consumption_history(%s, %s, %s);",
-            (property_ids, days, today),
+            "SELECT full_date, total_liters FROM fn_organization_consumption_history(%s, %s, %s, %s);",
+            (user_id, property_ids, days, today),
         )
         rows = cur.fetchall()
     points = []
@@ -239,7 +243,7 @@ def get_organization_consumption_history(
 
 
 def get_organization_consumption_daily(
-    property_ids: list[int], start_date: date, end_date: date
+    user_id: int, property_ids: list[int], start_date: date, end_date: date
 ) -> list[tuple[date, Decimal]]:
     """Lê os registros diários das unidades autorizadas no intervalo de datas.
 
@@ -263,18 +267,18 @@ def get_organization_consumption_daily(
             """
             SELECT full_date, total_liters
               FROM dw.vw_ft_consumption_daily
-             WHERE property_id = ANY(%s)
+             WHERE property_id IN (SELECT UNNEST(fn_user_authorized_property_ids(%s, %s)))
                AND full_date BETWEEN %s AND %s
              ORDER BY full_date, property_id;
             """,
-            (property_ids, start_date, end_date),
+            (user_id, property_ids, start_date, end_date),
         )
         rows = cur.fetchall()
     return [(row[0], row[1]) for row in rows]
 
 
 def get_organization_last_billed_period(
-    property_ids: list[int], today: date
+    user_id: int, property_ids: list[int], today: date
 ) -> LastWaterBill | None:
     """Equivalente organizacional de tb_last_water_bill (que não existe para
     organização) via fn_organization_last_billed_period: soma do último mês
@@ -287,9 +291,9 @@ def get_organization_last_billed_period(
         cur.execute(
             """
             SELECT reference_month, total_liters, total_cost
-              FROM fn_organization_last_billed_period(%s, %s);
+              FROM fn_organization_last_billed_period(%s, %s, %s);
             """,
-            (property_ids, today),
+            (user_id, property_ids, today),
         )
         row = cur.fetchone()
     if row is None or row[1] is None:
@@ -393,12 +397,17 @@ def create_habit(user_id: int, name: str, frequency: int, days: list[str]) -> di
                 (user_id, name, frequency, days),
             )
         except psycopg2.errors.RaiseException as exc:  # type: ignore[attr-defined]
-            raise ValueError(exc.diag.message_primary) from exc
+            # A mensagem do banco pode trazer detalhes internos: vai só para o log.
+            logger.warning("Cadastro de hábito recusado pelo banco: %s", exc.diag.message_primary)
+            raise ValueError(
+                "Não foi possível cadastrar o hábito. Ele pode já estar cadastrado "
+                "ou os dados informados são inválidos."
+            ) from exc
     return {"name": name, "frequency": frequency, "days": days}
 
 
 def get_organization_effective_rate(
-    property_ids: list[int], today: date, window_days: int = 30
+    user_id: int, property_ids: list[int], today: date, window_days: int = 30
 ) -> Decimal | None:
     """Tarifa efetiva (R$/m³) observada nos últimos window_days dias, via
     fn_organization_effective_rate. Retorna None sem consumo na janela.
@@ -411,8 +420,8 @@ def get_organization_effective_rate(
         return None
     with _cursor() as cur:
         cur.execute(
-            "SELECT fn_organization_effective_rate(%s, %s, %s);",
-            (property_ids, today, window_days),
+            "SELECT fn_organization_effective_rate(%s, %s, %s, %s);",
+            (user_id, property_ids, today, window_days),
         )
         row = cur.fetchone()
     if row is None or row[0] is None:

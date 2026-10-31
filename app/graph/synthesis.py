@@ -2,12 +2,12 @@ from __future__ import annotations
 
 from langchain_core.messages import HumanMessage, SystemMessage
 
-from app.services.prompts import SYNTHESIS_PROMPT
+from app.services.prompts import SYNTHESIS_PROMPT, profile_block
 from app.agents._runtime import _message_text
 from app.observability.diagnostics import current_trace
 
 
-def synthesize(question: str, answers: list[dict]) -> dict | None:
+def synthesize(question: str, answers: list[dict], access_kind: str | None = None) -> dict | None:
     """Une as respostas dos agentes num texto só, com o LLM rápido.
 
     Devolve {"response", "chart_data"} ou None se o LLM não estiver disponível ou falhar.
@@ -20,6 +20,7 @@ def synthesize(question: str, answers: list[dict]) -> dict | None:
 
     answers_text = "\n\n".join(f"[{a['agent'].upper()}]\n{a['answer']}" for a in answers)
     prompt = SYNTHESIS_PROMPT.format(n=len(answers), question=question, respostas=answers_text)
+    prompt += profile_block(access_kind)
 
     try:
         response = llm.invoke(

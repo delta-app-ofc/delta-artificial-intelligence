@@ -68,6 +68,9 @@ def _read_period(
     period: analysis.ConsumptionPeriod,
     as_of: datetime,
 ) -> _ReadResult:
+    """Lê o consumo do período no escopo autorizado (Mongo para residencial, view SQL para
+    organizacional) e devolve agregado, fonte, granularidade e avisos.
+    """
     notes = list(period.notes)
     local_today = as_of.astimezone(ZoneInfo(period.timezone_name)).date()
     includes_today = period.start.date() <= local_today <= period.last_included_date
@@ -143,7 +146,7 @@ def _read_period(
     bounds = analysis.daily_date_bounds(period)
     records = (
         db_postgres.get_organization_consumption_daily(
-            list(scope.property_ids), bounds[0], bounds[1]
+            user_id, list(scope.property_ids), bounds[0], bounds[1]
         )
         if bounds is not None
         else []
@@ -221,6 +224,7 @@ def build_tools(
     *,
     clock: Callable[[], datetime] | None = None,
     timezone_name: str = analysis.DEFAULT_TIMEZONE,
+    access_kind: str | None = None,
 ) -> list[BaseTool]:
     """Cria ferramentas com o ``user_id`` confiável preso às funções.
 
@@ -234,6 +238,9 @@ def build_tools(
     def _scope(
         unit_name: str | None, unit_id: int | None
     ) -> tuple[_Scope | None, dict[str, object] | None]:
+        """Resolve o escopo autorizado da consulta pelo perfil da conta. Devolve (escopo, None) ou
+        (None, resposta de erro da tool); a unidade só vale se pertencer ao usuário.
+        """
         needle = (unit_name or "").strip().casefold()
         if unit_name is not None and not needle:
             raise analysis.InvalidConsumptionInput("O nome da unidade não pode estar vazio.")
@@ -242,7 +249,7 @@ def build_tools(
         ):
             raise analysis.InvalidConsumptionInput("O identificador da unidade não é válido.")
 
-        kind = db_postgres.get_user_access_kind(user_id)
+        kind = access_kind or db_postgres.get_user_access_kind(user_id)
         if kind == "residential":
             if needle or unit_id is not None:
                 return None, _scope_failure(
@@ -561,7 +568,10 @@ def build_tools(
         """
 
         def list_units() -> dict[str, object]:
-            kind = db_postgres.get_user_access_kind(user_id)
+            """Lista as unidades organizacionais autorizadas; conta residencial ou sem vínculo
+            recebe a resposta de dados insuficientes.
+            """
+            kind = access_kind or db_postgres.get_user_access_kind(user_id)
             if kind == "residential":
                 return _scope_failure(
                     "insufficient_data",

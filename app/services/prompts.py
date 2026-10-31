@@ -1151,7 +1151,8 @@ Complexidade:
 
 Regra de privacidade: se a pergunta perguntar sobre outros usuários, rankings de clientes,
 "melhor" ou "pior" usuário, comparações entre residências de usuários distintos, quem consome
-mais no sistema, ou dados de terceiros não autorizados, retorne exatamente:
+mais no sistema, ou dados de terceiros não autorizados, retorne exatamente
+(comparar as unidades da própria organização do usuário não é violação):
 {"intent": "privacy_violation", "complexity": "simple", "agents": []}
 
 Retorne JSON exatamente neste formato (sem markdown, sem texto antes ou depois):
@@ -1184,3 +1185,71 @@ Pergunta: {question}
 
 {respostas}
 """
+
+SESSION_META_PROMPT = """\
+Você identifica uma conversa do app Delta (monitoramento de consumo de água) para a lista de histórico.
+Com base na pergunta do usuário e na resposta do assistente, gere:
+- "title": título curto e natural, em português, até 30 caracteres, sem ponto final (ex.: "Definir rotina nova").
+- "preview": uma frase de até 70 caracteres resumindo o que a resposta trouxe, sem inventar dados.
+- "icon": exatamente um destes valores, o que melhor representa o assunto: {icons}.
+  routine = criar ou ajustar rotinas; habits = hábitos a melhorar; summary = resumo de um período;
+  report = relatórios; savings = economia, gastos e redução de custo; leak = vazamentos e alertas;
+  forecast = previsão de consumo ou conta; consumption = consulta de consumo; tips = dicas gerais;
+  general = qualquer outro assunto. Prefira o assunto principal da pergunta.
+
+Regras: escreva só o que a conversa mostra. Nunca afirme que um vazamento foi confirmado ou detectado;
+use "possível vazamento" ou "alerta de vazamento" quando o assunto for esse.
+
+Responda SOMENTE com um objeto JSON, sem texto extra, no formato:
+{{"title": "...", "preview": "...", "icon": "..."}}
+
+Pergunta do usuário: {question}
+
+Resposta do assistente: {answer}
+"""
+
+_PROFILE_RESIDENTIAL = """\
+
+## Perfil do usuário: residencial
+- Trate o usuário como morador: fale de "sua casa", "sua residência" e do consumo doméstico.
+- Hábitos de consumo, meta diária e previsão da residência fazem sentido neste perfil.
+- A telemetria residencial não separa imóveis: não invente consumo por imóvel.
+"""
+
+_PROFILE_ORGANIZATIONAL = """\
+
+## Perfil do usuário: comercial (organização)
+- Trate o usuário como responsável por uma organização com uma ou mais unidades: fale de
+  "suas unidades" e "sua organização", nunca de "sua casa".
+- Sempre diga qual unidade (ou "todas as unidades") e qual período a resposta cobre.
+- Comparar ou ranquear as unidades da própria organização é permitido; dados de outras
+  organizações ou de outros usuários nunca.
+- Não ofereça hábitos domésticos, rotina pessoal nem dicas de economia residencial.
+- Alertas e janelas anômalas ainda não são separados por unidade: ao falar de vazamento, diga isso.
+"""
+
+_PROFILE_UNLINKED = """\
+
+## Perfil do usuário: sem vínculo
+- A conta não está ligada a uma residência nem a uma organização, então não há dados
+  pessoais para consultar.
+- Oriente a vincular a conta; nenhum dado pessoal pode ser consultado.
+"""
+
+_PROFILE_UNKNOWN = """\
+
+## Perfil do usuário: não identificado
+- Não foi possível identificar o perfil da conta agora; não consulte nem suponha dados pessoais.
+"""
+
+_PROFILES = {
+    "residential": _PROFILE_RESIDENTIAL,
+    "organizational": _PROFILE_ORGANIZATIONAL,
+    "none": _PROFILE_UNLINKED,
+    "unknown": _PROFILE_UNKNOWN,
+}
+
+
+def profile_block(access_kind: str | None) -> str:
+    """Trecho de prompt do perfil do usuário; vazio quando o perfil não foi informado."""
+    return _PROFILES.get(access_kind, "") if access_kind else ""
