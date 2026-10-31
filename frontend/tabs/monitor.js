@@ -28,7 +28,7 @@ export default {
     cards.append(
       card('Requisições', data.requests),
       card('Tempo total p95', `${lat.p95} ms`, `média ${lat.avg} ms · p50 ${lat.p50} ms`),
-      card('Índice de erros', `${(data.error_rate * 100).toFixed(2)}%`, data.slo.ok ? 'SLO atendido' : 'SLO violado'),
+      card('Índice de erros', `${(data.error_rate * 100).toFixed(2)}%`, data.slo.ok === null ? 'SLO sem dados' : data.slo.ok ? 'SLO atendido' : 'SLO violado'),
       card('Taxa de resolução', `${(data.resolution_rate * 100).toFixed(1)}%`, `${data.resolutions} resoluções`),
       card('Custo por resolução', money(data.cost_per_resolution_usd)),
       card('ROI', data.roi === null ? 'n/d' : data.roi.toFixed(2), 'retorno sobre o custo de IA'),

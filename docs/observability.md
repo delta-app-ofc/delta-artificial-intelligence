@@ -52,7 +52,7 @@ Limites: embeddings não entram no custo; tokens vêm do que o provedor devolve;
 3. Suba a API normalmente: os traces aparecem no projeto, agrupados por `session_id`.
 4. `python -m scripts.langsmith_reconcile` compara tokens, custo e latência do LangSmith com o cálculo local.
 
-Use só com dados de teste: prompts e respostas vão para um serviço externo. Em `APP_ENV=test` o `.env` é ignorado e nada é enviado.
+Use só com dados de teste: prompts e respostas vão para um serviço externo. Em `APP_ENV=test` o `.env` é ignorado, mas variáveis `LANGSMITH_*` definidas no processo ainda ligam o envio.
 
 ## Validado e pendente
 

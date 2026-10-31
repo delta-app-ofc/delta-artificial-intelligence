@@ -5,7 +5,7 @@ from collections import deque
 from datetime import datetime, timezone
 import json
 import math
-from threading import Lock
+from threading import Lock, Thread
 from typing import Any
 
 from app.config import get_observability_config, get_settings
@@ -123,9 +123,18 @@ def record_request(trace, outcome: str, total_ms: float) -> None:
         record = build_record(trace, outcome, total_ms)
         with _lock:
             _recent.append(record)
-        from app.data.db_mongo import get_app_client
-        get_app_client()[get_settings().mongo_db_app][COLLECTION].insert_one(dict(record))
+        # A gravação é síncrona e pode demorar; sai do event loop numa thread.
+        Thread(target=_persist, args=(dict(record),), daemon=True).start()
     except Exception:
+        pass
+
+
+def _persist(record: dict) -> None:
+    try:
+        from app.data.db_mongo import get_app_client
+        get_app_client()[get_settings().mongo_db_app][COLLECTION].insert_one(record)
+    except Exception:
+        # O registro continua em memória; a falha não pode afetar a aplicação.
         pass
 
 
@@ -135,13 +144,16 @@ def load_records(limit: int = 1000) -> list[dict]:
         from app.data.db_mongo import get_app_client
         cursor = (get_app_client()[get_settings().mongo_db_app][COLLECTION]
                   .find({}, {"_id": 0}).sort("created_at", -1).limit(limit))
-        found = list(cursor)
-        if found:
-            return list(reversed(found))
+        found = list(reversed(list(cursor)))
     except Exception:
-        pass
+        found = []
     with _lock:
-        return list(_recent)[-limit:]
+        pending = list(_recent)
+    saved = {item["request_id"] for item in found}
+    # Registros recentes que ainda não chegaram ao banco (ou cuja gravação falhou).
+    merged = found + [item for item in pending if item["request_id"] not in saved]
+    merged.sort(key=lambda item: item["created_at"])
+    return merged[-limit:]
 
 
 def clear_memory() -> None:
@@ -215,7 +227,7 @@ def summarize(records: list[dict]) -> dict:
         "fallback_calls": sum(r.get("fallback_calls", 0) for r in records),
         "unpriced_models": sorted({m for r in records for m in r.get("unpriced_models", [])}),
         "slo": {"latency_p95_limit_ms": p95_limit, "error_rate_limit": error_limit,
-                "ok": total_lat["p95"] <= p95_limit and error_rate <= error_limit},
+                "ok": (total_lat["p95"] <= p95_limit and error_rate <= error_limit) if total else None},
         "series": [{"at": r["created_at"].isoformat() if hasattr(r["created_at"], "isoformat") else str(r["created_at"]),
                     "total_ms": r["total_ms"], "cost_usd": r["cost_usd"]} for r in records[-100:]],
         "assumed_price_models": sorted(ASSUMED_PRICE_MODELS),

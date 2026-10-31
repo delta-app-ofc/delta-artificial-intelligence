@@ -160,3 +160,44 @@ def test_langsmith_needs_key_and_stays_off_by_default(monkeypatch):
         enable_langsmith()
     _use_env(monkeypatch, LANGSMITH_TRACING="true", LANGSMITH_API_KEY="chave-de-teste")
     assert enable_langsmith() is True
+
+
+def test_app_imports_and_playground_routes_exist():
+    from app.main import app
+    paths = {getattr(route, "path", "") for route in app.routes}
+    assert "/playground/observability" in paths and "/playground/observability/report.pdf" in paths
+
+
+@pytest.mark.parametrize("price", ['{"m": [NaN, 1]}', '{"m": [1, Infinity]}', '{"m": [-1, 1]}'])
+def test_non_finite_or_negative_prices_are_rejected(monkeypatch, price):
+    _use_env(monkeypatch, OBS_PRICES_JSON=price)
+    with pytest.raises(ConfigurationError, match="OBS_PRICES_JSON"):
+        get_observability_config()
+
+
+def test_empty_sample_slo_is_unknown():
+    assert metrics.summarize([])["slo"]["ok"] is None
+
+
+def test_load_records_includes_unpersisted_recent(monkeypatch):
+    saved = metrics.build_record(_trace(), "success", 100.0)
+    pending = metrics.build_record(_trace(), "success", 200.0)
+    metrics._recent.extend([saved, pending])
+
+    class FakeCursor(list):
+        def sort(self, *_args): return self
+        def limit(self, *_args): return self
+
+    class FakeCollection:
+        def find(self, *_args): return FakeCursor([saved])
+
+    fake = {"db_delta_app": {metrics.COLLECTION: FakeCollection()}}
+    monkeypatch.setattr("app.data.db_mongo.get_app_client", lambda: fake)
+    ids = [item["request_id"] for item in metrics.load_records()]
+    assert ids.count(saved["request_id"]) == 1 and pending["request_id"] in ids
+
+
+def test_pdf_without_measurements_is_labeled_as_estimate():
+    summary = metrics.summarize([])
+    summary["projection"] = metrics.project(summary)
+    assert build_pdf(summary).startswith(b"%PDF")

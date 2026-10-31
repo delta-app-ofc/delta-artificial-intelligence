@@ -44,35 +44,40 @@ def build_pdf(summary: dict) -> bytes:
         Spacer(1, 12),
     ]
 
-    slo = summary["slo"]
-    lat = summary["latency_total_ms"]
-    story += [Paragraph("1. Resumo e SLO", styles["Heading2"]), _table([
-        ["Indicador", "Valor", "Limite"],
-        ["Latência total p95 (ms)", lat["p95"], slo["latency_p95_limit_ms"]],
-        ["Índice de erros", f"{summary['error_rate'] * 100:.2f}%", f"{slo['error_rate_limit'] * 100:.0f}%"],
-        ["SLO", "atendido" if slo["ok"] else "violado", ""],
-        ["Taxa de resolução", f"{summary['resolution_rate'] * 100:.1f}%", ""],
-        ["Custo por resolução (USD)", _fmt(summary["cost_per_resolution_usd"]), ""],
-        ["ROI", _fmt(summary["roi"]), "> 0 é retorno positivo"],
-        ["Custo total (USD)", summary["cost_usd"], ""],
-    ], [8 * cm, 4 * cm, 5 * cm]), Spacer(1, 10)]
+    measured = summary["requests"] > 0
+    if measured:
+        slo = summary["slo"]
+        lat = summary["latency_total_ms"]
+        story += [Paragraph("1. Resumo e SLO", styles["Heading2"]), _table([
+            ["Indicador", "Valor", "Limite"],
+            ["Latência total p95 (ms)", lat["p95"], slo["latency_p95_limit_ms"]],
+            ["Índice de erros", f"{summary['error_rate'] * 100:.2f}%", f"{slo['error_rate_limit'] * 100:.0f}%"],
+            ["SLO", "sem dados" if slo["ok"] is None else "atendido" if slo["ok"] else "violado", ""],
+            ["Taxa de resolução", f"{summary['resolution_rate'] * 100:.1f}%", ""],
+            ["Custo por resolução (USD)", _fmt(summary["cost_per_resolution_usd"]), ""],
+            ["ROI", _fmt(summary["roi"]), "> 0 é retorno positivo"],
+            ["Custo total (USD)", summary["cost_usd"], ""],
+        ], [8 * cm, 4 * cm, 5 * cm]), Spacer(1, 10)]
 
-    latency_rows = [["Etapa / agente", "média", "p50", "p95", "p99"],
-                    ["Tempo total", *[lat[k] for k in _LAT_KEYS]],
-                    ["Orquestração (entre etapas)", *[summary["overhead_ms"][k] for k in _LAT_KEYS]]]
-    latency_rows += [[f"Etapa {name}", *[v[k] for k in _LAT_KEYS]]
-                     for name, v in summary["latency_by_node_ms"].items()]
-    latency_rows += [[f"Agente {name}", *[v[k] for k in _LAT_KEYS]]
-                     for name, v in summary["latency_by_agent_ms"].items()]
-    story += [Paragraph("2. Latência (ms)", styles["Heading2"]), _table(latency_rows), Spacer(1, 10)]
+        latency_rows = [["Etapa / agente", "média", "p50", "p95", "p99"],
+                        ["Tempo total", *[lat[k] for k in _LAT_KEYS]],
+                        ["Orquestração (entre etapas)", *[summary["overhead_ms"][k] for k in _LAT_KEYS]]]
+        latency_rows += [[f"Etapa {name}", *[v[k] for k in _LAT_KEYS]]
+                         for name, v in summary["latency_by_node_ms"].items()]
+        latency_rows += [[f"Agente {name}", *[v[k] for k in _LAT_KEYS]]
+                         for name, v in summary["latency_by_agent_ms"].items()]
+        story += [Paragraph("2. Latência (ms)", styles["Heading2"]), _table(latency_rows), Spacer(1, 10)]
 
-    cost_rows = [["Componente", "Custo (USD)"]] + [[n, v] for n, v in summary["cost_by_component_usd"].items()]
-    story += [Paragraph("3. Custo por componente", styles["Heading2"]), _table(cost_rows), Spacer(1, 10)]
+        cost_rows = [["Componente", "Custo (USD)"]] + [[n, v] for n, v in summary["cost_by_component_usd"].items()]
+        story += [Paragraph("3. Custo por componente", styles["Heading2"]), _table(cost_rows), Spacer(1, 10)]
 
-    out = summary["outcomes"]
-    story += [Paragraph("4. Resultado das requisições", styles["Heading2"]), _table([
-        ["Sucesso", "Parcial", "Erro", "Bloqueada"],
-        [out["success"], out["partial"], out["error"], out["rejected"]]]), Spacer(1, 10)]
+        out = summary["outcomes"]
+        story += [Paragraph("4. Resultado das requisições", styles["Heading2"]), _table([
+            ["Sucesso", "Parcial", "Erro", "Bloqueada"],
+            [out["success"], out["partial"], out["error"], out["rejected"]]]), Spacer(1, 10)]
+
+    else:
+        story += [Paragraph("Sem requisições medidas: os valores abaixo são estimativas baseadas em premissas, não em uso real.", styles["Normal"]), Spacer(1, 10)]
 
     rows = [["Cenário", "Usuários/sem.", "Perguntas/sem.", "Custo/sem. USD", "Custo/mês USD",
              "Custo/sem. BRL", "Custo/resolução", "ROI"]]

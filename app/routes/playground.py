@@ -28,6 +28,8 @@ def require_playground():
         raise HTTPException(404, "Console de testes desativado.")
 
 
+PLAYGROUND_DISABLED = {404: {"description": "Console de testes desativado."}}
+
 router = APIRouter(prefix="/playground", tags=["playground"], dependencies=[Depends(require_playground)])
 
 
