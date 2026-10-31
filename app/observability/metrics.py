@@ -22,6 +22,7 @@ DEFAULT_PRICES: dict[str, tuple[float, float]] = {
     "gpt-6-luna": (0.10, 0.50),
     "gemini-embedding-001": (0.15, 0.0),
     "gemini-embedding-2": (0.20, 0.0),
+    "jev": (0.042, 0.0),
 }
 # Fonte de cada preço. "oficial" = página do provedor; "secundária" = agregadores,
 # ainda não conferida na página do provedor.
@@ -30,6 +31,7 @@ PRICE_SOURCES: dict[str, tuple[str, str]] = {
     "gemini-2.5-flash": ("https://ai.google.dev/gemini-api/docs/pricing", "oficial"),
     "gemini-embedding-001": ("https://ai.google.dev/gemini-api/docs/pricing", "oficial"),
     "gemini-embedding-2": ("https://ai.google.dev/gemini-api/docs/pricing", "oficial"),
+    "jev": ("https://www.eesel.ai/blog/typesafe-jev-pricing", "secundária"),
     "openai/gpt-oss-120b": ("https://groq.com/pricing", "secundária"),
     "openai/gpt-oss-20b": ("https://groq.com/pricing", "secundária"),
 }
@@ -51,7 +53,6 @@ def assumptions() -> dict:
     settings = get_observability_config()
     return {
         "support_cost_per_resolution_usd": settings.obs_support_cost_usd,
-        "jev_cost_per_evaluation_usd": settings.obs_jev_cost_usd,
         "questions_per_user_per_week": settings.obs_questions_per_user_week,
         "usd_to_brl": settings.obs_usd_to_brl,
     }
@@ -68,7 +69,6 @@ def prices() -> dict[str, tuple[float, float]]:
 
 
 CLIENTS = ("app", "web", "playground")
-_CHARS_PER_TOKEN = 4  # estimativa: a API de embeddings não devolve a contagem de tokens
 
 
 def client_from_scope(scope) -> str:
@@ -94,8 +94,8 @@ def _price_for(model: str) -> tuple[float, float] | None:
     table = prices()
     if model in table:
         return table[model]
-    # Modelos de embedding chegam com sufixo (ex.: gemini-embedding-2-preview).
-    matches = [name for name in table if name.startswith("gemini-embedding") and model.startswith(name)]
+    # Embedding e Jev chegam com sufixo de versão (ex.: gemini-embedding-2-preview, jev-1.14.0).
+    matches = [name for name in table if name.startswith(("gemini-embedding", "jev")) and model.startswith(name)]
     return table[max(matches, key=len)] if matches else None
 
 
@@ -122,7 +122,7 @@ def build_record(trace, outcome: str, total_ms: float) -> dict:
     by_agent: dict[str, dict] = {}
     unknown_models = set()
     for call in models:
-        if call.get("kind") == "embedding":
+        if call.get("kind") in {"embedding", "jev"}:
             continue
         tokens_in = int(call.get("input_tokens") or 0)
         tokens_out = int(call.get("output_tokens") or 0)
@@ -136,19 +136,25 @@ def build_record(trace, outcome: str, total_ms: float) -> dict:
         agent["model_ms"] += float(call.get("duration_ms") or 0)
         agent["cost_usd"] += model_cost(call.get("model") or "", tokens_in, tokens_out)
 
-    embedding_tokens, embedding_cost, embedding_ms = 0, 0.0, 0.0
+    embedding_tokens, embedding_cost, embedding_ms, embedding_uncounted = 0, 0.0, 0.0, 0
+    jev_tokens, jev_cost = 0, 0.0
     for call in models:
-        if call.get("kind") != "embedding":
+        kind = call.get("kind")
+        if kind not in {"embedding", "jev"}:
             continue
-        tokens = math.ceil(int(call.get("chars") or 0) / _CHARS_PER_TOKEN)
-        embedding_tokens += tokens
-        embedding_cost += model_cost(call.get("model") or "", tokens, 0)
-        embedding_ms += float(call.get("duration_ms") or 0)
         if _price_for(call.get("model") or "") is None:
             unknown_models.add(call.get("model"))
+        tokens = call.get("input_tokens")  # contagem real: count_tokens (embedding) ou usage da resposta (Jev)
+        if kind == "jev":
+            jev_tokens += int(tokens or 0)
+            jev_cost += model_cost(call.get("model") or "", int(tokens or 0), int(call.get("output_tokens") or 0))
+        elif tokens is None:
+            embedding_uncounted += 1  # sem contagem oficial: o custo não é estimado
+        else:
+            embedding_tokens += int(tokens)
+            embedding_cost += model_cost(call.get("model") or "", int(tokens), 0)
+            embedding_ms += float(call.get("duration_ms") or 0)
 
-    judge_runs = sum(1 for e in events if e.get("event") == "graph.node.end" and e.get("component") == "judge")
-    jev_cost = judge_runs * assumptions()["jev_cost_per_evaluation_usd"]
     llm_cost = sum(item["cost_usd"] for item in by_agent.values())
     blocked = any(e.get("component") == "block" and e.get("event") == "graph.node.end" for e in events)
     resolved = outcome == "success" and not blocked and trace.mode in RECORDED_MODES
@@ -168,6 +174,8 @@ def build_record(trace, outcome: str, total_ms: float) -> dict:
         "input_tokens": sum(item["input_tokens"] for item in by_agent.values()),
         "output_tokens": sum(item["output_tokens"] for item in by_agent.values()),
         "embedding_tokens": embedding_tokens,
+        "embedding_uncounted": embedding_uncounted,
+        "jev_tokens": jev_tokens,
         "model_calls": sum(item["calls"] for item in by_agent.values()),
         "fallback_calls": sum(1 for c in models if c.get("fallback")),
         "by_component": {
@@ -306,6 +314,7 @@ def summarize(records: list[dict]) -> dict:
         "questions_per_user": round(sum(1 for r in records if r.get("user_hash")) / len(users), 2) if users else None,
         "embedding_cost_usd": round(sum(r.get("embedding_cost_usd", 0.0) for r in records), 6),
         "jev_cost_usd": round(sum(r.get("jev_cost_usd", 0.0) for r in records), 6),
+        "embedding_uncounted": sum(r.get("embedding_uncounted", 0) for r in records),
         "outcomes": {"success": total - errors - rejected - partial, "partial": partial,
                      "error": errors, "rejected": rejected},
         "error_rate": round(error_rate, 4),
@@ -314,6 +323,7 @@ def summarize(records: list[dict]) -> dict:
         "latency_by_agent_ms": {k: _latency(v) for k, v in agents.items()},
         "overhead_ms": _latency([r.get("overhead_ms", 0.0) for r in records]),
         "usage": {"embedding_tokens": sum(r.get("embedding_tokens", 0) for r in records),
+                  "jev_tokens": sum(r.get("jev_tokens", 0) for r in records),
                   "input_tokens": sum(r["input_tokens"] for r in records),
                   "output_tokens": sum(r["output_tokens"] for r in records)},
         "cost_usd": round(cost, 6),

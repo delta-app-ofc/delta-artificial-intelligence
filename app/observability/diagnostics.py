@@ -43,7 +43,7 @@ _ALLOWED_EVENT_METADATA = {
 # Contagens numéricas de uso do modelo não são tokens de autenticação.
 _TOKEN_USAGE_FIELDS = {
     "input_tokens", "output_tokens", "total_tokens", "cached_tokens",
-    "cached_input_tokens", "reasoning_tokens", "embedding_tokens",
+    "cached_input_tokens", "reasoning_tokens", "embedding_tokens", "jev_tokens",
 }
 _SECRET_KEY = re.compile(
     r"password|senha|secret|api.?key|authorization|pii.?map|token|credential|private.?key",
@@ -681,8 +681,27 @@ class ModelDiagnostics(BaseCallbackHandler):
             return
 
 
+def _count_embedding_tokens(model: str, texts) -> int | None:
+    """Conta os tokens do texto enviado com o count_tokens oficial do Google.
+
+    A resposta de embed_content não traz o uso, então a contagem é uma chamada à parte.
+    Se falhar, devolve None: o custo é marcado como sem contagem em vez de estimado.
+    """
+    if not texts:
+        return None
+    try:
+        from google import genai
+
+        from app.config import get_settings
+
+        client = genai.Client(api_key=get_settings().gemini_api_key)
+        return int(client.models.count_tokens(model=model, contents=list(texts)).total_tokens)
+    except Exception:
+        return None
+
+
 @contextmanager
-def embedding_call(model: str, chars: int = 0):
+def embedding_call(model: str, texts=None):
     """Registra embeddings, que não passam pelos callbacks de modelos de chat."""
     trace = current_trace()
     component_name = current_component()
@@ -694,7 +713,6 @@ def embedding_call(model: str, chars: int = 0):
         "fallback": False,
         "duration_ms": 0,
         "kind": "embedding",
-        "chars": max(0, int(chars)),
     }
     start = perf_counter()
     if trace:
@@ -707,9 +725,12 @@ def embedding_call(model: str, chars: int = 0):
             status="running",
             metadata={"provider": "google", "model": model},
         )
+    ended = None
     try:
         yield
+        ended = perf_counter()
         row["status"] = "success"
+        row["input_tokens"] = _count_embedding_tokens(model, texts)
     except Exception as error:
         row["status"] = "error"
         if trace:
@@ -726,7 +747,7 @@ def embedding_call(model: str, chars: int = 0):
                 pass
         raise
     finally:
-        duration_ms = round((perf_counter() - start) * 1000, 1)
+        duration_ms = round(((ended or perf_counter()) - start) * 1000, 1)
         row["duration_ms"] = duration_ms
         if trace:
             trace.event(

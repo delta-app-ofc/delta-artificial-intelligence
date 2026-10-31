@@ -180,7 +180,7 @@ def save_summary(user_id: int, session_id: str, messages: list[dict]) -> None:
     embed_model = _run_phase("create_embeddings", _embed_model)
 
     def embed_summary():
-        with embedding_call(get_settings().gemini_embedding_model, chars=len(summary_text)):
+        with embedding_call(get_settings().gemini_embedding_model, texts=[summary_text]):
             return embed_model.embed_query(summary_text)
 
     vector = _run_phase("embed_summary", embed_summary)
@@ -212,7 +212,7 @@ def search_memory(user_id: int, query: str, top_k: int = 3) -> list[str]:
         embed_model = _run_phase("create_embeddings", _embed_model)
 
         def embed_query():
-            with embedding_call(get_settings().gemini_embedding_model, chars=len(query)):
+            with embedding_call(get_settings().gemini_embedding_model, texts=[query]):
                 return embed_model.embed_query(query)
 
         vector = _run_phase("embed_query", embed_query)

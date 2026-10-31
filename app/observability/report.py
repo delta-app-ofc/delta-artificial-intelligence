@@ -345,8 +345,9 @@ def build_pdf(summary: dict) -> bytes:
                 _Card("Chamadas ao modelo", str(summary["model_calls_per_request"]), "por requisição"),
                 _Card("Revisões do Juiz", _pct(summary["revision_rate"]), "requisições com correção"),
                 _Card("Embeddings", _usd(summary["embedding_cost_usd"]),
-                      f"{_num(summary['usage']['embedding_tokens'])} tokens estimados"),
-                _Card("Jev", _usd(summary["jev_cost_usd"]), "custo configurado por avaliação"),
+                      f"{_num(summary['embedding_uncounted'])} chamadas sem contagem" if summary["embedding_uncounted"]
+                      else f"{_num(summary['usage']['embedding_tokens'])} tokens contados"),
+                _Card("Jev", _usd(summary["jev_cost_usd"]), f"{_num(summary['usage']['jev_tokens'])} tokens de entrada"),
             ]),
             _section("Uso"),
             _card_grid([
@@ -412,7 +413,7 @@ def build_pdf(summary: dict) -> bytes:
         "ROI = (resoluções × custo de um atendimento − custo de IA) ÷ custo de IA.",
         f"Premissas: atendimento humano = US$ {ass['support_cost_per_resolution_usd']}; "
         f"{ass['questions_per_user_per_week']} perguntas por usuário por semana (cenário, sem fonte); US$ 1 = R$ {ass['usd_to_brl']}; "
-        f"Jev = US$ {ass['jev_cost_per_evaluation_usd']} por avaliação. Cenário pessimista = custo × 1,5.",
+        "Cenário pessimista = custo × 1,5.",
         f"Preços por modelo (tarifa Standard) e fontes: {sources}. Sem confirmação na página oficial: "
         + (", ".join(summary["unconfirmed_price_models"]) or "nenhum") + ". Sem preço cadastrado: "
         + (", ".join(summary["unpriced_models"]) or "nenhum") + ".",

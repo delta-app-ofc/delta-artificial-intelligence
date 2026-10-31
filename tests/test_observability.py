@@ -15,7 +15,7 @@ def _use_env(monkeypatch, **values):
     """Recarrega os settings com as variáveis dadas (APP_ENV=test ignora o .env)."""
     monkeypatch.setenv("APP_ENV", "test")
     for name in ("OBS_PRICES_JSON", "OBS_SUPPORT_COST_USD", "OBS_QUESTIONS_PER_USER_WEEK", "OBS_USD_TO_BRL",
-                 "OBS_JEV_COST_USD", "OBS_ERROR_RATE_LIMIT", "OBS_HASH_SECRET", "LANGSMITH_TRACING", "LANGSMITH_API_KEY"):
+                 "OBS_ERROR_RATE_LIMIT", "OBS_HASH_SECRET", "LANGSMITH_TRACING", "LANGSMITH_API_KEY"):
         monkeypatch.delenv(name, raising=False)
     for name, value in values.items():
         monkeypatch.setenv(name, value)
@@ -256,7 +256,7 @@ def test_user_hash_needs_secret_and_is_stable(monkeypatch):
 def test_embeddings_enter_the_cost(monkeypatch):
     trace = _trace()
     trace.models.append({"component": "rag", "kind": "embedding", "model": "gemini-embedding-2-preview",
-                         "status": "success", "chars": 4_000_000, "duration_ms": 10})
+                         "status": "success", "input_tokens": 1_000_000, "duration_ms": 10})
     record = metrics.build_record(trace, "success", 100.0)
     assert record["embedding_tokens"] == 1_000_000
     assert record["embedding_cost_usd"] == pytest.approx(0.20)
@@ -276,3 +276,33 @@ def test_cost_by_client_and_distinct_users(monkeypatch):
     assert summary["distinct_users"] == 2 and summary["questions_per_user"] == 1.5
     assert summary["cost_by_client"]["app"]["requests"] == 2 and summary["cost_by_client"]["web"]["users"] == 1
     assert list(summary["cost_by_client"])[0] == "app"  # o que mais gasta vem primeiro
+
+
+def test_embedding_without_official_count_is_not_estimated():
+    trace = _trace()
+    trace.models.append({"component": "rag", "kind": "embedding", "model": "gemini-embedding-2-preview",
+                         "status": "success", "input_tokens": None, "duration_ms": 10})
+    record = metrics.build_record(trace, "success", 100.0)
+    assert record["embedding_tokens"] == 0 and record["embedding_cost_usd"] == 0.0
+    assert record["embedding_uncounted"] == 1
+
+
+def test_jev_cost_uses_the_tokens_returned_by_the_api():
+    trace = _trace()
+    trace.models.append({"component": "judge", "kind": "jev", "provider": "typesafe", "model": "jev-1.14.0",
+                         "status": "success", "input_tokens": 1_000_000, "output_tokens": 500, "duration_ms": 0})
+    record = metrics.build_record(trace, "success", 100.0)
+    assert record["jev_tokens"] == 1_000_000
+    assert record["jev_cost_usd"] == pytest.approx(0.042)  # saída gratuita
+    assert record["input_tokens"] == 1100  # os tokens do Jev não entram nos do chat
+    assert "jev-1.14.0" not in record["unpriced_models"]
+
+
+def test_embedding_call_records_the_official_token_count(monkeypatch):
+    from app.observability import diagnostics
+    monkeypatch.setattr(diagnostics, "_count_embedding_tokens", lambda model, texts: 12)
+    trace = Trace(mode="chat")
+    with capture(trace):
+        with diagnostics.embedding_call("gemini-embedding-2-preview", texts=["texto"]):
+            pass
+    assert trace.models[0]["input_tokens"] == 12 and trace.models[0]["kind"] == "embedding"

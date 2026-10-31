@@ -186,7 +186,6 @@ class Settings:
     obs_support_cost_usd: float = 6.0
     obs_questions_per_user_week: float = 5.0
     obs_usd_to_brl: float = 5.5
-    obs_jev_cost_usd: float = 0.0
     obs_latency_p95_limit_ms: float = 8000.0
     obs_error_rate_limit: float = 0.05
     obs_prices_json: str | None = None
@@ -297,7 +296,6 @@ def load_settings(
         "OBS_SUPPORT_COST_USD": (Settings.obs_support_cost_usd, float, "deve ser um número finito"),
         "OBS_QUESTIONS_PER_USER_WEEK": (Settings.obs_questions_per_user_week, float, "deve ser um número finito"),
         "OBS_USD_TO_BRL": (Settings.obs_usd_to_brl, float, "deve ser um número finito"),
-        "OBS_JEV_COST_USD": (Settings.obs_jev_cost_usd, float, "deve ser um número finito"),
         "OBS_LATENCY_P95_LIMIT_MS": (Settings.obs_latency_p95_limit_ms, float, "deve ser um número finito"),
         "OBS_ERROR_RATE_LIMIT": (Settings.obs_error_rate_limit, float, "deve ser um número finito"),
         "LLM_TIMEOUT_SECONDS": (15.0, float, "deve ser um número finito"),
@@ -332,7 +330,7 @@ def load_settings(
             parsed_numbers[name] = parsed_value
 
     for name in ("OBS_SUPPORT_COST_USD", "OBS_QUESTIONS_PER_USER_WEEK", "OBS_USD_TO_BRL",
-                 "OBS_JEV_COST_USD", "OBS_LATENCY_P95_LIMIT_MS", "OBS_ERROR_RATE_LIMIT"):
+                 "OBS_LATENCY_P95_LIMIT_MS", "OBS_ERROR_RATE_LIMIT"):
         if parsed_numbers[name] < 0:
             parse_errors.append((name, "não pode ser negativo"))
             parsed_numbers[name] = numeric_settings[name][0]
@@ -377,7 +375,6 @@ def load_settings(
         obs_support_cost_usd=parsed_numbers["OBS_SUPPORT_COST_USD"],
         obs_questions_per_user_week=parsed_numbers["OBS_QUESTIONS_PER_USER_WEEK"],
         obs_usd_to_brl=parsed_numbers["OBS_USD_TO_BRL"],
-        obs_jev_cost_usd=parsed_numbers["OBS_JEV_COST_USD"],
         obs_latency_p95_limit_ms=parsed_numbers["OBS_LATENCY_P95_LIMIT_MS"],
         obs_error_rate_limit=parsed_numbers["OBS_ERROR_RATE_LIMIT"],
         obs_prices_json=obs_prices_json,
