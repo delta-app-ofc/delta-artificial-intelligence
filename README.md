@@ -608,13 +608,13 @@ Sessão de outro usuário e sessão inexistente respondem 404 idêntico, sem rev
 A IA é a mesma, mas se comporta conforme o perfil da conta. O perfil vem de `fn_user_access_kind`
 (`residential`, `organizational` ou `none`; se houver os dois vínculos, vale o residencial) e é descoberto
 **uma vez por pergunta**, no nó de contexto do grafo (`app/graph/profile.py`). Se o banco não responder, o perfil
-fica `unknown` e só o agente de documentação (RAG) é liberado; nunca se assume um perfil.
+fica `unknown` e nenhum agente roda; nunca se assume um perfil.
 
 | Perfil | Agentes liberados | Linguagem e regras |
 | --- | --- | --- |
 | Residencial | consumo, previsão, vazamento, hábitos, RAG | fala de casa e residência; não separa consumo por imóvel |
 | Comercial (organização) | consumo, previsão, vazamento, RAG | fala de unidades e organização; declara unidade e período; compara só as próprias unidades; sem hábitos |
-| Sem vínculo | RAG | explica que falta vincular a conta |
+| Sem vínculo | nenhum | qualquer pergunta recebe a orientação para vincular a conta, sem chamar o roteador |
 
 - O roteador recebe o perfil e não escolhe agentes que não servem a ele; se alguém pedir hábitos numa conta
   comercial, a resposta explica que hábitos são só residenciais.

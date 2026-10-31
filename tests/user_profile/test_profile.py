@@ -50,13 +50,13 @@ def test_cada_perfil_tem_o_seu_conjunto_de_agentes():
     assert "habits" in profile.allowed_agents("residential")
     assert "habits" not in profile.allowed_agents("organizational")
     assert {"consumption", "forecast", "leak", "rag"} <= profile.allowed_agents("organizational")
-    assert profile.allowed_agents("none") == {"rag"}
-    assert profile.allowed_agents("unknown") == {"rag"}
+    assert profile.allowed_agents("none") == frozenset()
+    assert profile.allowed_agents("unknown") == frozenset()
     assert profile.allowed_agents(None) is None
 
 
-def test_perfil_desconhecido_nao_libera_agentes_de_dados():
-    assert profile.allowed_agents("qualquer-coisa") == {"rag"}
+def test_perfil_desconhecido_nao_libera_nenhum_agente():
+    assert profile.allowed_agents("qualquer-coisa") == frozenset()
 
 
 def test_falha_do_banco_vira_unknown_e_nao_um_perfil_assumido(monkeypatch):
@@ -92,11 +92,21 @@ def test_roteador_sem_perfil_nao_filtra(llm):
     assert decisao.unavailable == []
 
 
-def test_conta_sem_vinculo_so_fica_com_o_rag(llm):
+def test_conta_sem_vinculo_fica_sem_agentes(llm):
     decisao = router.classify("meus hábitos e consumo", {"access_kind": "none"})
 
     assert decisao.agents == []
     assert decisao.unavailable == ["habits", "consumption"]
+
+
+@pytest.mark.parametrize("perfil", ["none", "unknown"])
+def test_sem_vinculo_nem_chama_o_roteador(llm, perfil):
+    saida = workflow._route_node(
+        {"question": "Quanto consumi esta semana?", "access_kind": perfil, "messages": []}
+    )
+
+    assert saida["selected_agents"] == []
+    assert llm.prompts == []
 
 
 def test_prompt_do_roteador_traz_o_perfil_e_os_agentes_disponiveis(llm):
@@ -137,7 +147,7 @@ def test_conta_sem_vinculo_recebe_orientacao():
         {"intent": "unknown", "selected_agents": [], "access_kind": "none"}
     )["response"]
 
-    assert "não está vinculada" in resposta or "ainda não está vinculada" in resposta
+    assert "ainda não está vinculada" in resposta and "Vincule" in resposta
 
 
 def test_execucao_ignora_agente_que_nao_serve_ao_perfil(monkeypatch):

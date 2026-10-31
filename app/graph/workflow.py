@@ -105,6 +105,12 @@ def _context_node(state: GraphState) -> dict:
 
 
 def _route_node(state: GraphState) -> dict:
+    if allowed_agents(state.get("access_kind")) == frozenset():
+        # Sem agente liberado para o perfil: nem chama o roteador.
+        if trace := current_trace():
+            trace.routing = {"intent": "no_profile", "complexity": "simple", "agents": []}
+        return {"intent": "no_profile", "complexity": "simple", "selected_agents": [],
+                "unavailable_agents": [], "agent_used": "unknown"}
     context = {
         "recent_messages": state.get("recent_messages") or _recent_messages(state),
         "relevant_memory": state.get("relevant_memory", []),

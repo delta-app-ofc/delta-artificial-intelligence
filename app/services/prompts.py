@@ -1233,7 +1233,7 @@ _PERFIL_SEM_VINCULO = """\
 ## Perfil do usuário: sem vínculo
 - A conta não está ligada a uma residência nem a uma organização, então não há dados
   pessoais para consultar.
-- Responda só com conhecimento geral do produto e oriente a vincular a conta.
+- Oriente a vincular a conta; nenhum dado pessoal pode ser consultado.
 """
 
 _PERFIL_INDEFINIDO = """\

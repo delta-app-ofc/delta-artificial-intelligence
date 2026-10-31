@@ -5,12 +5,13 @@ from __future__ import annotations
 from app.data import db_postgres
 from app.observability.diagnostics import current_trace
 
-# "unknown" aparece quando o banco não respondeu: só o RAG (conhecimento geral) fica liberado.
+# Sem vínculo ("none") ou perfil não identificado ("unknown", banco fora): nenhum agente roda;
+# a pergunta cai sempre na mensagem de orientação, sem depender do roteador.
 AGENTS_BY_PROFILE: dict[str, frozenset[str]] = {
     "residential": frozenset({"consumption", "forecast", "leak", "habits", "rag"}),
     "organizational": frozenset({"consumption", "forecast", "leak", "rag"}),
-    "none": frozenset({"rag"}),
-    "unknown": frozenset({"rag"}),
+    "none": frozenset(),
+    "unknown": frozenset(),
 }
 
 _UNAVAILABLE_AGENT_MESSAGES = {
@@ -31,7 +32,7 @@ _GREETINGS = {
     ),
     "none": (
         "Oi! Sua conta ainda não está vinculada a uma residência ou organização, então não consigo "
-        "consultar dados de consumo. Posso explicar como o Delta funciona."
+        "consultar dados de consumo. Vincule sua conta para eu poder ajudar."
     ),
     "unknown": "Oi! Não consegui identificar o perfil da sua conta agora. Tente novamente em instantes.",
 }
@@ -47,7 +48,7 @@ _NO_AGENT_RESPONSES = {
     ),
     "none": (
         "Sua conta ainda não está vinculada a uma residência ou organização, então não consigo "
-        "consultar dados. Posso explicar como o Delta funciona."
+        "consultar dados. Vincule sua conta para eu poder ajudar."
     ),
     "unknown": "Não consegui identificar o perfil da sua conta agora. Tente novamente em instantes.",
 }
@@ -64,7 +65,7 @@ def resolve_access_kind(user_id: int) -> str:
 
 
 def allowed_agents(access_kind: str | None) -> frozenset[str] | None:
-    """Agentes liberados para o perfil; None (perfil não informado) mantém todos."""
+    """Agentes liberados para o perfil; None (perfil não informado) mantém todos; vazio = nenhum."""
     if access_kind is None:
         return None
     return AGENTS_BY_PROFILE.get(access_kind, AGENTS_BY_PROFILE["unknown"])
