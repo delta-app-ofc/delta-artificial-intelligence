@@ -315,3 +315,12 @@ def test_embedding_call_records_the_official_token_count(monkeypatch):
         with diagnostics.embedding_call("gemini-embedding-2-preview", texts=["texto"]):
             pass
     assert trace.models[0]["input_tokens"] == 12 and trace.models[0]["kind"] == "embedding"
+
+
+def test_cost_projection_pdf_never_leaves_the_reports_folder():
+    from scripts.cost_projection import pdf_path
+    assert pdf_path("semana1").as_posix() == "relatorios/semana1.pdf"
+    assert pdf_path("../../etc/passwd").as_posix() == "relatorios/passwd.pdf"
+    assert pdf_path("C:\\Windows\\x.pdf").parent.as_posix() == "relatorios"
+    with pytest.raises(ValueError):
+        pdf_path("../..")

@@ -53,7 +53,10 @@ function selectTab(id) {
   byId('workspace').setAttribute('aria-labelledby', `tab-${id}`);
   const isMonitor = tab.mode === 'monitor';
   byId('console-grid').hidden = isMonitor; byId('monitor-view').hidden = !isMonitor;
-  if (isMonitor) monitor.render(byId('monitor-view'), { element, requestJSON });
+  if (isMonitor) {
+    monitor.render(byId('monitor-view'), { element, requestJSON })
+      .catch(error => byId('monitor-view').replaceChildren(element('p', 'signal error', error.message || 'Não foi possível exibir o Monitor.')));
+  }
   byId('page-title').textContent = tab.title;
   byId('page-description').textContent = tab.description;
   byId('workspace-label').textContent = tab.label;
