@@ -37,3 +37,13 @@ def test_normal_answers_are_untouched():
 def test_validate_output_keeps_diagnostic_fields_intact():
     # O console de testes passa o rastro técnico por validate_output; ele não pode ser filtrado.
     assert validate_output("agent_results") == {"ok": True, "response": "agent_results"}
+
+
+def test_habit_names_are_capitalized():
+    from app.guardrails.output import capitalize_habit_names
+
+    text = "Hábito **REGAR PLANTAS** cadastrado. Também LAVAR LOUÇA e BANHO LONGO; lavar roupa fica."
+    assert capitalize_habit_names(text) == (
+        "Hábito **Regar Plantas** cadastrado. Também Lavar Louça e Banho Longo; lavar roupa fica."
+    )
+    assert capitalize_habit_names("PLANTAS e LAVAR CARROS") == "PLANTAS e LAVAR CARROS"

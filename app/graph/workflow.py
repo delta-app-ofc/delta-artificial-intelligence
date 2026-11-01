@@ -21,6 +21,7 @@ from app.graph.synthesis import synthesize
 from app.guardrails.input import classify_input, validate_input_rules
 from app.guardrails.output import (
     chart_mentions_other_user,
+    capitalize_habit_names,
     hide_technical_details,
     validate_output,
     validate_ownership,
@@ -534,7 +535,7 @@ def _guardrail_output_node(state: GraphState) -> dict:
             )
         safe = "Não foi possível processar a resposta."
     else:
-        safe = hide_technical_details(result["response"])
+        safe = capitalize_habit_names(hide_technical_details(result["response"]))
 
     if state.get("_persist_session", True):
         try:
