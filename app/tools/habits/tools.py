@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import re
+import unicodedata
 from datetime import date
 
 from langchain_core.tools import BaseTool, tool
@@ -62,6 +64,35 @@ _DAY_ALIASES: dict[str, str] = {
     "dom": "DOMINGO",
     "domingo": "DOMINGO",
 }
+
+
+_NUMBER_WORDS = {
+    "uma": 1, "um": 1, "duas": 2, "dois": 2, "tres": 3, "quatro": 4,
+    "cinco": 5, "seis": 6, "sete": 7,
+}
+
+
+def parse_frequency(text: str) -> int | None:
+    """Lê uma frequência semanal escrita em linguagem natural ("3 vzs por semana", "todo dia").
+
+    Devolve None quando não dá para saber com segurança (ex.: frequência mensal).
+    """
+    normalized = unicodedata.normalize("NFKD", text.lower())
+    normalized = "".join(c for c in normalized if not unicodedata.combining(c)).strip()
+    if re.search(r"\b(mes|mensal|quinzen|ano|anual)", normalized):
+        return None
+    if re.search(r"\b(todo dia|todos os dias|diari|cada dia)", normalized):
+        return 7
+    match = re.search(r"\b(\d+)\s*(x|vz|vez)", normalized) or re.search(r"\b(\d+)\b", normalized)
+    if match:
+        value = int(match.group(1))
+        return value if 1 <= value <= 7 else None
+    for word, value in _NUMBER_WORDS.items():
+        if re.search(rf"\b{word}\b", normalized):
+            return value
+    if re.search(r"\b(toda semana|semanal|por semana)", normalized):
+        return 1
+    return None
 
 
 def _normalize_day(day: str) -> str | None:
@@ -246,12 +277,17 @@ def build_tools(user_id: int, access_kind: str | None = None) -> list[BaseTool]:
 
     @tool
     def estimate_habit_water_cost(
-        habit_name: str, frequency: int, liters_per_session: float | None = None
+        habit_name: str,
+        frequency: int | None = None,
+        liters_per_session: float | None = None,
+        frequency_text: str | None = None,
     ) -> dict:
         """Estima o custo mensal da água de um hábito (cadastrado ou hipotético).
 
         habit_name: nome do hábito — mesmas formas de estimate_habit_water_impact.
         frequency: vezes por semana (inteiro positivo).
+        frequency_text: a frequência como o usuário escreveu ("3 vzs por semana",
+          "todo dia"), quando você não souber converter para número.
         liters_per_session: litros por ocorrência, só se o usuário informar; sem ele
           usa a média de referência do hábito.
 
@@ -270,6 +306,13 @@ def build_tools(user_id: int, access_kind: str | None = None) -> list[BaseTool]:
             return {
                 "status": "error",
                 "message": f"Hábito '{habit_name}' não reconhecido. Válidos: {valid}.",
+            }
+        if frequency is None and frequency_text:
+            frequency = parse_frequency(frequency_text)
+        if frequency is None:
+            return {
+                "status": "needs_frequency",
+                "message": "Informe quantas vezes por semana o hábito acontece (1 a 7).",
             }
         if frequency < 1:
             return {"status": "error", "message": "A frequência deve ser pelo menos 1 vez por semana."}
