@@ -45,6 +45,88 @@ export async function requestJSON(url, options = {}) {
   }
   return body;
 }
+// Lê um fluxo SSE (text/event-stream) do console: cada `stage` chama onStage e o `result` é devolvido.
+export async function streamChat(url, options, onStage) {
+  let response;
+  try { response = await fetch(url, { credentials: 'same-origin', ...options }); }
+  catch { throw new Error('Não foi possível alcançar a API. Verifique o servidor e a conexão e tente novamente.'); }
+  const requestId = response.headers.get('X-Request-ID');
+  const reference = requestId ? ` Requisição: ${requestId}.` : '';
+  if (!response.ok || !response.body) {
+    const raw = await response.text();
+    let body;
+    try { body = JSON.parse(raw); }
+    catch { throw new Error(`A API retornou uma resposta inválida (HTTP ${response.status}).${reference}`); }
+    const error = new Error(errorMessage(body?.detail ?? body) + reference);
+    error.requestId = requestId; error.status = response.status; error.body = body;
+    throw error;
+  }
+  let result = null;
+  const handle = block => {
+    if (!block.trim() || block.startsWith(':')) return;
+    let name = 'message'; let data = '';
+    for (const line of block.split('\n')) {
+      if (line.startsWith('event: ')) name = line.slice(7);
+      else if (line.startsWith('data: ')) data += line.slice(6);
+    }
+    let parsed;
+    try { parsed = JSON.parse(data); } catch { return; }
+    if (name === 'stage') onStage(parsed);
+    else if (name === 'result') result = parsed;
+    else if (name === 'error') {
+      const error = new Error(errorMessage(parsed.detail) + reference);
+      error.requestId = requestId;
+      throw error;
+    }
+  };
+  const reader = response.body.getReader(); const decoder = new TextDecoder(); let buffer = '';
+  for (;;) {
+    const { value, done } = await reader.read();
+    buffer = (buffer + decoder.decode(value || new Uint8Array(), { stream: !done })).replace(/\r\n/g, '\n');
+    let index;
+    while ((index = buffer.indexOf('\n\n')) >= 0) { handle(buffer.slice(0, index)); buffer = buffer.slice(index + 2); }
+    if (done) break;
+  }
+  handle(buffer);
+  if (!result) throw new Error('A execução terminou sem resultado.' + reference);
+  return result;
+}
+export function formatSeconds(ms) { return `${(Math.max(0, ms) / 1000).toFixed(1)} s`; }
+// Cartão de "em andamento": bolinhas que crescem e sobem, o rótulo da etapa atual, o tempo e as etapas já feitas.
+export function renderProgress(progress) {
+  const node = element('article', 'message progress');
+  node.setAttribute('aria-label', 'Execução em andamento');
+  const meta = element('div', 'message-meta');
+  meta.append(element('span', 'message-role', 'δ'), element('span', '', 'Delta'));
+  const card = element('div', 'progress-card');
+  const bubbles = element('span', 'progress-bubbles'); bubbles.setAttribute('aria-hidden', 'true');
+  bubbles.append(element('i', 'bubble b1'), element('i', 'bubble b2'), element('i', 'bubble b3'));
+  const info = element('div', 'progress-info');
+  const timer = element('span', 'progress-timer', formatSeconds(performance.now() - progress.startedAt));
+  timer.dataset.startedAt = String(progress.startedAt);
+  info.append(element('strong', 'progress-current', progress.steps.at(-1)?.label || progress.idle || 'Executando…'), timer);
+  card.append(bubbles, info);
+  node.append(meta, card);
+  if (progress.steps.length > 1) node.append(stepList(progress.steps.slice(0, -1), progress.steps.at(-1).at));
+  return node;
+}
+// Lista de etapas com a duração de cada uma (até o início da seguinte ou do fim informado).
+function stepList(steps, endMs) {
+  const list = element('ol', 'progress-steps');
+  steps.forEach((step, index) => {
+    const next = steps[index + 1]?.at ?? endMs;
+    const item = element('li');
+    item.append(element('span', 'step-label', step.label), element('span', 'step-time', typeof next === 'number' ? formatSeconds(next - step.at) : ''));
+    list.append(item);
+  });
+  return list;
+}
+function stepsDetails(steps, totalMs) {
+  const node = element('details', 'tool-detail steps-detail');
+  node.append(element('summary', '', `Etapas desta resposta · ${steps.length}${typeof totalMs === 'number' ? ` · ${formatSeconds(totalMs)}` : ''}`));
+  node.append(stepList(steps, totalMs));
+  return node;
+}
 function section(title) {
   const node = element('section', 'diag-section');
   node.append(element('h3', '', title));
@@ -160,6 +242,7 @@ export function renderMessages(target, messages, tab) {
     return;
   }
   messages.forEach(message => {
+    if (message.role === 'progress') { message.node = renderProgress(message); target.append(message.node); return; }
     const node = element('article', `message ${message.role}`);
     const meta = element('div', 'message-meta');
     meta.append(element('span', 'message-role', message.role === 'user' ? '↗' : 'δ'), element('span', '', message.role === 'user' ? 'Você' : 'Delta'));
@@ -175,6 +258,7 @@ export function renderMessages(target, messages, tab) {
         [['Agente', tool.agent], ['Entrada', tool.input], ['Saída', tool.output]],
       )));
       node.append(usedTools);
+      if (message.steps?.length) node.append(stepsDetails(message.steps, message.totalMs));
       const inspect = element('button', 'button button-quiet', 'Inspecionar esta execução');
       inspect.type = 'button'; inspect.addEventListener('click', () => message.inspect(message.result));
       node.append(inspect);

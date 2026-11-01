@@ -1230,3 +1230,28 @@ h2 {
 .mon-table tbody tr:last-child td { border-bottom:0; }
 .mon-table tbody tr:hover { background:#262a2d; }
 .mon-note { margin:0; padding:14px 18px; border-top:1px solid var(--line); font-size:11px; color:var(--muted); }
+
+/* Progresso da execução: bolinhas que crescem e sobem, etapa atual, cronômetro e etapas já feitas. */
+.progress-card { display:flex; align-items:center; gap:16px; max-width:560px; padding:12px 18px; border:1px solid var(--line); border-radius:13px 13px 13px 3px; background:var(--surface); }
+.progress-bubbles { position:relative; flex-shrink:0; width:52px; height:38px; }
+.bubble { position:absolute; bottom:3px; border-radius:50%; background:var(--blue-light); opacity:.8; }
+.bubble.b1 { left:3px; width:12px; height:12px; }
+.bubble.b2 { left:20px; width:17px; height:17px; background:var(--blue); }
+.bubble.b3 { left:41px; width:9px; height:9px; background:var(--cyan); }
+.progress-info { display:flex; flex-direction:column; min-width:0; }
+.progress-current { color:#e2e7ec; font-size:13px; font-weight:500; overflow-wrap:anywhere; }
+.progress-timer { color:var(--muted); font-size:11px; font-variant-numeric:tabular-nums; }
+.progress-steps { display:grid; gap:4px; margin:12px 0 0 6px; padding:0; list-style:none; color:var(--muted); font-size:12px; }
+.progress-steps li { display:flex; align-items:baseline; gap:9px; }
+.progress-steps li::before { content:'✓'; color:var(--blue-light); }
+.progress-steps .step-time { margin-left:auto; padding-left:18px; font-variant-numeric:tabular-nums; }
+.steps-detail .progress-steps { margin:10px 0 0; }
+@media(prefers-reduced-motion:no-preference) {
+  .bubble { transform-origin:center bottom; animation:bubble-rise 1.5s ease-in-out infinite; }
+  .bubble.b2 { animation-delay:.25s; }
+  .bubble.b3 { animation-delay:.5s; }
+  @keyframes bubble-rise {
+    0%,100% { transform:translateY(0) scale(.75); opacity:.55; }
+    50% { transform:translateY(-17px) scale(1.4); opacity:1; }
+  }
+}
