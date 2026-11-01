@@ -6,17 +6,10 @@ from langchain_core.tools import BaseTool, tool
 
 from app.data import db_mongo, db_postgres
 from app.tools.exceptions import DatabaseAccessError, RegionRateNotFound
-from app.tools.habits.calculations import WEEKS_PER_MONTH, estimate_habit_cost
+from app.tools.habits.calculations import LITERS_PER_SESSION, WEEKS_PER_MONTH, estimate_habit_cost
 from app.tools.validation import validate_user_id
 
-_HABIT_LITERS_PER_SESSION: dict[str, float] = {
-    "BANHO LONGO": 80.0,
-    "LAVAR QUINTAL": 150.0,
-    "LAVAR ROUPA": 100.0,
-    "REGAR PLANTAS": 15.0,
-    "LAVAR CARRO": 200.0,
-    "LAVAR LOUÇA": 20.0,
-}
+_HABIT_LITERS_PER_SESSION = LITERS_PER_SESSION
 
 _WEEKS_PER_MONTH = float(WEEKS_PER_MONTH)
 
@@ -64,7 +57,7 @@ _DAY_ALIASES: dict[str, str] = {
 }
 
 
-def _normalize_day(day: str) -> str | None:
+def normalize_day(day: str) -> str | None:
     normalized = day.strip().lower()
     canonical = _DAY_ALIASES.get(normalized)
     if canonical:
@@ -124,7 +117,7 @@ def build_tools(user_id: int, access_kind: str | None = None) -> list[BaseTool]:
         """
         if not _is_residential():
             return _NOT_RESIDENTIAL
-        canonical = _normalize_day(day)
+        canonical = normalize_day(day)
         if canonical is None:
             return {
                 "status": "error",
@@ -181,7 +174,7 @@ def build_tools(user_id: int, access_kind: str | None = None) -> list[BaseTool]:
 
         canonical_days: list[str] = []
         for d in days:
-            cd = _normalize_day(d)
+            cd = normalize_day(d)
             if cd is None:
                 return {
                     "status": "error",
