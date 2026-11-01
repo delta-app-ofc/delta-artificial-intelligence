@@ -30,6 +30,7 @@ def test_chat_uses_one_query_embedding_and_search_without_fetch_index_or_count(r
         query_calls.append(question)
         return original_query(question, **kwargs)
     def search(*args, **kwargs):
+        assert "origin" not in kwargs["query_filter"].model_dump_json()  # filtro sem índice no remoto
         searches.append(kwargs)
         return original_search(*args, **kwargs)
     def retrieve(*args, **kwargs):

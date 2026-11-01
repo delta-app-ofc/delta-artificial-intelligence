@@ -128,7 +128,7 @@ def search_active_sources(active, question, *, client, embeddings, top_k):
     ]) for item in active]
     filters = Filter(must=[
         FieldCondition(key="embedding_model", match=MatchValue(value=embedding_model_name())),
-        FieldCondition(key="origin", match=MatchValue(value="external")),
+        # Fonte + revisão já excluem os marcadores; origin não possui índice no remoto.
         Filter(should=revisions),
     ])
     with component("rag_external_query"):
