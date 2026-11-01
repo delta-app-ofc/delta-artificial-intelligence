@@ -46,6 +46,13 @@ def test_console_does_not_accept_profile_or_identity_override(console):
         assert response.status_code == 422
 
 
+def test_config_and_frontend_agree_on_new_fixed_user(console, monkeypatch):
+    monkeypatch.setattr(playground, "agent_status", lambda name: {"id": name, "status": "available"})
+    assert console.get("/playground/config").json()["user_id"] == 123456789
+    assert "ID 123456789" in console.get("/playground/").text
+    assert "value.user_id !== 123456789" in console.get("/playground/app.js").text
+
+
 def test_blocked_input_never_resolves_profile_or_executes_rag(console, monkeypatch):
     monkeypatch.setattr(playground, "validate_input", lambda *args: {"ok": False, "reason": "Entrada bloqueada."})
     monkeypatch.setattr(playground, "resolve_access_kind", lambda *args: pytest.fail("Entrada bloqueada"))

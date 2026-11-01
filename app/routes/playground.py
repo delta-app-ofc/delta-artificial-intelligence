@@ -20,7 +20,7 @@ from app.memory.session import append_turn
 from app.observability.diagnostics import Trace, capture, component, current_trace, public_data
 from app.schemas import ErrorResponse
 
-USER_ID = 12345679
+USER_ID = 123456789
 TEST_LABEL = "teste_agentes_25_10"
 FRONTEND = BASE_DIR / "frontend"
 

@@ -22,6 +22,6 @@ export default {
     'Este agente explica regras do produto, mas não consulta dados privados da conta, como consumo, metas cadastradas ou alertas ativos.',
     'O MCP deve estar habilitado no backend. No painel de ferramentas, procure search_external_knowledge e confira os trechos, fontes e eventuais indisponibilidades. Não deve haver recomendações de programas, selos ou produtos WaterSense; a URL original da EPA permanece na citação.',
     'Esta aba executa o RAG com guardrails. Use Chat completo ou Juiz para testar também a avaliação da resposta antes da publicação.',
-    'Etiqueta de teste: teste_agentes_25_10. Usuário fixo desta execução: 12345679.',
+    'Etiqueta de teste: teste_agentes_25_10. Usuário fixo desta execução: 123456789.',
   ],
 };
