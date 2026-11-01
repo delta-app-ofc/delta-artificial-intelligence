@@ -187,6 +187,9 @@ class Settings:
     openai_model: str = "gpt-6-luna"
     openai_reasoning_effort: str = "medium"
     llm_provider: str = "openai"
+    mcp_external_enabled: bool = False
+    mcp_timeout_seconds: float = 45.0
+    mcp_cache_ttl_seconds: int = 3600
     _parse_errors: tuple[tuple[str, str], ...] = field(default=(), repr=False)
 
 
@@ -268,6 +271,8 @@ def load_settings(
             fallback_enabled = raw_fallback.casefold() == "true"
 
     numeric_settings = {
+        "MCP_TIMEOUT_SECONDS": (45.0, float, "deve ser um número finito"),
+        "MCP_CACHE_TTL_SECONDS": (3600, int, "deve ser um número inteiro"),
         "LLM_TIMEOUT_SECONDS": (15.0, float, "deve ser um número finito"),
         "JEV_TIMEOUT_SECONDS": (5.0, float, "deve ser um número finito"),
         "JEV_CONFIDENCE_THRESHOLD": (Settings.jev_confidence_threshold, float, "deve ser um número finito"),
@@ -316,6 +321,9 @@ def load_settings(
         openai_model=values.get("OPENAI_MODEL", Settings.openai_model) or "",
         openai_reasoning_effort=(values.get("OPENAI_REASONING_EFFORT", Settings.openai_reasoning_effort) or "").casefold(),
         llm_provider=(values.get("LLM_PROVIDER", Settings.llm_provider) or "").casefold(),
+        mcp_external_enabled=(values.get("MCP_EXTERNAL_ENABLED") or "false").casefold() == "true",
+        mcp_timeout_seconds=parsed_numbers["MCP_TIMEOUT_SECONDS"],
+        mcp_cache_ttl_seconds=parsed_numbers["MCP_CACHE_TTL_SECONDS"],
         gemini_api_key=values.get("GEMINI_API_KEY"),
         groq_api_key=values.get("GROQ_API_KEY"),
         database_url=database_url,
@@ -338,11 +346,29 @@ def load_settings(
         rag_document_path=values.get(
             "RAG_DOCUMENT_PATH", "app/knowledge/delta-main-source.md"
         ),
-        _parse_errors=tuple(parse_errors),
+        _parse_errors=tuple(parse_errors) + (
+            (("MCP_EXTERNAL_ENABLED", "use true ou false"),)
+            if "MCP_EXTERNAL_ENABLED" in values
+            and (values["MCP_EXTERNAL_ENABLED"] or "").casefold() not in {"true", "false"}
+            else ()
+        ),
     )
 
 
 _settings_cache: Settings | None = None
+
+
+def validate_mcp_config(*, settings: Settings | None = None) -> None:
+    """Valida o MCP somente quando solicitado, sem exigir chaves de outros serviços."""
+    current = settings or get_settings()
+    problems = [f"{name}: {message}" for name, message in current._parse_errors
+                if name.startswith("MCP_") or name == "APP_ENV"]
+    if not math.isfinite(current.mcp_timeout_seconds) or not 1 <= current.mcp_timeout_seconds <= 120:
+        problems.append("MCP_TIMEOUT_SECONDS deve estar entre 1 e 120")
+    if not 0 <= current.mcp_cache_ttl_seconds <= 86400:
+        problems.append("MCP_CACHE_TTL_SECONDS deve estar entre 0 e 86400")
+    if problems:
+        raise ConfigurationError(f"Configuração MCP inválida: {', '.join(problems)}.")
 
 
 def get_settings(*, refresh: bool = False) -> Settings:
