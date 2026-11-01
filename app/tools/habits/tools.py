@@ -1,8 +1,12 @@
 from __future__ import annotations
 
+from datetime import date
+
 from langchain_core.tools import BaseTool, tool
 
 from app.data import db_mongo, db_postgres
+from app.tools.exceptions import DatabaseAccessError, RegionRateNotFound
+from app.tools.habits.calculations import WEEKS_PER_MONTH, estimate_habit_cost
 from app.tools.validation import validate_user_id
 
 _HABIT_LITERS_PER_SESSION: dict[str, float] = {
@@ -14,7 +18,7 @@ _HABIT_LITERS_PER_SESSION: dict[str, float] = {
     "LAVAR LOUÇA": 20.0,
 }
 
-_WEEKS_PER_MONTH = 4.33
+_WEEKS_PER_MONTH = float(WEEKS_PER_MONTH)
 
 _VALID_HABITS: dict[str, str] = {
     "banho longo": "BANHO LONGO",
@@ -241,6 +245,85 @@ def build_tools(user_id: int, access_kind: str | None = None) -> list[BaseTool]:
         }
 
     @tool
+    def estimate_habit_water_cost(
+        habit_name: str, frequency: int, liters_per_session: float | None = None
+    ) -> dict:
+        """Estima o custo mensal da água de um hábito (cadastrado ou hipotético).
+
+        habit_name: nome do hábito — mesmas formas de estimate_habit_water_impact.
+        frequency: vezes por semana (inteiro positivo).
+        liters_per_session: litros por ocorrência, só se o usuário informar; sem ele
+          usa a média de referência do hábito.
+
+        Combina litros por semana/mês (mês = 4,33 semanas) com a tarifa de água
+        (R$/m³) vigente da região do usuário. É só o custo estimado da água desse
+        hábito: não é medição do hidrômetro nem o valor total da conta. Sem tarifa,
+        devolve só os litros (status rate_unavailable). Não cadastra nada.
+
+        Disponível apenas para usuários residenciais.
+        """
+        if not _is_residential():
+            return _NOT_RESIDENTIAL
+        canonical = _VALID_HABITS.get(habit_name.strip().lower())
+        if canonical is None:
+            valid = ", ".join(sorted(set(_VALID_HABITS.values())))
+            return {
+                "status": "error",
+                "message": f"Hábito '{habit_name}' não reconhecido. Válidos: {valid}.",
+            }
+        if frequency < 1:
+            return {"status": "error", "message": "A frequência deve ser pelo menos 1 vez por semana."}
+        if liters_per_session is not None and liters_per_session <= 0:
+            return {"status": "error", "message": "Os litros por ocorrência devem ser maiores que zero."}
+
+        liters = liters_per_session or _HABIT_LITERS_PER_SESSION[canonical]
+        source = "informado pelo usuário" if liters_per_session else "média de referência"
+        base = {
+            "habit": canonical,
+            "frequency_per_week": frequency,
+            "liters_per_session": liters,
+            "liters_source": source,
+            "weeks_per_month": float(WEEKS_PER_MONTH),
+        }
+        try:
+            region_id = db_postgres.get_user_region_id(user_id)
+            classification_id = db_postgres.get_user_property_classification_id(user_id)
+            if region_id is None or classification_id is None:
+                rate = None
+                reason = "property_not_found"
+            else:
+                rate = db_postgres.get_current_region_rate(region_id, classification_id, date.today())
+                reason = None
+        except RegionRateNotFound:
+            rate, reason = None, "rate_unavailable"
+        except DatabaseAccessError:
+            return {"status": "error", "message": "Não foi possível consultar a tarifa agora."}
+
+        if rate is None:
+            cost = estimate_habit_cost(liters, frequency, 0)
+            return {
+                "status": reason,
+                **base,
+                "liters_per_week": float(cost.liters_per_week),
+                "liters_per_month": float(cost.liters_per_month),
+                "message": "Sem tarifa disponível: só os litros foram estimados.",
+            }
+
+        cost = estimate_habit_cost(liters, frequency, rate)
+        return {
+            "status": "ok",
+            **base,
+            "liters_per_week": float(cost.liters_per_week),
+            "liters_per_month": float(cost.liters_per_month),
+            "rate_m3": float(rate),
+            "cost_per_month": float(cost.cost_per_month),
+            "note": (
+                "Custo estimado só da água desse hábito, por média de referência e tarifa por m³. "
+                "Não é medição do hidrômetro nem o valor total da conta."
+            ),
+        }
+
+    @tool
     def get_weather_history(days: int = 7) -> dict:
         """Retorna o histórico meteorológico recente da localização do usuário,
         lendo da coleção weather_daily no MongoDB.
@@ -309,5 +392,6 @@ def build_tools(user_id: int, access_kind: str | None = None) -> list[BaseTool]:
         get_habits_by_day,
         create_habit,
         estimate_habit_water_impact,
+        estimate_habit_water_cost,
         get_weather_history,
     ]
