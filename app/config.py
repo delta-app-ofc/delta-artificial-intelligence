@@ -178,6 +178,11 @@ class Settings:
     rag_document_path: str | None = field(default=None, repr=False)
     playground_enabled: bool = False
     jwt_secret: str | None = field(default=None, repr=False)
+    auth_public_key: str | None = field(default=None, repr=False)
+    auth_issuer: str = "delta-api"
+    auth_audience: str = "delta-api"
+    auth_key_id: str = "delta-1"
+    auth_check_active: bool = True
     cors_allowed_origins: str = "*"
     jev_confidence_threshold: float = 0.70
     jev_probability_threshold: float = 0.70
@@ -248,6 +253,14 @@ def load_settings(
             playground_enabled = False
         else:
             playground_enabled = raw_playground.casefold() == "true"
+
+    auth_check_active = True
+    if "AUTH_CHECK_ACTIVE" in values:
+        raw_check = values["AUTH_CHECK_ACTIVE"]
+        if raw_check is None or raw_check.casefold() not in {"true", "false"}:
+            parse_errors.append(("AUTH_CHECK_ACTIVE", "use true ou false"))
+        else:
+            auth_check_active = raw_check.casefold() == "true"
 
     defaults = app_env == "development"
     if "DATABASE_URL" not in values and defaults:
@@ -369,6 +382,11 @@ def load_settings(
         judge_specialist_model=values.get("JUDGE_SPECIALIST_MODEL", "gemini-2.5-flash") or "",
         playground_enabled=playground_enabled,
         jwt_secret=values.get("JWT_SECRET"),
+        auth_public_key=values.get("AUTH_PUBLIC_KEY"),
+        auth_issuer=values.get("AUTH_ISSUER", Settings.auth_issuer) or "",
+        auth_audience=values.get("AUTH_AUDIENCE", Settings.auth_audience) or "",
+        auth_key_id=values.get("AUTH_KEY_ID", Settings.auth_key_id) or "",
+        auth_check_active=auth_check_active,
         cors_allowed_origins=values.get("CORS_ALLOWED_ORIGINS") or "*",
         openai_api_key=values.get("OPENAI_API_KEY"),
         openai_model=values.get("OPENAI_MODEL", Settings.openai_model) or "",

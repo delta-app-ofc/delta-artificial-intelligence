@@ -256,6 +256,23 @@ def get_last_water_bill(user_id: int) -> LastWaterBill | None:
     )
 
 
+def is_user_active(user_id: int) -> bool:
+    """True só se o usuário existe e está ativo (tb_user.is_active), a mesma regra do back-end.
+
+    Uma consulta indexada pela chave primária, na conexão que já está no pool.
+    """
+    try:
+        with _cursor() as cur:
+            cur.execute("SELECT fn_user_is_active(%s);", (user_id,))
+            row = cur.fetchone()
+    except DatabaseQueryError as exc:
+        # fn_user_is_active levanta uma exceção (P0001) quando o usuário não existe.
+        if exc.code == "P0001":
+            return False
+        raise
+    return bool(row and row[0])
+
+
 def get_user_access_kind(user_id: int) -> Literal["residential", "organizational", "none"]:
     """Resolve como o usuário se relaciona com propriedades.
 
