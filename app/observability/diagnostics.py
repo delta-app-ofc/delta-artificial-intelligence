@@ -562,7 +562,14 @@ def fallback_call():
 
 
 def _token_usage(response: Any) -> dict:
-    """Lê as contagens de tokens da resposta; sem uso informado, devolve vazio."""
+    """Lê as contagens de tokens da resposta; sem uso informado ou com formato inesperado, devolve vazio."""
+    try:
+        return _read_token_usage(response)
+    except Exception:
+        return {}
+
+
+def _read_token_usage(response: Any) -> dict:
     try:
         usage = response.generations[0][0].message.usage_metadata
     except (AttributeError, IndexError, TypeError):

@@ -92,6 +92,7 @@ def user_hash(user_id) -> str | None:
 
 def _price_for(model: str) -> tuple[float, float] | None:
     table = prices()
+    model = model.removeprefix("models/")  # o RAG usa "models/gemini-embedding-..."
     if model in table:
         return table[model]
     # Embedding e Jev chegam com sufixo de versão (ex.: gemini-embedding-2-preview, jev-1.14.0).

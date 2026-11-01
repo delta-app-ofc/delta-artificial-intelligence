@@ -203,6 +203,7 @@ class Settings:
     db_pool_min_size: int = 1
     db_pool_max_size: int = 10
     db_pool_wait_seconds: int = 5
+    langsmith_send_content: bool = False
     _parse_errors: tuple[tuple[str, str], ...] = field(default=(), repr=False)
 
 
@@ -290,6 +291,14 @@ def load_settings(
             parse_errors.append(("LANGSMITH_TRACING", "use true ou false"))
         else:
             langsmith_tracing = raw_tracing.casefold() == "true"
+
+    langsmith_send_content = False
+    if "LANGSMITH_SEND_CONTENT" in values:
+        raw_content = values["LANGSMITH_SEND_CONTENT"]
+        if raw_content is None or raw_content.casefold() not in {"true", "false"}:
+            parse_errors.append(("LANGSMITH_SEND_CONTENT", "use true ou false"))
+        else:
+            langsmith_send_content = raw_content.casefold() == "true"
 
     obs_prices_json = values.get("OBS_PRICES_JSON")
     if obs_prices_json is not None:
@@ -406,6 +415,7 @@ def load_settings(
         langsmith_tracing=langsmith_tracing,
         langsmith_api_key=values.get("LANGSMITH_API_KEY"),
         langsmith_project=values.get("LANGSMITH_PROJECT") or Settings.langsmith_project,
+        langsmith_send_content=langsmith_send_content,
         _parse_errors=tuple(parse_errors),
     )
 
