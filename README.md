@@ -477,10 +477,15 @@ python -m uvicorn app.main:app --host 127.0.0.1 --port 8000
 ~~~
 
 Acesse **http://127.0.0.1:8000/playground/**. O console usa o
-**user_id 12345679** e o nome de teste **teste_agentes_25_10**, definidos no
+**user_id 123456789** e o nome de teste **teste_agentes_25_10**, definidos no
 servidor. Ele não cadastra esse usuário ou dados de exemplo e não oferece
 configuração de perfil. O usuário precisa existir e ter os vínculos/dados
 necessários nos bancos configurados.
+
+A preparação manual do usuário de teste e a migração dos registros do ID anterior
+estão no [guia do usuário do playground](docs/playground-test-user.md), com um
+script PostgreSQL e dois scripts mongosh para as conexões de app e telemetria.
+Eles não são executados automaticamente pela API.
 
 Na branch do MCP, a aba **RAG** também resolve o perfil desse usuário no backend
 antes de construir o especialista. Para testar as fontes externas, habilite
