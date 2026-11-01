@@ -30,7 +30,7 @@ class HabitsAgentSmokeTest(unittest.TestCase):
 
         self.assertIs(result, expected)
         self.assertIs(result.chart_data, chart)
-        build_tools.assert_called_once_with(42)
+        build_tools.assert_called_once_with(42, None)
         run_agent.assert_called_once_with(
             llm=agent.llm,
             system_prompt="prompt de hábitos",
