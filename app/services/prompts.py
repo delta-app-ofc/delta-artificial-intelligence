@@ -359,7 +359,7 @@ CONSUMO_PROMPT_COMPLETO = (
 )
 
 
-def consumo_prompt_completo(
+def full_consumption_prompt(
     now: datetime,
     timezone_name: str = "America/Sao_Paulo",
 ) -> str:
@@ -678,7 +678,7 @@ HABITOS_PROMPT_COMPLETO = (
 )
 
 
-def habitos_prompt_completo() -> str:
+def full_habits_prompt() -> str:
     """Prompt de hábitos com data/hora calculada no momento da chamada."""
     return HABITOS_PROMPT_COMPLETO.replace(_CONTEXTO_TEMPORAL, _contexto_temporal_atual(), 1)
 
@@ -687,7 +687,7 @@ def habitos_prompt_completo() -> str:
 # AGENTE 3 — PREVISÃO
 # ==============================================================================
 
-def _previsao_prompt() -> str:
+def _forecast_prompt() -> str:
     return f"""
 {PERSONA_SISTEMA}
 
@@ -804,9 +804,9 @@ Considere como dados reais somente a solicitação atual e os
 resultados efetivamente retornados pelas ferramentas.
 """
 
-def previsao_prompt_completo() -> str:
+def full_forecast_prompt() -> str:
     return (
-        _previsao_prompt()
+        _forecast_prompt()
         + "\n\n"
         + PREVISAO_SHOTS_OPEN
         + "\n\n"
@@ -1033,7 +1033,7 @@ RAG_PROMPT_COMPLETO = "\n\n".join((
 # AGENTE 5 — VAZAMENTO
 # ==============================================================================
 
-def _vazamento_prompt() -> str:
+def _leak_prompt() -> str:
     return f"""
 {PERSONA_SISTEMA}
 
@@ -1146,9 +1146,9 @@ Considere como dados reais somente a solicitação atual e os
 resultados efetivamente retornados pelas ferramentas.
 """
 
-def vazamento_prompt_completo() -> str:
+def full_leak_prompt() -> str:
     return (
-        _vazamento_prompt()
+        _leak_prompt()
         + "\n\n"
         + VAZAMENTO_SHOTS_OPEN
         + "\n\n"

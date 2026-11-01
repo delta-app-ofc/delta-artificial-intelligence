@@ -459,7 +459,7 @@ ferramentas de `PREVISAO_PROMPT` e `VAZAMENTO_PROMPT` citam só o nome de cada
 tool — a descrição de quando/como usá-la mora na docstring da própria tool,
 que o LLM já recebe no schema; repetir isso no prompt custaria token à toa.
 `CONSUMO_PROMPT` exige contexto do período, escopo, granularidade e lacunas;
-`consumo_prompt_completo()` monta a referência temporal no uso.
+`full_consumption_prompt()` monta a referência temporal no uso.
 
 Os clientes de geração são criados sob demanda em app/services/llms.py.
 O padrão usa OpenAI Responses com gpt-6-luna e raciocínio medium para os

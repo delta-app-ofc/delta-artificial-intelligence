@@ -3,7 +3,7 @@ from __future__ import annotations
 from typing import Any
 
 from app.agents._runtime import AgentResult, run_agent
-from app.services.prompts import habitos_prompt_completo, profile_block
+from app.services.prompts import full_habits_prompt, profile_block
 from app.tools.charts import build_habits_chart
 from app.tools.habits.tools import build_tools
 
@@ -31,7 +31,7 @@ class HabitsAgent:
     ) -> AgentResult:
         result = run_agent(
             llm=self.llm,
-            system_prompt=habitos_prompt_completo() + profile_block(self.access_kind),
+            system_prompt=full_habits_prompt() + profile_block(self.access_kind),
             tools=self.tools,
             question=question,
             revision_feedback=revision_feedback,
