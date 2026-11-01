@@ -5,10 +5,19 @@ from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import StreamingResponse
 
 from app.auth import get_current_user_id
+from app.graph.profile import resolve_access_kind
+from app.graph.suggestions import initial_suggestions, suggest_next_questions
 from app.graph.workflow import run_workflow, run_workflow_events
 from app.memory.session import create_session, discard_empty_session, session_belongs_to_user
 from app.observability.diagnostics import current_trace
-from app.schemas import AUTH_ERRORS, SESSION_NOT_FOUND, ChatRequest, ChatResponse, ErrorResponse
+from app.schemas import (
+    AUTH_ERRORS,
+    SESSION_NOT_FOUND,
+    ChatRequest,
+    ChatResponse,
+    ErrorResponse,
+    SuggestionsResponse,
+)
 
 router = APIRouter(tags=["chat"])
 logger = logging.getLogger(__name__)
@@ -38,6 +47,30 @@ def _discard_new_session(user_id: int, session_id: str, created: bool) -> None:
         discard_empty_session(user_id, session_id)
     except Exception as exc:
         logger.warning("Sessão vazia não removida: %s", type(exc).__name__)
+
+
+def _suggestions(user_id: int, state: dict, asked: str) -> list[str]:
+    """Sugestões após uma resposta; qualquer falha ao descobrir o perfil só deixa a lista simples."""
+    try:
+        access_kind = state.get("access_kind") or resolve_access_kind(user_id)
+    except Exception:
+        access_kind = None
+    return suggest_next_questions(state.get("selected_agents", []), access_kind, asked)
+
+
+@router.get(
+    "/chat/suggestions",
+    response_model=SuggestionsResponse,
+    summary="Perguntas sugeridas para começar a conversa",
+    description="Devolve até 3 perguntas iniciais de acordo com o perfil da conta autenticada.",
+    responses={**AUTH_ERRORS},
+)
+def chat_suggestions(user_id: int = Depends(get_current_user_id)):
+    try:
+        access_kind = resolve_access_kind(user_id)
+    except Exception:
+        access_kind = None
+    return SuggestionsResponse(suggestions=initial_suggestions(access_kind))
 
 
 def _sse(event: str, data: dict) -> str:
@@ -84,6 +117,7 @@ def chat(req: ChatRequest, user_id: int = Depends(get_current_user_id)):
         agents_used=state.get("selected_agents", []),
         session_id=session_id,
         chart_data=state.get("chart_data"),
+        suggestions=_suggestions(user_id, state, req.message),
     )
 
 
@@ -153,6 +187,7 @@ def chat_stream(req: ChatRequest, user_id: int = Depends(get_current_user_id)):
                             agents_used=state.get("selected_agents", []),
                             session_id=session_id,
                             chart_data=state.get("chart_data"),
+                            suggestions=_suggestions(user_id, state, req.message),
                         ).model_dump(mode="json"))
         finally:
             if failed:
