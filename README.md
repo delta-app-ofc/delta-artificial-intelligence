@@ -482,6 +482,20 @@ servidor. Ele não cadastra esse usuário ou dados de exemplo e não oferece
 configuração de perfil. O usuário precisa existir e ter os vínculos/dados
 necessários nos bancos configurados.
 
+Na branch do MCP, a aba **RAG** também resolve o perfil desse usuário no backend
+antes de construir o especialista. Para testar as fontes externas, habilite
+`MCP_EXTERNAL_ENABLED=true` no processo que executa o playground, além das
+configurações de geração, Gemini embeddings e Qdrant. A seleção entre EPA
+residencial e comercial usa esse perfil real; escrever outro perfil na pergunta
+não o substitui. Perfil desconhecido não libera uma fonte específica.
+
+Exemplos para a aba RAG: “Quais práticas de uso consciente são recomendadas pelas
+fontes públicas para o perfil da minha conta?” e “Essas fontes informam uma
+tarifa vigente para calcular minha conta?”. Confira `search_external_knowledge`
+no painel de ferramentas e as URLs dos trechos. Para testar a revisão pelo Juiz,
+use **Chat completo** ou **Juiz**; a aba RAG isolada executa o especialista e
+os guardrails.
+
 - **Chat completo:** guardrails, contexto, roteador e especialistas reais,
   com persistência da conversa no MongoDB. Falha de persistência preserva a
   resposta na tela e aparece no painel de erros.

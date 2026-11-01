@@ -13,6 +13,7 @@ from pydantic import BaseModel, ConfigDict, Field
 from app.config import BASE_DIR, get_settings
 from app.graph.router import AGENT_REGISTRY, classify
 from app.graph.workflow import execute_agent, run_workflow
+from app.graph.profile import resolve_access_kind
 from app.guardrails.input import validate_input
 from app.guardrails.output import validate_output
 from app.memory.session import append_turn
@@ -176,7 +177,10 @@ def run_test(req: PlaygroundRequest, mode: str):
                             if decision.agents else "O roteador não selecionou nenhum agente.")
             else:
                 trace.selected_agents = [mode]
-                result = execute_agent(mode, USER_ID, message)
+                if mode == "rag":
+                    result = execute_agent(mode, USER_ID, message, access_kind=resolve_access_kind(USER_ID))
+                else:
+                    result = execute_agent(mode, USER_ID, message)
                 results = [result]
                 response, chart = result["answer"], result.get("chart_data")
             if response:
