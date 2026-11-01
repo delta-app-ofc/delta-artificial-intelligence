@@ -18,6 +18,6 @@ export default {
     'A consulta recupera trechos da documentação oficial do produto e pode incluir capítulos e linhas como referências. Se a fonte não trouxer informação suficiente, o agente deve dizer isso em vez de completar com conhecimento geral.',
     'A primeira chamada pode preparar ou atualizar o índice documental. O backend precisa das credenciais Gemini e Qdrant configuradas e de uma coleção Qdrant preexistente com dimensão compatível; não há índice simulado nesta aba.',
     'Este agente explica regras do produto, mas não consulta dados privados da conta, como consumo, metas cadastradas ou alertas ativos.',
-    'Etiqueta de teste: teste_agentes_25_10. Usuário fixo desta execução: 12345679.',
+    'Etiqueta de teste: teste_agentes_25_10. Usuário fixo desta execução: 123456789.',
   ],
 };
