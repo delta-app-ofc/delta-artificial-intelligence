@@ -20,19 +20,20 @@ from app.integrations.mcp.sources import (
 SOURCE_ID = next(iter(SOURCES))
 
 
-def make_snapshot(text=None):
-    source = SOURCES[SOURCE_ID]
+def make_snapshot(text=None, *, source_id=SOURCE_ID):
+    source = SOURCES[source_id]
     text = text or ("Use água com cuidado. Feche o chuveiro enquanto se ensaboa.\n" * 6).strip()
     return ExternalDocument(
         source_id=source.id, title=source.title, url=source.url, topic=source.topic,
-        published_at=source.published_at, collected_at="2026-11-01T03:00:00+00:00",
+        published_at=source.published_at, audiences=list(source.audiences), language=source.language, collected_at="2026-11-01T03:00:00+00:00",
         revision=hashlib.sha256(text.encode("utf-8")).hexdigest(), text=text,
     )
 
 
-def test_extracts_article_only_and_preserves_provenance():
+@pytest.mark.parametrize("source_id", list(SOURCES))
+def test_extracts_article_only_and_preserves_provenance(source_id):
     text = make_snapshot().text
-    html = f'<nav>NÃO INDEXAR MENU</nav><div class="js-Materia"><p>{text}</p>'
+    html = f'<nav>NÃO INDEXAR MENU</nav><div id="{SOURCES[source_id].content_id}"><p>{text}</p>'
     html += '<script>NÃO INDEXAR SCRIPT</script><style>CSS</style></div><footer>RODAPÉ</footer>'
     requests = []
 
@@ -41,9 +42,9 @@ def test_extracts_article_only_and_preserves_provenance():
         return httpx.Response(200, text=html, headers={"content-type": "text/html; charset=utf-8"})
 
     with httpx.Client(transport=httpx.MockTransport(respond)) as client:
-        snapshot = read_source(SOURCE_ID, client=client)
+        snapshot = read_source(source_id, client=client)
     assert snapshot.text == text
-    assert snapshot.url == SOURCES[SOURCE_ID].url
+    assert snapshot.url == SOURCES[source_id].url
     assert snapshot.revision == make_snapshot().revision
     assert len(requests) == 1 and requests[0].method == "GET"
     assert not requests[0].url.query and not requests[0].content
@@ -56,7 +57,7 @@ def test_extracts_article_only_and_preserves_provenance():
     httpx.Response(200, text="{}", headers={"content-type": "application/json"}),
     httpx.Response(200, text="<html>Challenge de proteção</html>", headers={"content-type": "text/html"}),
     httpx.Response(200, content=b"x" * (MAX_RESPONSE_BYTES + 1), headers={"content-type": "text/html"}),
-    httpx.Response(200, text='<div class="js-Materia">curto</div>', headers={"content-type": "text/html"}),
+    httpx.Response(200, text='<div id="parent-fieldname-text">curto</div>', headers={"content-type": "text/html"}),
 ])
 def test_http_failures_do_not_become_empty_or_partial_documents(response):
     with httpx.Client(transport=httpx.MockTransport(lambda request: response)) as client:
@@ -78,6 +79,7 @@ def test_timeout_and_unknown_source_never_expose_raw_error():
 @pytest.mark.parametrize("change", [
     {"source_id": "unknown"}, {"url": "https://evil.example/doc"}, {"revision": "wrong"},
     {"collected_at": "2026-11-01T00:00:00"}, {"text": "vazio"}, {"topic": "weather"},
+    {"audiences": ["residential"]}, {"language": "en"},
 ])
 def test_client_contract_rejects_changed_provenance(change):
     with pytest.raises(ValidationError):

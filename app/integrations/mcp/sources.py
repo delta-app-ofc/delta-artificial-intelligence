@@ -24,19 +24,43 @@ class Source:
     title: str
     url: str
     topic: str
-    published_at: str
-    content_class: str
+    published_at: str | None
+    content_id: str
+    audiences: tuple[str, ...]
+    language: str
 
 
 SOURCES = {
-    "senado-water-conservation": Source(
-        id="senado-water-conservation",
-        title="Uso racional da água, essencial para o futuro — Senado Notícias",
-        url=("https://www12.senado.leg.br/noticias/especiais/especial-cidadania/"
-             "uso-racional-da-agua-essencial-para-o-futuro"),
+    "midr-water-conservation": Source(
+        id="midr-water-conservation",
+        title="Uso consciente da água — Ministério da Integração e do Desenvolvimento Regional",
+        url=("https://www.gov.br/mdr/pt-br/assuntos/seguranca-hidrica/projeto-sao-francisco/"
+             "meio-ambiente-preservado/uso-consciente-da-agua"),
         topic="water_conservation",
-        published_at="2005-09-12",
-        content_class="js-Materia",
+        published_at=None,
+        content_id="parent-fieldname-text",
+        audiences=("residential", "organizational"),
+        language="pt-BR",
+    ),
+    "epa-residential-saving": Source(
+        id="epa-residential-saving",
+        title="Start Saving — US EPA",
+        url="https://www.epa.gov/watersense/start-saving",
+        topic="water_conservation",
+        published_at="2017-01-16",
+        content_id="main",
+        audiences=("residential",),
+        language="en",
+    ),
+    "epa-commercial-facilities": Source(
+        id="epa-commercial-facilities",
+        title="Types of Facilities — US EPA",
+        url="https://www.epa.gov/watersense/types-facilities",
+        topic="commercial_efficiency",
+        published_at="2017-01-16",
+        content_id="main",
+        audiences=("organizational",),
+        language="en",
     ),
 }
 
@@ -44,7 +68,7 @@ SOURCES = {
 def list_sources() -> list[dict]:
     """Lista somente os metadados públicos; não acessa a internet."""
     return [
-        {key: value for key, value in asdict(source).items() if key != "content_class"}
+        {key: value for key, value in asdict(source).items() if key != "content_id"}
         for source in SOURCES.values()
     ]
 
@@ -57,7 +81,9 @@ class ExternalDocument(BaseModel):
     title: str
     url: str
     topic: str
-    published_at: str
+    published_at: str | None
+    audiences: list[str]
+    language: str
     collected_at: str
     revision: str
     text: str = Field(min_length=200, max_length=MAX_TEXT_CHARS)
@@ -68,8 +94,8 @@ class ExternalDocument(BaseModel):
         source = SOURCES.get(self.source_id)
         if source is None or any(
             getattr(self, field) != getattr(source, field)
-            for field in ("title", "url", "topic", "published_at")
-        ):
+            for field in ("title", "url", "topic", "published_at", "language")
+        ) or tuple(self.audiences) != source.audiences:
             raise ValueError("Fonte externa fora do catálogo aprovado.")
         if hashlib.sha256(self.text.encode("utf-8")).hexdigest() != self.revision:
             raise ValueError("Revisão externa incompatível com o conteúdo.")
@@ -87,9 +113,9 @@ class ArticleParser(HTMLParser):
     _IGNORED_TAGS = {"script", "style", "nav", "footer", "noscript", "iframe"}
     _BLOCK_TAGS = {"p", "li", "div", "section", "h1", "h2", "h3", "h4", "br"}
 
-    def __init__(self, content_class: str):
+    def __init__(self, content_id: str):
         super().__init__(convert_charrefs=True)
-        self.content_class = content_class
+        self.content_id = content_id
         self.stack: list[tuple[str, bool]] = []
         self.target_depth: int | None = None
         self.parts: list[str] = []
@@ -99,7 +125,7 @@ class ArticleParser(HTMLParser):
         ignored = tag in self._IGNORED_TAGS or any(item[1] for item in self.stack)
         if tag not in self._VOID_TAGS:
             self.stack.append((tag, ignored))
-            if self.content_class in dict(attrs).get("class", "").split() and not ignored:
+            if dict(attrs).get("id") == self.content_id and not ignored:
                 self.target_depth = len(self.stack)
                 self.found = True
         if self.target_depth and tag in self._BLOCK_TAGS:
@@ -145,14 +171,15 @@ def read_source(source_id: str, *, timeout: float = 10, client=None) -> External
                 body.extend(block)
                 if len(body) > MAX_RESPONSE_BYTES:
                     raise ExternalSourceError("Página externa acima do limite permitido.")
-            parser = ArticleParser(source.content_class)
+            parser = ArticleParser(source.content_id)
             parser.feed(body.decode(response.encoding or "utf-8", errors="strict"))
         text = parser.text()
         if not parser.found or len(text) < 200 or len(text) > MAX_TEXT_CHARS:
             raise ExternalSourceError("Artigo externo ausente ou inválido.")
         return ExternalDocument(
             source_id=source.id, title=source.title, url=source.url, topic=source.topic,
-            published_at=source.published_at, collected_at=datetime.now(timezone.utc).isoformat(),
+            published_at=source.published_at, audiences=list(source.audiences), language=source.language,
+            collected_at=datetime.now(timezone.utc).isoformat(),
             revision=hashlib.sha256(text.encode("utf-8")).hexdigest(), text=text,
         )
     except (httpx.HTTPError, UnicodeError, ValueError) as error:

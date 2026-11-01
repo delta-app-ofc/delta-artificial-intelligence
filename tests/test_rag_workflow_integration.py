@@ -38,7 +38,7 @@ def pipeline(rag_backend, monkeypatch):
     monkeypatch.setattr(graph, "load_history_validated", lambda *args: [])
     monkeypatch.setattr(context, "load_history_validated", lambda *args: [])
     monkeypatch.setattr(graph, "resolve_access_kind", lambda user_id: "residential")
-    monkeypatch.setattr(external_tool, "fetch_source", lambda source_id: make_snapshot())
+    monkeypatch.setattr(external_tool, "fetch_source", lambda source_id: make_snapshot(source_id=source_id))
     classifier_inputs = []
 
     class Classifier:
@@ -54,8 +54,11 @@ def pipeline(rag_backend, monkeypatch):
     monkeypatch.setattr(graph, "classify", route)
 
     class ScriptedRagModel:
+        def __init__(self, tools):
+            self.tool = next(tool for tool in tools if tool.name == "search_external_knowledge")
+
         def invoke(self, payload, *, config):
-            output = external_tool.search_external_knowledge.invoke({"question": "banho", "top_k": 1})
+            output = self.tool.invoke({"question": "banho", "top_k": 1})
             return {"messages": [
                 AIMessage(content="", tool_calls=[{
                     "name": "search_external_knowledge", "args": {"question": "banho", "top_k": 1}, "id": "external-1",
@@ -63,7 +66,7 @@ def pipeline(rag_backend, monkeypatch):
                 ToolMessage(name="search_external_knowledge", tool_call_id="external-1", content=json.dumps(output)),
                 AIMessage(content="Segundo a fonte pública, feche o chuveiro ao se ensaboar."),
             ]}
-    monkeypatch.setattr("app.agents.rag.create_agent", lambda **kwargs: ScriptedRagModel())
+    monkeypatch.setattr("app.agents.rag.create_agent", lambda **kwargs: ScriptedRagModel(kwargs["tools"]))
     judge_inputs = []
     judge_decision = ["approve"]
 
@@ -93,7 +96,7 @@ def test_memory_rag_guardrails_and_judge_preserve_external_evidence(pipeline):
     state = run(pipeline, "Lembra do banho? Como economizar água?")
     assert state["judge_action"] == "approve"
     assert "Fontes consultadas:" in state["response"]
-    assert "senado.leg.br" in state["response"]
+    assert "gov.br" in state["response"] or "epa.gov" in state["response"]
     assert pipeline.routing_contexts[0]["relevant_memory"] == ["Já conversamos sobre banho."]
     judge = pipeline.judge_inputs[0]
     assert judge.context["relevant_memory"] == ["Já conversamos sobre banho."]
@@ -135,9 +138,9 @@ def test_personal_data_is_anonymized_before_model_and_does_not_enter_mcp(pipelin
     source_ids = []
     def read(source_id):
         source_ids.append(source_id)
-        return make_snapshot()
+        return make_snapshot(source_id=source_id)
     monkeypatch.setattr(external_tool, "fetch_source", read)
     state = run(pipeline, "Meu e-mail é pessoa@example.com. Como economizar água no banho?")
     assert "pessoa@example.com" not in str(pipeline.classifier_inputs)
     assert "pessoa@example.com" not in state["response"]
-    assert source_ids == ["senado-water-conservation"]
+    assert source_ids == ["midr-water-conservation", "epa-residential-saving"]

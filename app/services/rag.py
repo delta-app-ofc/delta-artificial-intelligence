@@ -50,7 +50,7 @@ class RagDocument:
     source: str
     revision: str
     chunks: tuple[DocumentChunk, ...]
-    metadata: dict[str, str] = field(default_factory=dict)
+    metadata: dict[str, str | list[str] | None] = field(default_factory=dict)
 
 
 def external_document(snapshot) -> RagDocument:
@@ -77,6 +77,7 @@ def external_document(snapshot) -> RagDocument:
         source=f"mcp:{snapshot.source_id}", revision=revision, chunks=tuple(chunks),
         metadata={"origin": "external", "source_id": snapshot.source_id, "url": snapshot.url,
                   "title": snapshot.title, "topic": snapshot.topic, "published_at": snapshot.published_at,
+                  "audiences": snapshot.audiences, "language": snapshot.language,
                   "collected_at": snapshot.collected_at, "source_revision": snapshot.revision},
     )
 

@@ -185,3 +185,62 @@ def test_agent_does_not_publish_answer_without_retrieved_sources(content):
         create.return_value.invoke.return_value = {"messages": messages}
         result = RagAgent(7, llm=object()).run("Como economizar água?")
     assert not result.sources and "AFIRMAÇÃO SEM FONTE" not in result.response
+
+
+@pytest.mark.parametrize("access_kind,expected", [
+    ("residential", {"midr-water-conservation", "epa-residential-saving"}),
+    ("organizational", {"midr-water-conservation", "epa-commercial-facilities"}),
+    (None, {"midr-water-conservation"}),
+    ("unknown", set()),
+])
+def test_backend_profile_selects_only_applicable_sources(rag_backend, monkeypatch, access_kind, expected):
+    fetched = []
+    def fetch(source_id):
+        fetched.append(source_id)
+        return make_snapshot(source_id=source_id)
+    monkeypatch.setattr(external_tool, "fetch_source", fetch)
+    tool = external_tool.build_external_knowledge_tool(access_kind)
+    # Mesmo com tentativa de substituir o perfil nos argumentos, o fechamento permanece confiável.
+    output = tool.invoke({"question": "banho", "top_k": 20, "access_kind": "organizational"})
+    assert set(fetched) == expected
+    assert {chunk["source_id"] for chunk in output["chunks"]} == expected
+    assert "access_kind" not in tool.args
+    assert output["status"] == ("ok" if expected else "insufficient_data")
+
+
+def test_residential_profile_cannot_request_commercial_source(rag_backend, monkeypatch):
+    monkeypatch.setattr(external_tool, "fetch_source", lambda source_id: pytest.fail("Fonte comercial não permitida"))
+    output = external_tool.build_external_knowledge_tool("residential").invoke({
+        "question": "instalações", "source_id": "epa-commercial-facilities",
+    })
+    assert output == {"status": "insufficient_data", "chunks": []}
+
+
+def test_partial_failure_keeps_successful_sources_and_reports_missing_one(rag_backend, monkeypatch):
+    def fetch(source_id):
+        if source_id == "epa-residential-saving":
+            raise ExternalSourceError("MENSAGEM PRIVADA DO SERVIÇO")
+        return make_snapshot(source_id=source_id)
+    monkeypatch.setattr(external_tool, "fetch_source", fetch)
+    output = external_tool.build_external_knowledge_tool("residential").invoke({"question": "banho"})
+    assert output["status"] == "ok"
+    assert output["unavailable_sources"] == ["epa-residential-saving"]
+    assert {chunk["source_id"] for chunk in output["chunks"]} == {"midr-water-conservation"}
+    assert "MENSAGEM PRIVADA" not in json.dumps(output)
+    assert "publicação: não informada" in output["chunks"][0]["citation"]
+
+
+def test_agent_binds_backend_profile_and_contains_watersense_restriction(rag_backend, monkeypatch):
+    fetched = []
+    def fetch(source_id):
+        fetched.append(source_id)
+        return make_snapshot(source_id=source_id)
+    monkeypatch.setattr(external_tool, "fetch_source", fetch)
+    with patch("app.agents.rag.create_agent") as create:
+        RagAgent(7, llm=object(), access_kind="organizational")
+        options = create.call_args.kwargs
+    external = next(tool for tool in options["tools"] if tool.name == "search_external_knowledge")
+    external.invoke({"question": "instalações"})
+    assert fetched == ["midr-water-conservation", "epa-commercial-facilities"]
+    assert "Não indique, recomende ou promova WaterSense" in options["system_prompt"]
+    assert "URL original" in options["system_prompt"]

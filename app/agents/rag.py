@@ -11,7 +11,7 @@ from app.config import ConfigurationError
 from app.observability.diagnostics import current_trace
 from app.services.prompts import RAG_PROMPT_COMPLETO, profile_block
 from app.tools.rag import search_knowledge_base
-from app.tools.external_knowledge import search_external_knowledge
+from app.tools.external_knowledge import build_external_knowledge_tool
 
 
 class RagAgent:
@@ -32,7 +32,7 @@ class RagAgent:
 
         self.agent = create_agent(
             model=llm,
-            tools=[search_knowledge_base, search_external_knowledge],
+            tools=[search_knowledge_base, build_external_knowledge_tool(access_kind)],
             system_prompt=RAG_PROMPT_COMPLETO + profile_block(access_kind),
         )
 
