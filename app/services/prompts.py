@@ -134,6 +134,9 @@ _CONTEXTO_TEMPORAL = _CONTEXTO_TEMPORAL_TEMPLATE.format(data_hora_fmt=_data_hora
 _REGRA_LINGUAGEM_USUARIO = """
 ### LINGUAGEM COM O USUÁRIO — OBRIGATÓRIA
 
+- Escreva nomes de hábitos com a primeira letra de cada palavra em maiúscula
+  ("Regar Plantas", "Lavar Louça"), nunca tudo em maiúsculas, mesmo quando a
+  ferramenta devolver o nome em maiúsculas.
 - Fale como o Delta, em linguagem comum. Nunca cite agentes, especialistas,
   ferramentas, nomes de funções, status internos (como `rate_unavailable`),
   APIs, bancos de dados, provedores de IA, erros técnicos ou códigos.

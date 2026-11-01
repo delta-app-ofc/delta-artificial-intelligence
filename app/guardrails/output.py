@@ -59,6 +59,17 @@ _TECHNICAL_SENTENCE = re.compile(
 TECHNICAL_FALLBACK = "Não consegui consultar essa informação agora. Tente novamente em instantes."
 
 
+# Nomes do catálogo de hábitos, que o banco guarda em maiúsculas.
+_HABIT_NAMES_UPPER = re.compile(
+    r"(?<![\wÀ-ÿ])(BANHO LONGO|LAVAR QUINTAL|LAVAR ROUPA|REGAR PLANTAS|LAVAR CARRO|LAVAR LOUÇA)(?![\wÀ-ÿ])"
+)
+
+
+def capitalize_habit_names(text: str) -> str:
+    """Troca nomes de hábitos em maiúsculas por "Regar Plantas", "Lavar Louça" etc."""
+    return _HABIT_NAMES_UPPER.sub(lambda match: match.group(1).title(), text)
+
+
 def hide_technical_details(text: str) -> str:
     """Remove frases com detalhes internos (agentes, ferramentas, erros de API ou de banco).
 
