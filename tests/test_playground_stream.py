@@ -195,9 +195,11 @@ def test_chat_sem_stream_tambem_devolve_o_id_sem_redacao(client, monkeypatch):
     monkeypatch.setattr(playground, "run_workflow", lambda *a, **k: {**ESTADO_FINAL})
     monkeypatch.setattr(playground.uuid, "uuid4", lambda: UUID_QUE_PARECE_TELEFONE)
 
+    mongo_id = "abcdef123456789012abcdef"
+    monkeypatch.setattr(playground, "create_session", lambda *a: mongo_id)
     resposta = client.post("/playground/chat", json={"message": "oi"})
 
-    assert resposta.json()["session_id"] == UUID_QUE_PARECE_TELEFONE
+    assert resposta.json()["session_id"] == mongo_id
 
 
 @pytest.mark.parametrize("legacy_id", [None, "minha-sessao", "bdf41203-aeee-4111-b111-aef123456789"])
