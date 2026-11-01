@@ -233,6 +233,28 @@ export function renderExecutionTerminal(target, result, busy = false) {
   }
   target.append(createExecutionTerminal(result));
 }
+// Efeito de digitação: a resposta nova aparece aos poucos para dar sensação de progresso.
+const TYPING_TICK_MS = 18;
+const TYPING_TARGET_MS = 2500;
+function startTyping(message) {
+  if (message.typingTimer || message.typingDone) return;
+  const total = message.text.length;
+  const step = Math.max(2, Math.ceil(total / (TYPING_TARGET_MS / TYPING_TICK_MS)));
+  message.typed = message.typed || 0;
+  message.typingTimer = setInterval(() => {
+    message.typed = Math.min(total, message.typed + step);
+    const node = message.bodyNode;
+    if (node?.isConnected) {
+      node.replaceChildren();
+      renderMarkdown(node, message.text.slice(0, message.typed));
+      node.classList.toggle('typing', message.typed < total);
+      const area = node.closest('#messages');
+      if (area) area.scrollTop = area.scrollHeight;
+    }
+    if (message.typed >= total) { clearInterval(message.typingTimer); message.typingTimer = null; message.typingDone = true; }
+  }, TYPING_TICK_MS);
+}
+
 export function renderMessages(target, messages, tab) {
   if (window.Plotly) target.querySelectorAll('.chart').forEach(chart => window.Plotly.purge(chart));
   target.replaceChildren();
@@ -249,7 +271,11 @@ export function renderMessages(target, messages, tab) {
     meta.append(element('span', 'message-role', message.role === 'user' ? '↗' : 'δ'), element('span', '', message.role === 'user' ? 'Você' : 'Delta'));
     const body = element('div', 'message-body');
     if (message.role === 'user' || message.role === 'system') body.textContent = String(message.text ?? '');
-    else renderMarkdown(body, message.text);
+    else {
+      const animate = message.animate && !message.typingDone && !window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
+      renderMarkdown(body, animate ? message.text.slice(0, message.typed || 0) : message.text);
+      if (animate) { body.classList.add('typing'); message.bodyNode = body; startTyping(message); }
+    }
     node.append(meta, body);
     if (message.context) node.append(details('Ver entrada da avaliação', [['Resposta e evidências enviadas', message.context]]));
     if (message.result) {
