@@ -45,6 +45,7 @@ _TOOL_LABELS = {
     "get_habits_by_day": "Lendo os hábitos do dia",
     "create_habit": "Cadastrando o hábito",
     "estimate_habit_water_impact": "Estimando o impacto do hábito",
+    "estimate_habit_water_cost": "Estimando o custo do hábito",
     "get_weather_history": "Consultando o clima",
     "search_knowledge_base": "Buscando na documentação do Delta",
 }
