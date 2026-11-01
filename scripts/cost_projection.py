@@ -3,7 +3,7 @@
 Uso: python -m scripts.cost_projection [--pdf NOME]
 
 Usa só o custo medido nas requisições registradas; sem requisições, não há projeção
-(nada é estimado). O PDF é salvo em relatorios/NOME.pdf.
+(nada é estimado). O PDF é salvo em reports/NOME.pdf.
 """
 from __future__ import annotations
 
@@ -14,11 +14,11 @@ import re
 from app.observability.metrics import load_records, project, summarize
 from app.observability.report import build_pdf
 
-REPORTS_DIR = Path("relatorios")
+REPORTS_DIR = Path("reports")
 
 
 def pdf_path(name: str) -> Path:
-    """Aceita só um nome simples: o arquivo sempre fica dentro de relatorios/."""
+    """Aceita só um nome simples: o arquivo sempre fica dentro de reports/."""
     stem = re.sub(r"[^A-Za-z0-9_-]", "", Path(name).stem)
     if not stem:
         raise ValueError("Informe um nome de arquivo com letras, números, - ou _.")
@@ -27,7 +27,7 @@ def pdf_path(name: str) -> Path:
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--pdf", help="nome do relatório em PDF (salvo em relatorios/NOME.pdf)")
+    parser.add_argument("--pdf", help="nome do relatório em PDF (salvo em reports/NOME.pdf)")
     args = parser.parse_args()
     target = pdf_path(args.pdf) if args.pdf else None
 

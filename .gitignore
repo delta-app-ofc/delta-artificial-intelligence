@@ -135,4 +135,4 @@ desktop.ini
 TASK*.md
 # Relatórios locais de teste e cobertura
 reports/
-relatorios/
+.scannerwork/
