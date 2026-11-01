@@ -34,7 +34,7 @@ sem fluxo de aplicação implementado.
 - `app/tools/forecast/tools.py` reúne ferramentas que consultam dados e chamam os cálculos. O usuário residencial usa PostgreSQL e MongoDB; o caminho organizacional consulta dados consolidados no PostgreSQL.
 - `app/tools/leak/tools.py` consulta anomalias e alertas já registrados no MongoDB. `app/tools/leak/analysis.py` resume esses sinais; não implementa o motor que detecta vazamentos.
 - `app/data/db_postgres.py` contém consultas PostgreSQL para os caminhos residencial e organizacional; `app/data/db_mongo.py` contém leituras de telemetria e dados da aplicação.
-- O conector PostgreSQL usa settings, preserva opções da URI e abre uma conexão por operação, sem pool. Aplica `connect_timeout` e `statement_timeout`, fecha cursor/conexão mesmo em falhas e distingue ausência de dados de erro de banco com mensagens públicas seguras.
+- O conector PostgreSQL usa settings, preserva opções da URI e usa um pool de conexões por processo (`DB_POOL_*`, fechado por `close_pool()` no `lifespan`). Aplica `connect_timeout` e `statement_timeout`, fecha cursor/conexão mesmo em falhas e distingue ausência de dados de erro de banco com mensagens públicas seguras.
 - `python -m scripts.check_postgres` valida PostgreSQL com `SELECT 1` sem depender de chaves LLM ou do schema do produto. `delta-handbook/DADOS/IA/agentes/postgres-connection.md` registra configuração e limites; a conexão real continua pendente neste ambiente sem serviço/credenciais.
 - O acesso MongoDB mantém clientes lazy independentes para app/telemetria, com timezone, timeouts e fechamento explícito via `close_clients()`. Falhas não viram ausência de registros; `DatabaseDataError` identifica documento inválido sem expor detalhes brutos.
 - `python -m scripts.check_mongo` verifica ping e leitura de app/telemetria separadamente. A opção `--fixture` exige `APP_ENV=test`, um endpoint loopback por URI, porta explícita e databases distintos prefixados `delta_test_`; limpa somente os IDs próprios. Veja `delta-handbook/DADOS/IA/agentes/mongo-connection.md`. Leitura real de documento permanece pendente neste ambiente.
@@ -62,11 +62,11 @@ Os componentes abaixo foram implementados e têm cobertura de testes:
   `app/guardrails/output.py` (redação de PII na saída).
 - Memória de sessão: `app/memory/session.py` (MongoDB, ownership validado).
 - Memória de longo prazo: `app/memory/long_term.py` (Qdrant + embeddings Gemini).
+- Observabilidade: `app/observability/` mede tokens, custo, latência por etapa/agente, erros, resolução e ROI; aba Monitor no console, PDF e projeção para 100/1000 usuários. Veja `delta-handbook/IA/observabilidade.md`; LangSmith é opcional e a conexão real não foi validada.
 
 ### Componentes ainda sem implementação
 
 - Agente `profile`.
-- Métricas em `app/observability/`.
 
 ### Conhecimento externo via MCP
 
@@ -113,7 +113,7 @@ em uma chamada. Python exige os quatro limites inclusivos configurados em
 `app/config.py`: confidence 0,70, probabilidade da categoria 0,50, suporte factual
 0,60 e relevância 0,25. Não há Score nem etapa de subcritérios. Erro crítico
 bloqueia sempre; erro corrigível ou limite não atingido pede uma revisão e,
-se persistir, bloqueia. Veja `docs/judge-policy.md` e `manual_chat_judge.py`.
+se persistir, bloqueia. Veja `manual_chat_judge.py` e a documentação no `delta-handbook`.
 O runner permite `--no-history` e não imprime candidatas bloqueadas.
 
 ### Estrutura atual
@@ -138,7 +138,6 @@ delta-artificial-intelligence/
 ├── db/
 │   ├── postgres-init/       # Cópias locais de bootstrap PostgreSQL, arquivos 01 a 09
 │   └── README.md
-├── docs/                    # Guias técnicos, inclusive do Agente Juiz
 ├── tests/                   # Testes com provedores, bancos e ferramentas substituídos
 ├── scripts/                 # Diagnóstico do MCP e da fonte pública
 ├── .env.example
@@ -229,6 +228,8 @@ Tipos permitidos: `feat`, `fix`, `refactor`, `docs`, `test` e `style`, `chore`. 
 Os commits seguem Conventional Commits no formato `<tipo>: descrição`, com os mesmos tipos. Mantenha cada alteração coesa e restrita ao repositório e à tarefa correspondente.
 
 ## 8. Padrão de documentação
+
+**Não crie a pasta `docs/` neste repositório.** Toda documentação técnica, de arquitetura e de operação fica no `delta-handbook` (por exemplo, `IA/observabilidade.md`), em branch própria daquele repositório. Aqui só entram o `README.md` e o `AGENTS.md`; comentários e docstrings continuam no código.
 
 Siga o padrão do `delta-handbook`: use Markdown, título e objetivo claros, contexto e justificativas relevantes, seções com hierarquia coerente e nomes de arquivo em minúsculas separados por hífens. Use listas, tabelas, comandos e diagramas quando ajudarem a explicar o conteúdo. Prefira links relativos e confira se apontam para arquivos existentes.
 

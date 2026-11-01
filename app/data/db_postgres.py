@@ -1,12 +1,14 @@
 from __future__ import annotations
 
 import logging
+import threading
 from contextlib import contextmanager
 from datetime import date, datetime, timedelta
 from decimal import Decimal
 from typing import Iterator, Literal
 
 import psycopg2
+from psycopg2.pool import ThreadedConnectionPool
 
 from app.config import get_settings, validate_postgres_config
 from app.tools.exceptions import (
@@ -19,7 +21,13 @@ from app.tools.models import ConsumptionPoint, LastWaterBill, OrganizationProper
 logger = logging.getLogger(__name__)
 
 
+_pool: ThreadedConnectionPool | None = None
+_pool_slots: threading.BoundedSemaphore | None = None
+_pool_lock = threading.Lock()
+
+
 def get_conn():
+    """Conexão direta, fora do pool (útil só para diagnóstico; o acesso normal usa _cursor)."""
     settings = get_settings()
     validate_postgres_config(settings=settings)
     database_url = settings.database_url or ""
@@ -33,21 +41,103 @@ def get_conn():
         raise DatabaseConnectionError("PostgreSQL") from exc
 
 
+def _get_pool() -> tuple[ThreadedConnectionPool, threading.BoundedSemaphore]:
+    """Cria o pool no primeiro uso; o semáforo limita quantas operações usam o pool ao mesmo tempo."""
+    global _pool, _pool_slots
+    with _pool_lock:
+        if _pool is None or _pool_slots is None:
+            settings = get_settings()
+            validate_postgres_config(settings=settings)
+            try:
+                _pool = ThreadedConnectionPool(
+                    settings.db_pool_min_size,
+                    settings.db_pool_max_size,
+                    settings.database_url or "",
+                    connect_timeout=settings.db_connect_timeout_seconds,
+                )
+            except psycopg2.Error as exc:
+                raise DatabaseConnectionError("PostgreSQL") from exc
+            # O psycopg2 só guarda "minconn" conexões ociosas e fecha as outras ao devolver;
+            # depois de abrir as iniciais, sobe o limite para manter até o máximo e evitar reconexões.
+            _pool.minconn = settings.db_pool_max_size
+            _pool_slots = threading.BoundedSemaphore(settings.db_pool_max_size)
+        return _pool, _pool_slots
+
+
+def close_pool() -> None:
+    """Fecha todas as conexões do pool; é seguro chamar mais de uma vez."""
+    global _pool, _pool_slots
+    with _pool_lock:
+        pool, _pool, _pool_slots = _pool, None, None
+    if pool is not None:
+        try:
+            pool.closeall()
+        except Exception as exc:
+            raise DatabaseConnectionError("PostgreSQL") from exc
+
+
+def _discard(pool: ThreadedConnectionPool, conn) -> None:
+    """Devolve ao pool fechando a conexão, sem deixar erro de limpeza escapar."""
+    try:
+        pool.putconn(conn, close=True)
+    except Exception:
+        try:
+            conn.close()
+        except Exception:
+            pass
+
+
+def _start_cursor(pool: ThreadedConnectionPool, holder: dict):
+    """Prepara o cursor com o timeout da consulta; troca uma vez uma conexão quebrada do pool.
+
+    Só roda antes do SQL da operação, então refazer a tentativa nunca repete uma escrita.
+    """
+    timeout_ms = f"{get_settings().db_query_timeout_seconds * 1000}ms"
+    for attempt in (1, 2):
+        conn = holder["conn"]
+        cur = None
+        try:
+            if conn.closed:
+                raise psycopg2.InterfaceError("conexão fechada")
+            cur = conn.cursor()
+            # set_config local expira ao fim da transação: não vaza entre usos do pool.
+            cur.execute("SELECT set_config('statement_timeout', %s, true);", (timeout_ms,))
+            return cur
+        except (psycopg2.OperationalError, psycopg2.InterfaceError) as exc:
+            if cur is not None:
+                try:
+                    cur.close()
+                except Exception:
+                    pass
+            _discard(pool, conn)
+            holder["conn"] = None
+            if attempt == 2:
+                raise DatabaseConnectionError("PostgreSQL") from exc
+            try:
+                holder["conn"] = pool.getconn()
+            except psycopg2.Error as new_exc:
+                raise DatabaseConnectionError("PostgreSQL") from new_exc
+
+
 @contextmanager
 def _cursor() -> Iterator:
-    """Abre e fecha cursor/conexão, protegendo mensagens do driver."""
-    conn = get_conn()
+    """Empresta uma conexão do pool, entrega um cursor e devolve a conexão, protegendo mensagens do driver."""
+    pool, slots = _get_pool()
+    wait_seconds = get_settings().db_pool_wait_seconds
+    if not slots.acquire(timeout=wait_seconds):
+        raise DatabaseConnectionError("PostgreSQL")
+
+    holder: dict = {"conn": None}
     cur = None
     operation_failed = False
     try:
-        cur = conn.cursor()
-        # SET LOCAL funciona com poolers e expira ao encerrar esta transação.
-        cur.execute(
-            "SELECT set_config('statement_timeout', %s, true);",
-            (f"{get_settings().db_query_timeout_seconds * 1000}ms",),
-        )
+        try:
+            holder["conn"] = pool.getconn()
+        except psycopg2.Error as exc:
+            raise DatabaseConnectionError("PostgreSQL") from exc
+        cur = _start_cursor(pool, holder)
         yield cur
-        conn.commit()
+        holder["conn"].commit()
     except psycopg2.Error as exc:
         operation_failed = True
         raise DatabaseQueryError(
@@ -64,12 +154,21 @@ def _cursor() -> Iterator:
                 cur.close()
         except Exception as exc:
             cleanup_error = exc
+        conn = holder["conn"]
+        try:
+            if conn is not None:
+                if conn.closed:
+                    # Conexão fechada ou quebrada: sai do pool. Erro de consulta (inclusive timeout)
+                    # com a conexão saudável não descarta nada.
+                    _discard(pool, conn)
+                else:
+                    # putconn desfaz transação aberta, então uma falha nunca contamina o próximo uso.
+                    pool.putconn(conn)
+        except Exception as exc:
+            if cleanup_error is None:
+                cleanup_error = exc
         finally:
-            try:
-                conn.close()
-            except Exception as exc:
-                if cleanup_error is None:
-                    cleanup_error = exc
+            slots.release()
 
         if cleanup_error is not None and not operation_failed:
             if isinstance(cleanup_error, psycopg2.Error):
@@ -155,6 +254,23 @@ def get_last_water_bill(user_id: int) -> LastWaterBill | None:
         total_value=Decimal(str(row[2])),
         m3_value=Decimal(str(row[3])),
     )
+
+
+def is_user_active(user_id: int) -> bool:
+    """True só se o usuário existe e está ativo (tb_user.is_active), a mesma regra do back-end.
+
+    Uma consulta indexada pela chave primária, na conexão que já está no pool.
+    """
+    try:
+        with _cursor() as cur:
+            cur.execute("SELECT fn_user_is_active(%s);", (user_id,))
+            row = cur.fetchone()
+    except DatabaseQueryError as exc:
+        # fn_user_is_active levanta uma exceção (P0001) quando o usuário não existe.
+        if exc.code == "P0001":
+            return False
+        raise
+    return bool(row and row[0])
 
 
 def get_user_access_kind(user_id: int) -> Literal["residential", "organizational", "none"]:

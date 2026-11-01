@@ -1,3 +1,4 @@
+import threading
 from datetime import datetime, timezone
 from types import SimpleNamespace
 
@@ -13,8 +14,9 @@ from app.tools.exceptions import (
 
 
 class FakeCursor:
-    def __init__(self, *, execute_error=None):
+    def __init__(self, *, execute_error=None, query_error=None):
         self.execute_error = execute_error
+        self.query_error = query_error
         self.executed = []
         self.closed = False
 
@@ -22,6 +24,8 @@ class FakeCursor:
         self.executed.append((query, params))
         if self.execute_error:
             raise self.execute_error
+        if self.query_error and "set_config" not in query:
+            raise self.query_error
 
     def close(self):
         self.closed = True
@@ -43,15 +47,35 @@ class FakeConnection:
         self.closed = True
 
 
-def test_postgres_cursor_sets_scoped_timeout_and_closes_after_commit(monkeypatch):
-    cursor = FakeCursor()
-    connection = FakeConnection(cursor)
-    monkeypatch.setattr(db_postgres, "get_conn", lambda: connection)
+class FakePool:
+    """Pool mínimo: entrega sempre a mesma conexão e registra como ela foi devolvida."""
+
+    def __init__(self, connection):
+        self.connection = connection
+        self.returned = []
+
+    def getconn(self):
+        return self.connection
+
+    def putconn(self, connection, close=False):
+        self.returned.append((connection, close))
+
+
+def use_pool(monkeypatch, connection):
+    pool = FakePool(connection)
+    monkeypatch.setattr(db_postgres, "_get_pool", lambda: (pool, threading.BoundedSemaphore(1)))
     monkeypatch.setattr(
         db_postgres,
         "get_settings",
-        lambda: SimpleNamespace(db_query_timeout_seconds=7),
+        lambda: SimpleNamespace(db_query_timeout_seconds=7, db_pool_wait_seconds=1),
     )
+    return pool
+
+
+def test_postgres_cursor_sets_scoped_timeout_and_returns_connection_after_commit(monkeypatch):
+    cursor = FakeCursor()
+    connection = FakeConnection(cursor)
+    pool = use_pool(monkeypatch, connection)
 
     with db_postgres._cursor() as active_cursor:
         assert active_cursor is cursor
@@ -63,27 +87,39 @@ def test_postgres_cursor_sets_scoped_timeout_and_closes_after_commit(monkeypatch
     )
     assert connection.commits == 1
     assert cursor.closed is True
-    assert connection.closed is True
+    # a conexão volta ao pool aberta, pronta para a próxima operação
+    assert pool.returned == [(connection, False)]
+    assert connection.closed is False
 
 
 def test_postgres_query_error_is_sanitized_and_does_not_commit(monkeypatch):
-    cursor = FakeCursor(execute_error=psycopg2.OperationalError("secret host details"))
+    cursor = FakeCursor(query_error=psycopg2.OperationalError("secret host details"))
     connection = FakeConnection(cursor)
-    monkeypatch.setattr(db_postgres, "get_conn", lambda: connection)
-    monkeypatch.setattr(
-        db_postgres,
-        "get_settings",
-        lambda: SimpleNamespace(db_query_timeout_seconds=7),
-    )
+    pool = use_pool(monkeypatch, connection)
 
     with pytest.raises(DatabaseQueryError) as caught:
+        with db_postgres._cursor() as active_cursor:
+            active_cursor.execute("SELECT 1;")
+
+    assert "secret host details" not in str(caught.value)
+    assert connection.commits == 0
+    assert cursor.closed is True
+    assert pool.returned == [(connection, False)]  # conexão saudável: volta ao pool
+
+
+def test_postgres_broken_connection_is_sanitized_and_discarded(monkeypatch):
+    """Erro já ao preparar a conexão (set_config) indica conexão quebrada: vira erro de conexão."""
+    cursor = FakeCursor(execute_error=psycopg2.OperationalError("secret host details"))
+    connection = FakeConnection(cursor)
+    pool = use_pool(monkeypatch, connection)
+
+    with pytest.raises(DatabaseConnectionError) as caught:
         with db_postgres._cursor():
             pass
 
     assert "secret host details" not in str(caught.value)
     assert connection.commits == 0
-    assert cursor.closed is True
-    assert connection.closed is True
+    assert all(close is True for _, close in pool.returned)  # todas as tentativas foram descartadas
 
 
 class FakeMongoCursor:

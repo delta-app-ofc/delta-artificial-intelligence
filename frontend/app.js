@@ -6,10 +6,11 @@ import leak from './tabs/leak.js';
 import habits from './tabs/habits.js';
 import rag from './tabs/rag.js';
 import judge from './tabs/judge.js';
-import { element, pretty, requestJSON, renderSignals, renderDiagnostics, renderExecutionTerminal, renderMessages } from './shared.js';
+import monitor from './tabs/monitor.js';
+import { element, pretty, requestJSON, streamChat, formatSeconds, renderProgress, renderSignals, renderDiagnostics, renderExecutionTerminal, renderMessages } from './shared.js';
 
-const tabs = [chat, router, consumption, forecast, leak, habits, rag, judge];
-const icons = ['✦', '⑂', '◷', '↗', '◈', '◎', '▤', '⚖'];
+const tabs = [chat, router, consumption, forecast, leak, habits, rag, judge, monitor];
+const icons = ['✦', '⑂', '◷', '↗', '◈', '◎', '▤', '⚖', '▥'];
 const states = Object.fromEntries(tabs.map(tab => [tab.id, {
   messages: [], draft: '', fields: Object.fromEntries((tab.fields || []).map(field => [field.name, field.defaultValue ?? ''])),
   sessionId: null, busy: false, latest: null, localError: '', chartWarnings: [],
@@ -50,6 +51,12 @@ function selectTab(id) {
     button.setAttribute('aria-selected', String(selected)); button.tabIndex = selected ? 0 : -1;
   });
   byId('workspace').setAttribute('aria-labelledby', `tab-${id}`);
+  const isMonitor = tab.mode === 'monitor';
+  byId('console-grid').hidden = isMonitor; byId('monitor-view').hidden = !isMonitor;
+  if (isMonitor) {
+    monitor.render(byId('monitor-view'), { element, requestJSON })
+      .catch(error => byId('monitor-view').replaceChildren(element('p', 'signal error', error.message || 'Não foi possível exibir o Monitor.')));
+  }
   byId('page-title').textContent = tab.title;
   byId('page-description').textContent = tab.description;
   byId('workspace-label').textContent = tab.label;
@@ -108,6 +115,7 @@ function renderControls() {
   const agent = config?.agents?.find(item => item.id === tab.id);
   const badge = byId('availability');
   badge.className = 'badge';
+  badge.hidden = tab.mode === 'monitor';
   if (configLoading) badge.textContent = 'Carregando configuração';
   else if (!config?.enabled) { badge.textContent = 'Console indisponível'; badge.classList.add('error'); }
   else if (agent?.status === 'pending') { badge.textContent = 'Implementação pendente'; badge.classList.add('pending'); }
@@ -151,15 +159,27 @@ byId('request-form').addEventListener('submit', async event => {
   state.busy = true; state.localError = ''; state.chartWarnings = []; state.latest = null;
   const context = tab.mode === 'judge' && tab.fields?.length ? { answer: payload.answer, evidence: payload.evidence } : null;
   state.messages.push({ role: 'user', text: message, context });
+  // Cartão de progresso: bolinha animada, etapa atual e tempo. No chat, as etapas chegam ao vivo pelo SSE.
+  const progress = { role: 'progress', steps: [], startedAt: performance.now(), node: null, idle: tab.mode === 'chat' ? 'Enviando a mensagem…' : 'Executando…' };
+  state.messages.push(progress);
   state.draft = ''; byId('message').value = ''; renderCurrent();
-  const endpoint = tab.mode === 'chat' ? '/playground/chat' : tab.mode === 'router' ? '/playground/router' : `/playground/agents/${encodeURIComponent(tab.id)}`;
+  const refreshProgress = () => {
+    if (activeId !== tab.id || !progress.node?.isConnected) return;
+    const next = renderProgress(progress);
+    progress.node.replaceWith(next); progress.node = next;
+    const area = byId('messages'); area.scrollTop = area.scrollHeight;
+  };
+  const onStage = step => { progress.steps.push({ stage: step.stage, label: step.label, at: performance.now() - progress.startedAt }); refreshProgress(); };
+  const endpoint = tab.mode === 'chat' ? '/playground/chat/stream' : tab.mode === 'router' ? '/playground/router' : `/playground/agents/${encodeURIComponent(tab.id)}`;
+  const init = { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) };
   try {
-    const result = await requestJSON(endpoint, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
+    const result = tab.mode === 'chat' ? await streamChat(endpoint, init, onStage) : await requestJSON(endpoint, init);
     if (!result || typeof result !== 'object' || typeof result.response !== 'string' || !result.diagnostics) throw new Error('A API retornou um resultado fora do contrato do console.');
     state.latest = result;
     if (typeof result.session_id === 'string') state.sessionId = result.session_id;
     state.messages.push({
       role: 'assistant', text: result.response || 'A API não retornou texto para esta execução.', chart: result.chart_data, result,
+      steps: progress.steps, totalMs: performance.now() - progress.startedAt,
       inspect: saved => { state.latest = saved; state.localError = ''; if (activeId === tab.id) renderPanels(); },
       onChartError: warning => { if (!state.chartWarnings.includes(warning)) state.chartWarnings.push(warning); if (activeId === tab.id) renderPanels(); },
     });
@@ -169,6 +189,8 @@ byId('request-form').addEventListener('submit', async event => {
     // A mensagem permanece recuperável para uma nova tentativa sem perder o histórico.
     if (!state.draft) state.draft = message;
   } finally {
+    const progressIndex = state.messages.indexOf(progress);
+    if (progressIndex >= 0) state.messages.splice(progressIndex, 1);
     state.busy = false;
     // A resposta pertence à aba capturada no envio, mesmo que a pessoa mude de aba.
     if (activeId === tab.id) { byId('message').value = state.draft; renderCurrent(); }
@@ -185,6 +207,8 @@ async function loadConfig() {
   } catch (error) { config = null; configError = error.message; }
   finally { configLoading = false; renderPanels(); renderControls(); }
 }
+// O cronômetro do cartão de progresso anda sem redesenhar a conversa.
+setInterval(() => document.querySelectorAll('.progress-timer').forEach(node => { node.textContent = formatSeconds(performance.now() - Number(node.dataset.startedAt)); }), 200);
 const media = window.matchMedia('(max-width: 950px)');
 const updateOrientation = () => byId('tabs').setAttribute('aria-orientation', media.matches ? 'horizontal' : 'vertical');
 media.addEventListener('change', updateOrientation); updateOrientation();

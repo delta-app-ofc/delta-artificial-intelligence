@@ -18,4 +18,5 @@ mcp>=2.2,<3
 qdrant-client
 plotly
 langchain-typesafe==0.0.1a3
-pyjwt>=2.10,<3
+pyjwt[crypto]>=2.10,<3
+reportlab>=4.0

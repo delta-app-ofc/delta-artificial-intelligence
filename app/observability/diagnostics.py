@@ -43,7 +43,7 @@ _ALLOWED_EVENT_METADATA = {
 # Contagens numéricas de uso do modelo não são tokens de autenticação.
 _TOKEN_USAGE_FIELDS = {
     "input_tokens", "output_tokens", "total_tokens", "cached_tokens",
-    "cached_input_tokens", "reasoning_tokens",
+    "cached_input_tokens", "reasoning_tokens", "embedding_tokens", "jev_tokens",
 }
 _SECRET_KEY = re.compile(
     r"password|senha|secret|api.?key|authorization|pii.?map|token|credential|private.?key",
@@ -305,6 +305,7 @@ class Trace:
     mode: str
     user_id: int | str | None = None
     test_label: str | None = None
+    client: str = "unknown"
     request_id: str = field(default_factory=lambda: uuid4().hex)
     started: float = field(default_factory=perf_counter)
     models: list = field(default_factory=list)
@@ -560,6 +561,34 @@ def fallback_call():
         _fallback.reset(token)
 
 
+def _token_usage(response: Any) -> dict:
+    """Lê as contagens de tokens da resposta; sem uso informado ou com formato inesperado, devolve vazio."""
+    try:
+        return _read_token_usage(response)
+    except Exception:
+        return {}
+
+
+def _read_token_usage(response: Any) -> dict:
+    try:
+        usage = response.generations[0][0].message.usage_metadata
+    except (AttributeError, IndexError, TypeError):
+        usage = None
+    if not isinstance(usage, Mapping):
+        raw = (getattr(response, "llm_output", None) or {}).get("token_usage") or {}
+        usage = {"input_tokens": raw.get("prompt_tokens"), "output_tokens": raw.get("completion_tokens")}
+    result = {}
+    for key in ("input_tokens", "output_tokens"):
+        value = usage.get(key)
+        if isinstance(value, int) and not isinstance(value, bool) and value >= 0:
+            result[key] = value
+    details = usage.get("output_token_details")
+    reasoning = details.get("reasoning") if isinstance(details, Mapping) else None
+    if isinstance(reasoning, int) and not isinstance(reasoning, bool) and reasoning >= 0:
+        result["reasoning_tokens"] = reasoning
+    return result
+
+
 class ModelDiagnostics(BaseCallbackHandler):
     """Registra provedor, modelo, resultado e falha segura das chamadas LangChain."""
     run_inline = True
@@ -603,7 +632,7 @@ class ModelDiagnostics(BaseCallbackHandler):
             # Diagnósticos de callback não podem impedir a chamada ao modelo.
             return
 
-    def _finish(self, run_id, status, error: BaseException | None = None):
+    def _finish(self, run_id, status, error: BaseException | None = None, usage: Mapping | None = None):
         with self.lock:
             run = self.runs.pop(run_id, None)
         if not run:
@@ -612,6 +641,8 @@ class ModelDiagnostics(BaseCallbackHandler):
         duration_ms = round((perf_counter() - start) * 1000, 1)
         with trace.lock:
             row.update(status=status, duration_ms=duration_ms)
+            if usage:
+                row.update(usage)
         if error is not None:
             try:
                 record = trace.error(
@@ -643,7 +674,7 @@ class ModelDiagnostics(BaseCallbackHandler):
 
     def on_llm_end(self, response, *, run_id, **kwargs):
         try:
-            self._finish(run_id, "success")
+            self._finish(run_id, "success", usage=_token_usage(response))
         except Exception:
             return
 
@@ -657,8 +688,27 @@ class ModelDiagnostics(BaseCallbackHandler):
             return
 
 
+def _count_embedding_tokens(model: str, texts) -> int | None:
+    """Conta os tokens do texto enviado com o count_tokens oficial do Google.
+
+    A resposta de embed_content não traz o uso, então a contagem é uma chamada à parte.
+    Se falhar, devolve None: o custo é marcado como sem contagem em vez de estimado.
+    """
+    if not texts:
+        return None
+    try:
+        from google import genai
+
+        from app.config import get_settings
+
+        client = genai.Client(api_key=get_settings().gemini_api_key)
+        return int(client.models.count_tokens(model=model, contents=list(texts)).total_tokens)
+    except Exception:
+        return None
+
+
 @contextmanager
-def embedding_call(model: str):
+def embedding_call(model: str, texts=None):
     """Registra embeddings, que não passam pelos callbacks de modelos de chat."""
     trace = current_trace()
     component_name = current_component()
@@ -682,9 +732,12 @@ def embedding_call(model: str):
             status="running",
             metadata={"provider": "google", "model": model},
         )
+    ended = None
     try:
         yield
+        ended = perf_counter()
         row["status"] = "success"
+        row["input_tokens"] = _count_embedding_tokens(model, texts)
     except Exception as error:
         row["status"] = "error"
         if trace:
@@ -701,7 +754,7 @@ def embedding_call(model: str):
                 pass
         raise
     finally:
-        duration_ms = round((perf_counter() - start) * 1000, 1)
+        duration_ms = round(((ended or perf_counter()) - start) * 1000, 1)
         row["duration_ms"] = duration_ms
         if trace:
             trace.event(

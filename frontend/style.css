@@ -277,6 +277,10 @@ h1 {
   font-size:10px;
 }
 
+.badge[hidden] {
+  display:none;
+}
+
 .badge.pending {
   color:var(--warning);
   border-color:#64573f;
@@ -1193,3 +1197,61 @@ h2 {
 .event-terminal-actions button[aria-pressed="true"] { background:#314760; color:#eef5ff; border-color:#7695bf; }
 .event-terminal-output > .event-terminal-request { padding:0 0 16px; color:#8ca4c2; }
 .event-terminal-dialog .event-terminal { border:0; border-radius:0; }
+
+#monitor-view[hidden], #console-grid[hidden] { display:none; }
+#monitor-view { display:grid; gap:22px; min-width:0; }
+
+.mon-toolbar { display:flex; align-items:center; justify-content:flex-end; gap:10px; flex-wrap:wrap; }
+.mon-sample { margin-right:auto; font-size:12px; color:var(--muted); }
+.mon-toolbar .button { text-decoration:none; display:inline-block; }
+
+.mon-groups { display:grid; gap:18px; }
+.mon-group-title { margin:0 0 10px; font-size:10px; font-weight:550; letter-spacing:1.25px; text-transform:uppercase; color:var(--blue-light); }
+.mon-kpis { display:grid; grid-template-columns:repeat(auto-fit,minmax(170px,1fr)); gap:12px; }
+.mon-kpi { display:flex; flex-direction:column; gap:4px; min-width:0; padding:14px 16px; border:1px solid var(--line); border-radius:16px; background:var(--surface); }
+.mon-kpi strong { font-size:22px; font-weight:550; line-height:1.2; overflow-wrap:anywhere; }
+.mon-kpi-label { font-size:11px; color:var(--muted); }
+.mon-kpi-hint { font-size:10px; color:var(--muted); }
+.mon-kpi.ok strong { color:var(--cyan); }
+.mon-kpi.bad { border-color:#6c4643; }
+.mon-kpi.bad strong { color:var(--danger); }
+
+.mon-charts { display:grid; grid-template-columns:repeat(auto-fit,minmax(min(100%,420px),1fr)); gap:18px; }
+.mon-chart-panel { min-width:0; }
+.mon-plot { width:100%; min-width:0; padding:12px 14px 8px; }
+.mon-plot .neutral-message { margin:0; padding:24px 4px; }
+
+.mon-table-panel { min-width:0; }
+.mon-table-scroll { overflow-x:auto; }
+.mon-table { width:100%; border-collapse:collapse; font-size:12px; font-variant-numeric:tabular-nums; }
+.mon-table th, .mon-table td { padding:11px 18px; text-align:left; white-space:nowrap; border-bottom:1px solid var(--line); }
+.mon-table th { font-size:10px; font-weight:550; letter-spacing:.6px; text-transform:uppercase; color:var(--muted); }
+.mon-table .num { text-align:right; }
+.mon-table tbody tr:last-child td { border-bottom:0; }
+.mon-table tbody tr:hover { background:#262a2d; }
+.mon-note { margin:0; padding:14px 18px; border-top:1px solid var(--line); font-size:11px; color:var(--muted); }
+
+/* Progresso da execução: bolinhas que crescem e sobem, etapa atual, cronômetro e etapas já feitas. */
+.progress-card { display:flex; align-items:center; gap:16px; max-width:560px; padding:12px 18px; border:1px solid var(--line); border-radius:13px 13px 13px 3px; background:var(--surface); }
+.progress-bubbles { position:relative; flex-shrink:0; width:52px; height:38px; }
+.bubble { position:absolute; bottom:3px; border-radius:50%; background:var(--blue-light); opacity:.8; }
+.bubble.b1 { left:3px; width:12px; height:12px; }
+.bubble.b2 { left:20px; width:17px; height:17px; background:var(--blue); }
+.bubble.b3 { left:41px; width:9px; height:9px; background:var(--cyan); }
+.progress-info { display:flex; flex-direction:column; min-width:0; }
+.progress-current { color:#e2e7ec; font-size:13px; font-weight:500; overflow-wrap:anywhere; }
+.progress-timer { color:var(--muted); font-size:11px; font-variant-numeric:tabular-nums; }
+.progress-steps { display:grid; gap:4px; margin:12px 0 0 6px; padding:0; list-style:none; color:var(--muted); font-size:12px; }
+.progress-steps li { display:flex; align-items:baseline; gap:9px; }
+.progress-steps li::before { content:'✓'; color:var(--blue-light); }
+.progress-steps .step-time { margin-left:auto; padding-left:18px; font-variant-numeric:tabular-nums; }
+.steps-detail .progress-steps { margin:10px 0 0; }
+@media(prefers-reduced-motion:no-preference) {
+  .bubble { transform-origin:center bottom; animation:bubble-rise 1.5s ease-in-out infinite; }
+  .bubble.b2 { animation-delay:.25s; }
+  .bubble.b3 { animation-delay:.5s; }
+  @keyframes bubble-rise {
+    0%,100% { transform:translateY(0) scale(.75); opacity:.55; }
+    50% { transform:translateY(-17px) scale(1.4); opacity:1; }
+  }
+}

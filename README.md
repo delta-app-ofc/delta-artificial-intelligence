@@ -37,8 +37,10 @@ explícitas, sem substituir uma variável vazia por um default local.
 
 - PostgreSQL aceita `DATABASE_URL` ou o conjunto completo `HOST_DB`,
   `PORT_DB`, `USER_DB`, `PASSWORD_DB`, `NAME_DB`, que tem precedência.
-  Abre uma conexão por operação, preserva opções da URI, aplica timeout de
-  conexão/consulta e fecha cursor e conexão mesmo em falhas.
+  Usa um pool de conexões por processo (`DB_POOL_MIN_SIZE`, `DB_POOL_MAX_SIZE` e
+  `DB_POOL_WAIT_SECONDS`; `workers × DB_POOL_MAX_SIZE` deve ficar abaixo do
+  `max_connections` do PostgreSQL), preserva opções da URI, aplica timeout de
+  conexão/consulta e devolve cursor e conexão ao pool mesmo em falhas.
 - MongoDB mantém clientes lazy separados para app e telemetria, reutilizados
   pelo processo, com datas aware, timeouts e fechamento explícito.
 - Credenciais não são exigidas no import. A validação ocorre por componente
@@ -60,8 +62,8 @@ somente em databases de teste isolados em loopback; veja os requisitos no
 
 Settings são snapshots em cache. Ao trocar configuração em um processo já
 em execução, recarregue os settings e descarte os clientes afetados:
-`clear_llm_cache()` para os modelos gerais e `close_clients()` para os dois
-clientes Mongo. Para liberar os clientes OpenAI, aguarde
+`clear_llm_cache()` para os modelos gerais, `close_clients()` para os dois
+clientes Mongo e `close_pool()` de `app.data.db_postgres` para o pool PostgreSQL. Para liberar os clientes OpenAI, aguarde
 `close_openai_clients()` de `app.services.llms`. Para o RAG, aguarde `close_rag_clients()` de
 `app.services.rag`; para o segundo juiz, aguarde `close_judge_clients()` de
 `app.agents.judge_specialist`. Faça essa recarga sem requisições em andamento.
@@ -654,21 +656,43 @@ uvicorn app.main:app --reload
 | Método | Rota | Descrição |
 |--------|------|-----------|
 | POST | `/chat` | Envia mensagem ao chatbot |
+| POST | `/chat/stream` | Igual ao `/chat`, com as etapas por SSE (`text/event-stream`); a resposta só sai ao final |
 | GET | `/health` | Status dos serviços configurados |
 | GET | `/sessions?limit=20&offset=0` | Lista as sessões do usuário autenticado, da mais recente à mais antiga |
 | GET | `/sessions/{session_id}/messages` | Histórico de uma sessão do usuário |
 | POST | `/sessions/{session_id}/close` | Encerra uma sessão do usuário |
 
-Todas as rotas, exceto `/health` e `/playground`, exigem `Authorization: Bearer <token>`. O token é um JWT
-assinado com HS256 e o segredo `JWT_SECRET` (32 caracteres ou mais), com dois campos: `sub` (o id do usuário,
-inteiro positivo) e `exp` (até quando o token vale). O `user_id` vem só do token; o cliente não o envia. Sem
-`JWT_SECRET` configurado, as rotas respondem 503, e token ausente, inválido ou expirado responde 401. O
-back-end ainda precisa emitir esse token.
+Todas as rotas, exceto `/health` e `/playground`, exigem `Authorization: Bearer <token>`. **Quem emite o token é o
+back-end** (`delta-api-postgres`, `POST /delta/auth/login`); a IA só o confere, sem emitir nada.
+
+- **O token do back-end:** JWT assinado com **RS256** (chave privada dele), válido por 15 minutos. O cabeçalho traz
+  `kid`; os campos são `sub` (o id do usuário em `tb_user`, inteiro positivo), `iss`, `aud` e `exp`.
+- **O que a IA confere** com a **chave pública** do back-end (`AUTH_PUBLIC_KEY`, caminho do PEM com ou sem
+  `file:`, ou o próprio texto PEM; RSA de 2048 bits ou mais): assinatura, `exp`, `iss` (`AUTH_ISSUER`), `aud`
+  (`AUTH_AUDIENCE`), `kid` (`AUTH_KEY_ID`) e `sub`. Os padrões (`delta-api`, `delta-api`, `delta-1`) são os do back-end.
+- **Usuário ativo:** com `AUTH_CHECK_ACTIVE=true` (padrão), cada requisição confere em `tb_user` se o usuário existe e
+  está ativo (`fn_user_is_active`), como o back-end faz. É uma consulta pela chave primária na conexão do pool, cerca
+  de 5 ms contra os 8 a 12 s de uma resposta do chat. Inativo ou inexistente responde o mesmo 401; se o banco não
+  responder, a requisição é bloqueada com 503, sem detalhes.
+- **Respostas:** token ausente, inválido, vencido, de outro emissor ou de outro destinatário, ou `sub` fora do padrão, é
+  **401** (a mesma mensagem para todos os casos). Sem chave pública configurada, é **503**.
+- **Só desenvolvimento e teste:** sem `AUTH_PUBLIC_KEY`, o `JWT_SECRET` (32 caracteres ou mais) habilita um token
+  HS256 com `sub` e `exp`. **Nunca valem os dois ao mesmo tempo** (com a chave pública definida o segredo é ignorado)
+  e o HS256 é recusado em `staging` e `production`. O algoritmo é escolhido pela configuração, nunca pelo token, o
+  que bloqueia o ataque de "confusão de algoritmo".
+
+O `user_id` vem só do token; o cliente não o envia. O app faz o login no back-end, guarda o `accessToken` e o envia
+em cada chamada à IA; quando ele vence, renova no back-end (`/delta/auth/refresh`) e tenta de novo.
 
 `POST /chat` aceita `{"message": "Quanto consumi?"}` (e `session_id` para continuar uma conversa existente;
 ids que o servidor não devolveu retornam 404) e devolve
 `{"response": "...", "agents_used": ["forecast"], "session_id": "...", "chart_data": null}`.
 Sessão de outro usuário e sessão inexistente respondem 404 idêntico, sem revelar se ela existe.
+
+`POST /chat/stream` recebe o mesmo corpo e checa JWT, sessão e histórico antes de abrir o fluxo (401, 404, 503).
+Depois devolve eventos `stage` (etapa e rótulo fixo em português, incluindo o plano "Vou consultar ..." e uma linha por consulta), um único `result` (mesmo JSON do
+`/chat`, depois da validação) ou `error` (`422` mensagem bloqueada, `500` falha). Leia com `fetch`, pois o
+`EventSource` não envia `Authorization`. Detalhes e medições em [redução de latência do chat](https://github.com/delta-app-ofc/delta-handbook/blob/main/IA/reducao-latencia.md), no `delta-handbook`.
 
 `GET /sessions` devolve `{"sessions": [{"session_id", "title", "preview", "icon", "created_at",
 "updated_at", "is_open"}], "total": N}`. Use `limit=4` para a lista da home e `offset` no "ver todos".

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import math
 import os
 from dataclasses import dataclass, field
@@ -177,6 +178,11 @@ class Settings:
     rag_document_path: str | None = field(default=None, repr=False)
     playground_enabled: bool = False
     jwt_secret: str | None = field(default=None, repr=False)
+    auth_public_key: str | None = field(default=None, repr=False)
+    auth_issuer: str = "delta-api"
+    auth_audience: str = "delta-api"
+    auth_key_id: str = "delta-1"
+    auth_check_active: bool = True
     cors_allowed_origins: str = "*"
     jev_confidence_threshold: float = 0.70
     jev_probability_threshold: float = 0.70
@@ -190,6 +196,22 @@ class Settings:
     mcp_external_enabled: bool = False
     mcp_timeout_seconds: float = 45.0
     mcp_cache_ttl_seconds: int = 3600
+    obs_support_cost_usd: float = 8.01  # Gartner, 2019: contato atendido por pessoa (telefone, chat, e-mail)
+    obs_questions_per_user_week: float = 0.0  # 0 = usar o valor medido; não há fonte externa confiável
+    obs_usd_to_brl: float = 5.4212  # PTAX de venda do Banco Central em 30/10/2026
+    obs_latency_p95_limit_ms: float = 8000.0
+    obs_error_rate_limit: float = 0.05
+    obs_prices_json: str | None = None
+    obs_hash_secret: str | None = field(default=None, repr=False)
+    langsmith_tracing: bool = False
+    langsmith_api_key: str | None = field(default=None, repr=False)
+    langsmith_project: str = "delta-ai"
+    openai_fast_reasoning_effort: str = "low"
+    openai_specialist_reasoning_effort: str = "high"
+    db_pool_min_size: int = 1
+    db_pool_max_size: int = 10
+    db_pool_wait_seconds: int = 5
+    langsmith_send_content: bool = False
     _parse_errors: tuple[tuple[str, str], ...] = field(default=(), repr=False)
 
 
@@ -235,6 +257,14 @@ def load_settings(
         else:
             playground_enabled = raw_playground.casefold() == "true"
 
+    auth_check_active = True
+    if "AUTH_CHECK_ACTIVE" in values:
+        raw_check = values["AUTH_CHECK_ACTIVE"]
+        if raw_check is None or raw_check.casefold() not in {"true", "false"}:
+            parse_errors.append(("AUTH_CHECK_ACTIVE", "use true ou false"))
+        else:
+            auth_check_active = raw_check.casefold() == "true"
+
     defaults = app_env == "development"
     if "DATABASE_URL" not in values and defaults:
         database_url = "postgresql://postgres:postgres@localhost:5432/postgres"
@@ -270,9 +300,41 @@ def load_settings(
         else:
             fallback_enabled = raw_fallback.casefold() == "true"
 
+    langsmith_tracing = False
+    if "LANGSMITH_TRACING" in values:
+        raw_tracing = values["LANGSMITH_TRACING"]
+        if raw_tracing is None or raw_tracing.casefold() not in {"true", "false"}:
+            parse_errors.append(("LANGSMITH_TRACING", "use true ou false"))
+        else:
+            langsmith_tracing = raw_tracing.casefold() == "true"
+
+    langsmith_send_content = False
+    if "LANGSMITH_SEND_CONTENT" in values:
+        raw_content = values["LANGSMITH_SEND_CONTENT"]
+        if raw_content is None or raw_content.casefold() not in {"true", "false"}:
+            parse_errors.append(("LANGSMITH_SEND_CONTENT", "use true ou false"))
+        else:
+            langsmith_send_content = raw_content.casefold() == "true"
+
+    obs_prices_json = values.get("OBS_PRICES_JSON")
+    if obs_prices_json is not None:
+        try:
+            prices = json.loads(obs_prices_json)
+            for pair in prices.values():
+                if len(pair) != 2 or not all(math.isfinite(float(item)) and float(item) >= 0 for item in pair):
+                    raise ValueError
+        except (ValueError, TypeError, AttributeError):
+            parse_errors.append(("OBS_PRICES_JSON", 'use um JSON como {"modelo": [entrada, saida]}'))
+            obs_prices_json = None
+
     numeric_settings = {
         "MCP_TIMEOUT_SECONDS": (45.0, float, "deve ser um número finito"),
         "MCP_CACHE_TTL_SECONDS": (3600, int, "deve ser um número inteiro"),
+        "OBS_SUPPORT_COST_USD": (Settings.obs_support_cost_usd, float, "deve ser um número finito"),
+        "OBS_QUESTIONS_PER_USER_WEEK": (Settings.obs_questions_per_user_week, float, "deve ser um número finito"),
+        "OBS_USD_TO_BRL": (Settings.obs_usd_to_brl, float, "deve ser um número finito"),
+        "OBS_LATENCY_P95_LIMIT_MS": (Settings.obs_latency_p95_limit_ms, float, "deve ser um número finito"),
+        "OBS_ERROR_RATE_LIMIT": (Settings.obs_error_rate_limit, float, "deve ser um número finito"),
         "LLM_TIMEOUT_SECONDS": (15.0, float, "deve ser um número finito"),
         "JEV_TIMEOUT_SECONDS": (5.0, float, "deve ser um número finito"),
         "JEV_CONFIDENCE_THRESHOLD": (Settings.jev_confidence_threshold, float, "deve ser um número finito"),
@@ -283,6 +345,9 @@ def load_settings(
         "LLM_MAX_OUTPUT_TOKENS": (4096, int, "deve ser um número inteiro"),
         "DB_CONNECT_TIMEOUT_SECONDS": (5, int, "deve ser um número inteiro"),
         "DB_QUERY_TIMEOUT_SECONDS": (30, int, "deve ser um número inteiro"),
+        "DB_POOL_MIN_SIZE": (1, int, "deve ser um número inteiro"),
+        "DB_POOL_MAX_SIZE": (10, int, "deve ser um número inteiro"),
+        "DB_POOL_WAIT_SECONDS": (5, int, "deve ser um número inteiro"),
     }
     parsed_numbers: dict[str, int | float] = {}
     for name, (default, parse_number, error_message) in numeric_settings.items():
@@ -304,6 +369,12 @@ def load_settings(
         else:
             parsed_numbers[name] = parsed_value
 
+    for name in ("OBS_SUPPORT_COST_USD", "OBS_QUESTIONS_PER_USER_WEEK", "OBS_USD_TO_BRL",
+                 "OBS_LATENCY_P95_LIMIT_MS", "OBS_ERROR_RATE_LIMIT"):
+        if parsed_numbers[name] < 0:
+            parse_errors.append((name, "não pode ser negativo"))
+            parsed_numbers[name] = numeric_settings[name][0]
+
     return Settings(
         app_env=app_env,
         typesafe_api_key=values.get("TYPESAFE_API_KEY"),
@@ -316,6 +387,11 @@ def load_settings(
         judge_specialist_model=values.get("JUDGE_SPECIALIST_MODEL", "gemini-2.5-flash") or "",
         playground_enabled=playground_enabled,
         jwt_secret=values.get("JWT_SECRET"),
+        auth_public_key=values.get("AUTH_PUBLIC_KEY"),
+        auth_issuer=values.get("AUTH_ISSUER", Settings.auth_issuer) or "",
+        auth_audience=values.get("AUTH_AUDIENCE", Settings.auth_audience) or "",
+        auth_key_id=values.get("AUTH_KEY_ID", Settings.auth_key_id) or "",
+        auth_check_active=auth_check_active,
         cors_allowed_origins=values.get("CORS_ALLOWED_ORIGINS") or "*",
         openai_api_key=values.get("OPENAI_API_KEY"),
         openai_model=values.get("OPENAI_MODEL", Settings.openai_model) or "",
@@ -324,6 +400,12 @@ def load_settings(
         mcp_external_enabled=(values.get("MCP_EXTERNAL_ENABLED") or "false").casefold() == "true",
         mcp_timeout_seconds=parsed_numbers["MCP_TIMEOUT_SECONDS"],
         mcp_cache_ttl_seconds=parsed_numbers["MCP_CACHE_TTL_SECONDS"],
+        openai_fast_reasoning_effort=(
+            values.get("OPENAI_FAST_REASONING_EFFORT", Settings.openai_fast_reasoning_effort) or ""
+        ).casefold(),
+        openai_specialist_reasoning_effort=(
+            values.get("OPENAI_SPECIALIST_REASONING_EFFORT", Settings.openai_specialist_reasoning_effort) or ""
+        ).casefold(),
         gemini_api_key=values.get("GEMINI_API_KEY"),
         groq_api_key=values.get("GROQ_API_KEY"),
         database_url=database_url,
@@ -341,6 +423,9 @@ def load_settings(
         llm_max_output_tokens=parsed_numbers["LLM_MAX_OUTPUT_TOKENS"],
         db_connect_timeout_seconds=parsed_numbers["DB_CONNECT_TIMEOUT_SECONDS"],
         db_query_timeout_seconds=parsed_numbers["DB_QUERY_TIMEOUT_SECONDS"],
+        db_pool_min_size=parsed_numbers["DB_POOL_MIN_SIZE"],
+        db_pool_max_size=parsed_numbers["DB_POOL_MAX_SIZE"],
+        db_pool_wait_seconds=parsed_numbers["DB_POOL_WAIT_SECONDS"],
         qdrant_url=values.get("QDRANT_URL"),
         qdrant_api_key=values.get("QDRANT_API_KEY"),
         rag_document_path=values.get(
@@ -352,6 +437,18 @@ def load_settings(
             and (values["MCP_EXTERNAL_ENABLED"] or "").casefold() not in {"true", "false"}
             else ()
         ),
+        obs_support_cost_usd=parsed_numbers["OBS_SUPPORT_COST_USD"],
+        obs_questions_per_user_week=parsed_numbers["OBS_QUESTIONS_PER_USER_WEEK"],
+        obs_usd_to_brl=parsed_numbers["OBS_USD_TO_BRL"],
+        obs_latency_p95_limit_ms=parsed_numbers["OBS_LATENCY_P95_LIMIT_MS"],
+        obs_error_rate_limit=parsed_numbers["OBS_ERROR_RATE_LIMIT"],
+        obs_prices_json=obs_prices_json,
+        obs_hash_secret=values.get("OBS_HASH_SECRET"),
+        langsmith_tracing=langsmith_tracing,
+        langsmith_api_key=values.get("LANGSMITH_API_KEY"),
+        langsmith_project=values.get("LANGSMITH_PROJECT") or Settings.langsmith_project,
+        langsmith_send_content=langsmith_send_content,
+        _parse_errors=tuple(parse_errors),
     )
 
 
@@ -397,6 +494,25 @@ def get_judge_config(*, settings: Settings | None = None) -> Settings:
             problems.append(f"{name} deve estar entre 0 e 1")
     if problems:
         raise ConfigurationError(f"Configuração do Juiz inválida: {', '.join(problems)}.")
+    return current
+
+
+def get_observability_config(*, settings: Settings | None = None) -> Settings:
+    """Retorna os settings de observabilidade e LangSmith já validados."""
+    current = settings or get_settings()
+    problems = [
+        f"{name}: {message}"
+        for name, message in current._parse_errors
+        if name.startswith(("OBS_", "LANGSMITH_")) or name == "APP_ENV"
+    ]
+    if current.obs_hash_secret is not None and len(current.obs_hash_secret) < 16:
+        problems.append("OBS_HASH_SECRET deve ter ao menos 16 caracteres")
+    if not 0 <= current.obs_error_rate_limit <= 1:
+        problems.append("OBS_ERROR_RATE_LIMIT deve estar entre 0 e 1")
+    if current.langsmith_tracing and not current.langsmith_api_key:
+        problems.append("LANGSMITH_API_KEY ausente com LANGSMITH_TRACING=true")
+    if problems:
+        raise ConfigurationError(f"Configuração de observabilidade inválida: {', '.join(problems)}.")
     return current
 
 
@@ -461,6 +577,14 @@ def validate_llm_config(
             problems.append("OPENAI_MODEL ausente ou vazio")
         if current.openai_reasoning_effort not in {"none", "low", "medium", "high", "xhigh", "max"}:
             problems.append("OPENAI_REASONING_EFFORT deve ser none, low, medium, high, xhigh ou max")
+        if current.openai_fast_reasoning_effort and current.openai_fast_reasoning_effort not in {
+            "none", "low", "medium", "high", "xhigh", "max",
+        }:
+            problems.append("OPENAI_FAST_REASONING_EFFORT deve ser none, low, medium, high, xhigh ou max")
+        if current.openai_specialist_reasoning_effort and current.openai_specialist_reasoning_effort not in {
+            "none", "low", "medium", "high", "xhigh", "max",
+        }:
+            problems.append("OPENAI_SPECIALIST_REASONING_EFFORT deve ser none, low, medium, high, xhigh ou max")
     if needs_gemini:
         if not current.gemini_api_key:
             problems.append("GEMINI_API_KEY ausente ou vazio")
@@ -486,7 +610,10 @@ def validate_llm_config(
 def validate_postgres_config(*, settings: Settings | None = None) -> None:
     """Valida a URI PostgreSQL e timeouts sem abrir uma conexão."""
     current = settings or get_settings()
-    names = {"DATABASE_URL", "DB_CONNECT_TIMEOUT_SECONDS", "DB_QUERY_TIMEOUT_SECONDS"}
+    names = {
+        "DATABASE_URL", "DB_CONNECT_TIMEOUT_SECONDS", "DB_QUERY_TIMEOUT_SECONDS",
+        "DB_POOL_MIN_SIZE", "DB_POOL_MAX_SIZE", "DB_POOL_WAIT_SECONDS",
+    }
     problems = [
         f"{name}: {message}"
         for name, message in current._parse_errors
@@ -517,6 +644,12 @@ def validate_postgres_config(*, settings: Settings | None = None) -> None:
         problems.append("DB_CONNECT_TIMEOUT_SECONDS deve ser positivo")
     if current.db_query_timeout_seconds <= 0:
         problems.append("DB_QUERY_TIMEOUT_SECONDS deve ser positivo")
+    if current.db_pool_min_size <= 0:
+        problems.append("DB_POOL_MIN_SIZE deve ser positivo")
+    if current.db_pool_max_size < current.db_pool_min_size:
+        problems.append("DB_POOL_MAX_SIZE deve ser maior ou igual a DB_POOL_MIN_SIZE")
+    if current.db_pool_wait_seconds <= 0:
+        problems.append("DB_POOL_WAIT_SECONDS deve ser positivo")
     if problems:
         raise ConfigurationError(f"Configuração PostgreSQL inválida: {', '.join(problems)}.")
 

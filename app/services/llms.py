@@ -271,20 +271,24 @@ class _FallbackLLM:
             raise LLMUnavailableError(_PUBLIC_UNAVAILABLE_MESSAGE) from None
 
 
-_OPENAI_MODELS: dict[Settings, ChatOpenAI] = {}
+_OPENAI_MODELS: dict[tuple[Settings, str], ChatOpenAI] = {}
 _OPENAI_MODELS_LOCK = Lock()
 
 
-def _get_llm_openai(settings: Settings | None = None) -> ChatOpenAI:
-    """Reutiliza o modelo por snapshot, incluindo credencial e raciocínio."""
+def _get_llm_openai(
+    settings: Settings | None = None, *, reasoning_effort: str | None = None
+) -> ChatOpenAI:
+    """Reutiliza o modelo por snapshot e nível de raciocínio, incluindo a credencial."""
     current = settings or get_settings()
     validate_llm_config(provider="openai", settings=current)
+    effort = reasoning_effort or current.openai_reasoning_effort
+    key = (current, effort)
     with _OPENAI_MODELS_LOCK:
-        if current not in _OPENAI_MODELS:
-            _OPENAI_MODELS[current] = ChatOpenAI(
+        if key not in _OPENAI_MODELS:
+            _OPENAI_MODELS[key] = ChatOpenAI(
                 model=current.openai_model,
                 api_key=current.openai_api_key,
-                reasoning={"effort": current.openai_reasoning_effort},
+                reasoning={"effort": effort},
                 use_responses_api=True,
                 output_version="responses/v1",
                 store=False,
@@ -294,7 +298,7 @@ def _get_llm_openai(settings: Settings | None = None) -> ChatOpenAI:
                 max_tokens=current.llm_max_output_tokens,
                 callbacks=[ModelDiagnostics("openai", current.openai_model)],
             )
-        return _OPENAI_MODELS[current]
+        return _OPENAI_MODELS[key]
 
 
 async def close_openai_clients() -> None:
@@ -357,8 +361,10 @@ def _get_llm_especialista() -> _FallbackLLM:
     if settings.llm_provider == "openai":
         fallback = (_get_llm_groq_especialista()
                     if settings.llm_fallback_enabled and settings.groq_api_key else None)
+        # Os agentes especialistas usam o próprio nível de raciocínio (padrão high); vazio = o geral.
         return _FallbackLLM(
-            _get_llm_openai(), fallback, primary_provider="openai",
+            _get_llm_openai(reasoning_effort=settings.openai_specialist_reasoning_effort or None),
+            fallback, primary_provider="openai",
             primary_model=settings.openai_model, fallback_provider="groq",
             fallback_model=settings.groq_specialist_model if fallback else None,
         )
@@ -380,7 +386,8 @@ def _get_llm_rapido() -> ChatGroq | ChatOpenAI:
     validate_llm_config(provider="fast")
     settings = get_settings()
     if settings.llm_provider == "openai":
-        return _get_llm_openai()
+        # O papel rápido (guarda, roteador, síntese, título) usa o próprio nível (padrão low); vazio = o geral.
+        return _get_llm_openai(reasoning_effort=settings.openai_fast_reasoning_effort or None)
     return ChatGroq(
         model=settings.groq_fast_model,
         callbacks=[ModelDiagnostics("groq", settings.groq_fast_model)],
