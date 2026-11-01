@@ -38,6 +38,8 @@ _TOOL_LABELS = {
     "get_daily_target": "Lendo a meta diária",
     "get_region_rate": "Consultando a tarifa",
     "calculate_forecast": "Calculando a previsão",
+    "get_habit_baseline": "Lendo os hábitos cadastrados",
+    "get_habit_windows": "Lendo os hábitos cadastrados",
     "get_anomalous_windows": "Lendo as janelas de consumo anômalas",
     "get_alerts_history": "Lendo os alertas registrados",
     "summarize_anomalous_windows": "Resumindo os sinais de vazamento",

@@ -18,6 +18,7 @@ from langchain_core.tools import BaseTool, tool
 from app.data import db_mongo, db_postgres
 from app.tools.exceptions import RegionRateNotFound
 from app.tools.forecast import calculations as calc
+from app.tools.habits.calculations import summarize_habit_baseline
 from app.tools.validation import days_error, validate_user_id
 
 # Janela padrão de histórico consultada no MongoDB (dias).
@@ -311,6 +312,31 @@ def build_tools(user_id: int, today: date, access_kind: str | None = None) -> li
         )
         return {"status": "ok", "forecast": _serialize(result)}
 
+    @tool
+    def get_habit_baseline() -> dict:
+        """Litros esperados por semana e por mês dos hábitos cadastrados do usuário.
+
+        Use para explicar de onde pode vir parte do consumo (ex.: lavar carro às
+        segundas) ou como base de uma simulação de mudança de hábito. Os valores são
+        médias de referência (ou o valor do cadastro), não medições do hidrômetro,
+        e não fazem parte do cálculo da previsão. Disponível só para conta
+        residencial; sem hábitos cadastrados, devolve insufficient_data.
+        """
+        kind = access_kind or db_postgres.get_user_access_kind(user_id)
+        if kind != "residential":
+            return {
+                "status": "not_applicable",
+                "message": "Hábitos estão disponíveis apenas para contas residenciais.",
+            }
+        habits = db_postgres.get_user_habits(user_id)
+        if not habits:
+            return {"status": "insufficient_data", "message": "Nenhum hábito cadastrado."}
+        return {
+            "status": "ok",
+            **summarize_habit_baseline(habits),
+            "note": "Estimativa por média de referência; não é medição nem parte da previsão.",
+        }
+
     return [
         check_can_estimate,
         get_last_bill,
@@ -318,4 +344,5 @@ def build_tools(user_id: int, today: date, access_kind: str | None = None) -> li
         get_daily_target,
         get_region_rate,
         calculate_forecast,
+        get_habit_baseline,
     ]
