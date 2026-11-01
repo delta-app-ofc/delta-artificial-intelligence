@@ -8,12 +8,12 @@ import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
-from tests.isolation.helpers import JWT_SECRET
+from tests.isolation.helpers import JWT_SECRET, auth_settings
 
 
 @pytest.fixture
 def jwt_secret(monkeypatch):
-    monkeypatch.setattr("app.auth.get_settings", lambda: SimpleNamespace(jwt_secret=JWT_SECRET))
+    monkeypatch.setattr("app.auth.get_settings", lambda: auth_settings(jwt_secret=JWT_SECRET))
 
 
 @pytest.fixture
