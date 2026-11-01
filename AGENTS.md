@@ -68,6 +68,30 @@ Os componentes abaixo foram implementados e têm cobertura de testes:
 
 - Agente `profile`.
 
+### Conhecimento externo via MCP
+
+`app/integrations/mcp/` contém catálogo fechado, extrator HTML, contrato,
+servidor MCP e cliente stdio. O catálogo adota as três fontes propostas no
+handbook: MIDR, EPA Start Saving e EPA Types of Facilities. O Senado foi retirado
+do catálogo ativo. `app/tools/external_knowledge.py` recupera artigos públicos
+com top-k e filtros exatos de tema/fonte. `RagAgent` vincula a ferramenta ao perfil
+confiável: residential para residencial e organizational para comercial. O LLM
+não recebe argumento livre de perfil. Sem perfil, somente a fonte geral é usada.
+O prompt proíbe recomendar WaterSense, seus programas, selos e produtos, mantendo
+a URL original da EPA na citação. Não invente tarifas a partir dessas páginas. A busca exige
+`MCP_EXTERNAL_ENABLED=true`, além dos settings Gemini/Qdrant. O subprocesso
+recebe somente o identificador da fonte; não recebe perguntas ou credenciais
+do backend. O transporte é local, sem serviço HTTP público.
+
+As fontes externas usam o mesmo modelo e esquema de `rag_documents`, com
+identificador próprio, revisão, URL e localização no texto extraído. Nunca
+recrie uma coleção incompatível. O RAG mantém documentação interna e conteúdo
+externo separados e leva os trechos ao Juiz. `scripts/check_mcp.py` verifica
+MCP e fonte pública sem banco/LLM; os testes novos distinguem HTTP controlado,
+protocolo real, Qdrant em memória e grafo com modelos substituídos. A2A foi
+excluído por decisão de negócio em 01/11/2026; não deve ser implementado nem
+tratado como pendência desta entrega.
+
 API, grafo, guardrails, memória e agentes registrados têm código. Verifique
 o comportamento e as dependências reais antes de descrevê-los como validados.
 
@@ -102,6 +126,7 @@ delta-artificial-intelligence/
 │   ├── data/                # Acesso PostgreSQL e MongoDB
 │   ├── graph/               # Workflow LangGraph, router, state, context e revisão do Juiz
 │   ├── guardrails/          # Validações de entrada e saída (PII, injeção)
+│   ├── integrations/mcp/    # Catálogo público, servidor e cliente MCP stdio
 │   ├── memory/              # Sessão (MongoDB) e longo prazo (Qdrant)
 │   ├── observability/       # Reservado para métricas
 │   ├── routes/              # API HTTP: chat, health, sessions e playground
@@ -114,6 +139,7 @@ delta-artificial-intelligence/
 │   ├── postgres-init/       # Cópias locais de bootstrap PostgreSQL, arquivos 01 a 09
 │   └── README.md
 ├── tests/                   # Testes com provedores, bancos e ferramentas substituídos
+├── scripts/                 # Diagnóstico do MCP e da fonte pública
 ├── .env.example
 ├── AGENTS.md
 ├── docker-compose.dev.yml   # PostgreSQL e MongoDB locais para desenvolvimento manual

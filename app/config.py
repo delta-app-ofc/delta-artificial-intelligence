@@ -193,6 +193,9 @@ class Settings:
     openai_model: str = "gpt-6-luna"
     openai_reasoning_effort: str = "medium"
     llm_provider: str = "openai"
+    mcp_external_enabled: bool = False
+    mcp_timeout_seconds: float = 45.0
+    mcp_cache_ttl_seconds: int = 3600
     obs_support_cost_usd: float = 8.01  # Gartner, 2019: contato atendido por pessoa (telefone, chat, e-mail)
     obs_questions_per_user_week: float = 0.0  # 0 = usar o valor medido; não há fonte externa confiável
     obs_usd_to_brl: float = 5.4212  # PTAX de venda do Banco Central em 30/10/2026
@@ -325,6 +328,8 @@ def load_settings(
             obs_prices_json = None
 
     numeric_settings = {
+        "MCP_TIMEOUT_SECONDS": (45.0, float, "deve ser um número finito"),
+        "MCP_CACHE_TTL_SECONDS": (3600, int, "deve ser um número inteiro"),
         "OBS_SUPPORT_COST_USD": (Settings.obs_support_cost_usd, float, "deve ser um número finito"),
         "OBS_QUESTIONS_PER_USER_WEEK": (Settings.obs_questions_per_user_week, float, "deve ser um número finito"),
         "OBS_USD_TO_BRL": (Settings.obs_usd_to_brl, float, "deve ser um número finito"),
@@ -392,6 +397,9 @@ def load_settings(
         openai_model=values.get("OPENAI_MODEL", Settings.openai_model) or "",
         openai_reasoning_effort=(values.get("OPENAI_REASONING_EFFORT", Settings.openai_reasoning_effort) or "").casefold(),
         llm_provider=(values.get("LLM_PROVIDER", Settings.llm_provider) or "").casefold(),
+        mcp_external_enabled=(values.get("MCP_EXTERNAL_ENABLED") or "false").casefold() == "true",
+        mcp_timeout_seconds=parsed_numbers["MCP_TIMEOUT_SECONDS"],
+        mcp_cache_ttl_seconds=parsed_numbers["MCP_CACHE_TTL_SECONDS"],
         openai_fast_reasoning_effort=(
             values.get("OPENAI_FAST_REASONING_EFFORT", Settings.openai_fast_reasoning_effort) or ""
         ).casefold(),
@@ -423,6 +431,12 @@ def load_settings(
         rag_document_path=values.get(
             "RAG_DOCUMENT_PATH", "app/knowledge/delta-main-source.md"
         ),
+        _parse_errors=tuple(parse_errors) + (
+            (("MCP_EXTERNAL_ENABLED", "use true ou false"),)
+            if "MCP_EXTERNAL_ENABLED" in values
+            and (values["MCP_EXTERNAL_ENABLED"] or "").casefold() not in {"true", "false"}
+            else ()
+        ),
         obs_support_cost_usd=parsed_numbers["OBS_SUPPORT_COST_USD"],
         obs_questions_per_user_week=parsed_numbers["OBS_QUESTIONS_PER_USER_WEEK"],
         obs_usd_to_brl=parsed_numbers["OBS_USD_TO_BRL"],
@@ -434,11 +448,23 @@ def load_settings(
         langsmith_api_key=values.get("LANGSMITH_API_KEY"),
         langsmith_project=values.get("LANGSMITH_PROJECT") or Settings.langsmith_project,
         langsmith_send_content=langsmith_send_content,
-        _parse_errors=tuple(parse_errors),
     )
 
 
 _settings_cache: Settings | None = None
+
+
+def validate_mcp_config(*, settings: Settings | None = None) -> None:
+    """Valida o MCP somente quando solicitado, sem exigir chaves de outros serviços."""
+    current = settings or get_settings()
+    problems = [f"{name}: {message}" for name, message in current._parse_errors
+                if name.startswith("MCP_") or name == "APP_ENV"]
+    if not math.isfinite(current.mcp_timeout_seconds) or not 1 <= current.mcp_timeout_seconds <= 120:
+        problems.append("MCP_TIMEOUT_SECONDS deve estar entre 1 e 120")
+    if not 0 <= current.mcp_cache_ttl_seconds <= 86400:
+        problems.append("MCP_CACHE_TTL_SECONDS deve estar entre 0 e 86400")
+    if problems:
+        raise ConfigurationError(f"Configuração MCP inválida: {', '.join(problems)}.")
 
 
 def get_settings(*, refresh: bool = False) -> Settings:

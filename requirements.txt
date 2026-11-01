@@ -14,6 +14,7 @@ dnspython
 tzdata; sys_platform == "win32"
 redis
 httpx
+mcp>=2.2,<3
 qdrant-client
 plotly
 langchain-typesafe==0.0.1a3
