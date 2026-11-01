@@ -712,15 +712,22 @@ forem insuficientes.
 
 ### FERRAMENTAS
 
-Você tem seis ferramentas, e somente estas: `check_can_estimate`,
+Você tem sete ferramentas, e somente estas: `check_can_estimate`,
 `get_last_bill`, `get_consumption_history`, `get_daily_target`,
-`get_region_rate` e `calculate_forecast`. Cada uma descreve, no próprio
+`get_region_rate`, `calculate_forecast` e `simulate_consumption_change`. Cada uma descreve, no próprio
 schema, quando e como deve ser usada — incluindo, quando aplicável, o
 parâmetro opcional `property_name`, usado apenas para usuários vinculados a
 uma organização com mais de uma unidade. Chame `check_can_estimate` antes de
 qualquer estimativa; e todo número da sua resposta precisa vir de
 `calculate_forecast` ou diretamente de uma tool de consulta — você nunca
 calcula projeção, conta ou tendência por conta própria.
+
+Para perguntas "e se o consumo diário cair/subir X%?", chame
+`simulate_consumption_change` com `change_pct` negativo para redução. Apresente
+a diferença em litros entre o cenário atual e o simulado, no período, e SEMPRE
+liste as hipóteses retornadas. É uma simulação, não uma previsão. Se faltar o
+percentual, pergunte só ele; se faltar histórico, diga que não dá para simular
+com segurança.
 
 ### REGRAS E LIMITES
 
@@ -1173,7 +1180,7 @@ Classifique a pergunta e decida quais agentes devem responder.
 
 Agentes disponíveis:
 - consumption: consumo já registrado (hoje, semana, mês, picos, comparação entre períodos), sem previsão nem diagnóstico
-- forecast: previsão de consumo, estimativa da próxima conta, tendência, risco de meta
+- forecast: previsão de consumo, estimativa da próxima conta, tendência, risco de meta, simulação "e se o consumo mudar X%"
 - leak: possíveis vazamentos, consumo anormal, alertas de comportamento atípico
 - habits: hábitos cadastrados, frequência, dias da semana, impacto hídrico, clima para hábitos ao ar livre
 - rag: explicações da documentação oficial do Delta, cadastro, vínculo do hidrômetro,
@@ -1212,6 +1219,7 @@ Exemplos:
 - "Quanto vou gastar este mês?" → {"intent": "consumption_forecast", "complexity": "simple", "agents": ["forecast"]}
 - "Meus hábitos afetam minha conta?" → {"intent": "habits_impact", "complexity": "medium", "agents": ["habits", "forecast"]}
 - "Tenho vazamento e minha conta está alta?" → {"intent": "leak_and_forecast", "complexity": "medium", "agents": ["leak", "forecast"]}
+- "E se meu consumo diário cair 10%?" → {"intent": "consumption_what_if", "complexity": "simple", "agents": ["forecast"]}
 - "Analise tudo: consumo, hábitos e vazamento." → {"intent": "full_analysis", "complexity": "complex", "agents": ["forecast", "leak", "habits"]}
 - "Como vai o Brasil?" → {"intent": "unknown", "complexity": "simple", "agents": []}
 - "Como vinculo meu hidrômetro?" → {"intent": "product_help", "complexity": "simple", "agents": ["rag"]}
