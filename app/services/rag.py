@@ -2,13 +2,14 @@
 
 from __future__ import annotations
 
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, field
 import hashlib
 import math
 from pathlib import Path
 import re
 from threading import Lock
 import uuid
+import textwrap
 
 from app.config import BASE_DIR, ConfigurationError, get_settings
 from app.observability.diagnostics import embedding_call
@@ -20,6 +21,7 @@ from qdrant_client.models import (
     MatchValue,
     PayloadSchemaType,
     PointStruct,
+    Distance,
 )
 
 
@@ -48,6 +50,45 @@ class RagDocument:
     source: str
     revision: str
     chunks: tuple[DocumentChunk, ...]
+    metadata: dict[str, str] = field(default_factory=dict)
+
+
+def external_document(snapshot) -> RagDocument:
+    """Segmenta texto externo sem interpretar títulos ou instruções como Markdown.
+
+    As linhas citadas são as do texto normalizado. A revisão inclui a versão
+    do segmentador para não reutilizar vetores de uma segmentação diferente.
+    """
+    lines = [part for line in snapshot.text.splitlines()
+             for part in textwrap.wrap(line, width=1800, break_on_hyphens=False)]
+    chunks = []
+    body: list[str] = []
+    start = 1
+    for number, line in enumerate(lines, 1):
+        if body and len("\n".join(body)) + len(line) + 1 > 1800:
+            chunks.append(DocumentChunk((snapshot.title, snapshot.topic), "\n".join(body), start, number - 1))
+            body = []
+            start = number
+        body.append(line)
+    if body:
+        chunks.append(DocumentChunk((snapshot.title, snapshot.topic), "\n".join(body), start, len(lines)))
+    revision = hashlib.sha256(("external-text-v1\n" + snapshot.revision).encode("utf-8")).hexdigest()
+    return RagDocument(
+        source=f"mcp:{snapshot.source_id}", revision=revision, chunks=tuple(chunks),
+        metadata={"origin": "external", "source_id": snapshot.source_id, "url": snapshot.url,
+                  "title": snapshot.title, "topic": snapshot.topic, "published_at": snapshot.published_at,
+                  "collected_at": snapshot.collected_at, "source_revision": snapshot.revision},
+    )
+
+
+def validate_collection(*, client) -> None:
+    """Recusa esquema incompatível antes de gerar embeddings; nunca recria a coleção."""
+    if not client.collection_exists(COLLECTION):
+        raise ValueError("Coleção RAG ausente. Crie rag_documents no Qdrant antes de indexar.")
+    vectors = client.get_collection(COLLECTION).config.params.vectors
+    if (isinstance(vectors, dict) or vectors is None or vectors.size != VECTOR_SIZE
+            or vectors.distance != Distance.COSINE):
+        raise ValueError("rag_documents deve usar um vetor sem nome, 3072 dimensões e distância Cosine.")
 
 
 def split_markdown(text: str) -> tuple[DocumentChunk, ...]:
@@ -179,8 +220,7 @@ def index_document(document: RagDocument, *, client, embeddings) -> int:
     Embeddings são gerados antes da gravação; uma falha nessa etapa preserva o índice.
     """
 
-    if not client.collection_exists(COLLECTION):
-        raise ValueError("Coleção RAG ausente. Crie rag_documents no Qdrant antes de indexar.")
+    validate_collection(client=client)
 
     model = embedding_model_name()
 
@@ -196,7 +236,8 @@ def index_document(document: RagDocument, *, client, embeddings) -> int:
         identity = f"{document.source}:{document.revision}:{model}:{index}"
         points.append(PointStruct(
             id=str(uuid.uuid5(uuid.NAMESPACE_URL, identity)), vector=vector,
-            payload={**asdict(chunk), "source": document.source, "revision": document.revision,
+            payload={"origin": "internal", **document.metadata, **asdict(chunk),
+                     "source": document.source, "revision": document.revision,
                      "embedding_model": model},
         ))
     client.upsert(COLLECTION, points=points, wait=True)
@@ -227,10 +268,7 @@ def ensure_document_indexed(document: RagDocument, *, client, embeddings) -> Non
     """Garante os índices de payload antes de consultar a revisão."""
 
     with _INDEX_LOCK:
-        if not client.collection_exists(COLLECTION):
-            raise ValueError(
-                "Coleção RAG ausente. Crie rag_documents no Qdrant antes de consultar."
-            )
+        validate_collection(client=client)
 
         # Cria os índices necessários antes de utilizar filtros
         existing_indexes = client.get_collection(COLLECTION).payload_schema or {}
@@ -266,8 +304,7 @@ def search_document(document: RagDocument, question: str, *, client, embeddings,
     if score_threshold is not None and (not math.isfinite(score_threshold) or not -1 <= score_threshold <= 1):
         raise ValueError("score_threshold deve estar entre -1 e 1.")
 
-    if not client.collection_exists(COLLECTION):
-        raise ValueError("Base RAG não indexada. Execute a indexação primeiro.")
+    validate_collection(client=client)
 
     if not _revision_is_complete(document, client=client):
         raise ValueError("Revisão ausente ou incompleta. Indexe o documento atual antes de consultar.")

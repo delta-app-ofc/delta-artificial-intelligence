@@ -11,6 +11,7 @@ from app.config import ConfigurationError
 from app.observability.diagnostics import current_trace
 from app.services.prompts import RAG_PROMPT_COMPLETO, profile_block
 from app.tools.rag import search_knowledge_base
+from app.tools.external_knowledge import search_external_knowledge
 
 
 class RagAgent:
@@ -31,7 +32,7 @@ class RagAgent:
 
         self.agent = create_agent(
             model=llm,
-            tools=[search_knowledge_base],
+            tools=[search_knowledge_base, search_external_knowledge],
             system_prompt=RAG_PROMPT_COMPLETO + profile_block(access_kind),
         )
 
@@ -58,21 +59,29 @@ class RagAgent:
                 for call in message.tool_calls:
                     calls[call["id"]] = call
 
-            elif isinstance(message, ToolMessage) and message.name == "search_knowledge_base":
+            elif isinstance(message, ToolMessage) and message.name in {
+                "search_knowledge_base", "search_external_knowledge",
+            }:
                 try:
                     output = json.loads(message.content)
-                except json.JSONDecodeError:
+                    if not isinstance(output, dict):
+                        raise ValueError("Resultado RAG inválido.")
+                except (json.JSONDecodeError, ValueError, TypeError):
                     output = {"status": "unavailable", "chunks": []}
 
                 call = calls.get(message.tool_call_id)
-                if call is None:
+                if call is None or call["name"] != message.name:
                     continue
                 result.tool_calls.append(ToolCall(call["name"], call["args"], output))
                 if trace := current_trace():
                     trace.tool("rag", call["name"], call["args"], output)
 
                 if output.get("status") == "ok":
-                    result.sources.extend(chunk["citation"] for chunk in output["chunks"])
+                    result.sources.extend(
+                        chunk["citation"] for chunk in output.get("chunks", [])
+                        if isinstance(chunk, dict) and isinstance(chunk.get("citation"), str)
+                        and chunk["citation"].strip()
+                    )
 
 
         result.sources = list(dict.fromkeys(previous_result.get("sources", []) + result.sources))
@@ -94,9 +103,10 @@ class RagAgent:
             )
             return result
 
-        if "Fontes consultadas:" not in result.response:
-            result.response += "\n\nFontes consultadas:\n" + "\n".join(
-                f"- {source}" for source in result.sources
-            )
+        # A lista final é construída das evidências; o modelo não pode substituí-la.
+        result.response = result.response.partition("Fontes consultadas:")[0].rstrip()
+        result.response += "\n\nFontes consultadas:\n" + "\n".join(
+            f"- {source}" for source in result.sources
+        )
 
         return result
