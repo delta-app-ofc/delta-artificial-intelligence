@@ -448,7 +448,6 @@ def load_settings(
         langsmith_api_key=values.get("LANGSMITH_API_KEY"),
         langsmith_project=values.get("LANGSMITH_PROJECT") or Settings.langsmith_project,
         langsmith_send_content=langsmith_send_content,
-        _parse_errors=tuple(parse_errors),
     )
 
 
