@@ -19,7 +19,12 @@ from app.graph.router import AGENT_REGISTRY, AgentNotImplemented, classify, load
 from app.graph.state import AgentOutput, GraphState
 from app.graph.synthesis import synthesize
 from app.guardrails.input import classify_input, validate_input_rules
-from app.guardrails.output import chart_mentions_other_user, validate_output, validate_ownership
+from app.guardrails.output import (
+    chart_mentions_other_user,
+    hide_technical_details,
+    validate_output,
+    validate_ownership,
+)
 from app.memory.session import append_turn, load_history_validated, to_chat_messages
 from app.observability.diagnostics import (
     Trace,
@@ -529,7 +534,7 @@ def _guardrail_output_node(state: GraphState) -> dict:
             )
         safe = "Não foi possível processar a resposta."
     else:
-        safe = result["response"]
+        safe = hide_technical_details(result["response"])
 
     if state.get("_persist_session", True):
         try:
