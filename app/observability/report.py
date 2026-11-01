@@ -67,7 +67,10 @@ def _secs(ms: float) -> str:
 
 
 def _num(value) -> str:
-    return f"{value:,}".replace(",", ".")
+    """Número em pt-BR: milhar com ponto e decimais com vírgula."""
+    if isinstance(value, float) and not value.is_integer():
+        return f"{value:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
+    return f"{int(value):,}".replace(",", ".")
 
 
 def _round_rect(canvas: Canvas, x, y, w, h, fill=SURFACE, stroke=LINE, radius=8) -> None:

@@ -18,4 +18,8 @@ def enable_langsmith() -> bool:
     os.environ["LANGSMITH_TRACING"] = "true"
     os.environ["LANGSMITH_API_KEY"] = settings.langsmith_api_key
     os.environ["LANGSMITH_PROJECT"] = settings.langsmith_project
+    # Por padrão só métricas (tokens, custo, tempo) vão ao LangSmith: prompts e respostas podem ter dados pessoais.
+    hide = "false" if settings.langsmith_send_content else "true"
+    os.environ["LANGSMITH_HIDE_INPUTS"] = hide
+    os.environ["LANGSMITH_HIDE_OUTPUTS"] = hide
     return True

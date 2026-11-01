@@ -15,7 +15,7 @@ def _use_env(monkeypatch, **values):
     """Recarrega os settings com as variáveis dadas (APP_ENV=test ignora o .env)."""
     monkeypatch.setenv("APP_ENV", "test")
     for name in ("OBS_PRICES_JSON", "OBS_SUPPORT_COST_USD", "OBS_QUESTIONS_PER_USER_WEEK", "OBS_USD_TO_BRL",
-                 "OBS_ERROR_RATE_LIMIT", "OBS_HASH_SECRET", "LANGSMITH_TRACING", "LANGSMITH_API_KEY"):
+                 "OBS_ERROR_RATE_LIMIT", "OBS_HASH_SECRET", "LANGSMITH_TRACING", "LANGSMITH_API_KEY", "LANGSMITH_SEND_CONTENT"):
         monkeypatch.delenv(name, raising=False)
     for name, value in values.items():
         monkeypatch.setenv(name, value)
@@ -161,7 +161,7 @@ def test_invalid_settings_raise_clear_error(monkeypatch, name, value):
 
 def test_langsmith_needs_key_and_stays_off_by_default(monkeypatch):
     from app.observability.langsmith import enable_langsmith
-    for name in ("LANGSMITH_TRACING", "LANGSMITH_API_KEY", "LANGSMITH_PROJECT"):
+    for name in ("LANGSMITH_TRACING", "LANGSMITH_API_KEY", "LANGSMITH_PROJECT", "LANGSMITH_HIDE_INPUTS", "LANGSMITH_HIDE_OUTPUTS"):
         monkeypatch.setenv(name, "x")  # o undo do monkeypatch remove o que enable_langsmith exporta
     assert enable_langsmith() is False
     _use_env(monkeypatch, LANGSMITH_TRACING="true")
@@ -192,6 +192,7 @@ def test_empty_sample_slo_is_unknown():
 
 
 def test_load_records_includes_unpersisted_recent(monkeypatch):
+    monkeypatch.setattr(metrics, "_db_retry_at", 0.0)  # estado do módulo: não herdar uma falha anterior
     saved = metrics.build_record(_trace(), "success", 100.0)
     pending = metrics.build_record(_trace(), "success", 200.0)
     metrics._recent.extend([saved, pending])
@@ -356,3 +357,39 @@ def test_pdf_shows_every_kpi_even_without_measurements(monkeypatch):
 def test_pdf_shows_every_kpi_with_measurements(monkeypatch):
     summary = metrics.summarize([metrics.build_record(_trace(), "success", 1000.0)])
     assert EXPECTED_KPIS <= _card_labels(summary, monkeypatch)
+
+
+def test_num_formats_floats_in_portuguese():
+    from app.observability.report import _num
+    assert _num(1000) == "1.000" and _num(5999.0) == "5.999"
+    assert _num(1234.5) == "1.234,50" and _num(0.5) == "0,50"
+
+
+def test_unreadable_usage_does_not_break_the_model_call():
+    from types import SimpleNamespace
+    from app.observability import diagnostics
+    broken = SimpleNamespace(generations=[], llm_output={"token_usage": "texto"})
+    assert diagnostics._token_usage(broken) == {}
+    trace = Trace(mode="chat")
+    handler = ModelDiagnostics("openai", "gpt-6-luna")
+    with capture(trace):
+        handler.on_chat_model_start({}, [[]], run_id="r9")
+        handler.on_llm_end(broken, run_id="r9")
+    assert trace.models[0]["status"] == "success"
+
+
+def test_rag_embedding_name_with_models_prefix_is_priced():
+    assert metrics._price_for("models/gemini-embedding-2-preview") == (0.20, 0.0)
+
+
+def test_langsmith_hides_prompts_and_answers_by_default(monkeypatch):
+    import os
+    from app.observability.langsmith import enable_langsmith
+    for name in ("LANGSMITH_TRACING", "LANGSMITH_API_KEY", "LANGSMITH_PROJECT", "LANGSMITH_HIDE_INPUTS", "LANGSMITH_HIDE_OUTPUTS"):
+        monkeypatch.setenv(name, "x")
+    _use_env(monkeypatch, LANGSMITH_TRACING="true", LANGSMITH_API_KEY="chave-de-teste")
+    assert enable_langsmith() is True
+    assert os.environ["LANGSMITH_HIDE_INPUTS"] == "true" and os.environ["LANGSMITH_HIDE_OUTPUTS"] == "true"
+    _use_env(monkeypatch, LANGSMITH_TRACING="true", LANGSMITH_API_KEY="chave-de-teste", LANGSMITH_SEND_CONTENT="true")
+    assert enable_langsmith() is True
+    assert os.environ["LANGSMITH_HIDE_INPUTS"] == "false"
