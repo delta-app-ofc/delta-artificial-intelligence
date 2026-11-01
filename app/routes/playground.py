@@ -9,6 +9,7 @@ import queue
 import threading
 from typing import Literal
 import uuid
+from bson import ObjectId
 
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import FileResponse, Response, StreamingResponse
@@ -20,7 +21,7 @@ from app.graph.profile import resolve_access_kind
 from app.graph.workflow import execute_agent, run_workflow, run_workflow_events
 from app.guardrails.input import validate_input, validate_input_rules
 from app.guardrails.output import validate_output
-from app.memory.session import append_turn
+from app.memory.session import append_turn, create_session
 from app.observability.diagnostics import Trace, capture, component, current_trace, public_data
 from app.schemas import ErrorResponse
 
@@ -46,7 +47,7 @@ class PlaygroundRequest(BaseModel):
     session_id: str | None = Field(
         default=None,
         pattern=r"^[A-Za-z0-9_-]{1,100}$",
-        description="Id livre da sessão de teste (letras, números, - e _). Omita para gerar um novo.",
+        description="Id da sessão retornado pelo console. Omita para uma nova; ids legados são convertidos ao salvar.",
     )
 
 
@@ -210,6 +211,9 @@ def run_test(req: PlaygroundRequest, mode: str, *, workflow_runner=None):
                 if mode in {"chat", "judge"} and response:
                     try:
                         with component("session_save"):
+                            # UUIDs legados do console não são IDs de documentos MongoDB.
+                            if not ObjectId.is_valid(session_id):
+                                session_id = create_session(USER_ID)
                             append_turn(session_id, USER_ID, "human", req.message)
                             append_turn(session_id, USER_ID, "assistant", response)
                     except Exception:
@@ -227,8 +231,8 @@ def run_test(req: PlaygroundRequest, mode: str, *, workflow_runner=None):
     summary="Testa o fluxo completo do chat",
     description=(
         "Executa guardrails, roteador, agentes, síntese e Juiz com o usuário fixo de teste, "
-        "sem autenticação. O fluxo não grava histórico, mas a rota salva a pergunta e a resposta se o "
-        "session_id informado for de uma sessão existente do usuário de teste. Erros das etapas vêm "
+        "sem autenticação. A rota salva a pergunta e a resposta em uma sessão do usuário de teste; "
+        "novas sessões recebem um ObjectId do MongoDB. Erros das etapas vêm "
         "em diagnostics, com status 200."
     ),
     responses=PLAYGROUND_DISABLED,

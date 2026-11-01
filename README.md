@@ -818,3 +818,13 @@ Testes de histórico e de isolamento usam MongoDB real em um banco descartável 
 (`DELTA_TEST_MONGO_URI`, padrão `mongodb://localhost:27018` do `docker-compose.dev.yml`) e são pulados sem
 MongoDB. Os de isolamento ficam em `tests/isolation/`. O acesso da IA ao `chat_sessions` exige a role
 `role_api_service`.
+
+
+### Sessões e filtros no console
+
+O console cria uma sessão MongoDB ao salvar a primeira resposta e devolve o
+ObjectId para os próximos turnos. IDs livres/UUIDs antigos são substituídos por
+uma sessão nova nessa gravação; IDs MongoDB continuam sujeitos à validação de
+ownership do usuário fixo. Erros de persistência permanecem nos diagnósticos.
+A busca externa filtra por fonte, revisão e modelo, usando os índices existentes;
+não exige um novo índice de `origin` nem altera a configuração da coleção.
