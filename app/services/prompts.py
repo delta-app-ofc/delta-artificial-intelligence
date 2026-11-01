@@ -1026,6 +1026,11 @@ RAG_PROMPT_COMPLETO = "\n\n".join((
     RAG_SHOT_5,
     RAG_SHOT_6,
     RAG_SHOTS_CUT,
+    "Na resposta atual, não escreva linhas 'Fonte:' nem a seção 'Fontes consultadas:'. "
+    "O código acrescenta a lista real de fontes consultadas, agrupada por documento. "
+    "Não reproduza hashes de revisão, linhas ou timestamps técnicos no texto da resposta; "
+    "esses dados permanecem nas evidências para conferência. Informe a data se ela for "
+    "necessária para interpretar uma orientação.",
 ))
 
 

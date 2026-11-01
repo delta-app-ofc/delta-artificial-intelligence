@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
+from concurrent.futures import Future
 from contextlib import contextmanager
 from contextvars import ContextVar
 from copy import deepcopy
@@ -77,7 +78,11 @@ def _redact_text(value: str) -> str:
                 return value
         except ValueError:
             pass
-    value = _URI.sub("[URI omitida]", value)
+    from app.integrations.mcp.sources import SOURCES
+    public_urls = {source.url for source in SOURCES.values()}
+    # Só URLs exatas do catálogo fechado podem aparecer nas citações públicas.
+    value = _URI.sub(lambda match: match[0] if match[0].rstrip(").,;]") in public_urls
+                     else "[URI omitida]", value)
     value = _BEARER_TOKEN.sub("Bearer [omitido]", value)
     value = _SECRET_ASSIGNMENT.sub(r"\1\2[omitido]", value)
     # Importação local evita o ciclo com o guardrail de entrada, que usa diagnósticos.
@@ -309,6 +314,7 @@ class Trace:
     request_id: str = field(default_factory=lambda: uuid4().hex)
     started: float = field(default_factory=perf_counter)
     models: list = field(default_factory=list)
+    embedding_counts: list = field(default_factory=list, repr=False)
     tools: list = field(default_factory=list)
     errors: list = field(default_factory=list)
     warnings: list = field(default_factory=list)
@@ -697,12 +703,8 @@ def _count_embedding_tokens(model: str, texts) -> int | None:
     if not texts:
         return None
     try:
-        from google import genai
-
-        from app.config import get_settings
-
-        client = genai.Client(api_key=get_settings().gemini_api_key)
-        return int(client.models.count_tokens(model=model, contents=list(texts)).total_tokens)
+        from app.observability.embedding_usage import count_tokens
+        return count_tokens(model, texts)
     except Exception:
         return None
 
@@ -737,7 +739,30 @@ def embedding_call(model: str, texts=None):
         yield
         ended = perf_counter()
         row["status"] = "success"
-        row["input_tokens"] = _count_embedding_tokens(model, texts)
+        if trace:
+            from app.observability.embedding_usage import submit_count
+            count_started = perf_counter()
+            row["count_status"] = "pending"
+            try:
+                future = submit_count(model, texts, _count_embedding_tokens)
+            except Exception:
+                future = None
+            if future is None:
+                row["count_status"] = "unavailable"
+            else:
+                accounted = Future()
+                trace.embedding_counts.append(accounted)
+                def counted(done):
+                    try:
+                        tokens = done.result()
+                    except Exception:
+                        tokens = None
+                    with trace.lock:
+                        row["input_tokens"] = tokens
+                        row["count_status"] = "success" if tokens is not None else "unavailable"
+                        row["count_duration_ms"] = round((perf_counter() - count_started) * 1000, 1)
+                    accounted.set_result(tokens)
+                future.add_done_callback(counted)
     except Exception as error:
         row["status"] = "error"
         if trace:

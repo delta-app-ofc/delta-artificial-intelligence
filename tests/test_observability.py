@@ -315,6 +315,8 @@ def test_embedding_call_records_the_official_token_count(monkeypatch):
     with capture(trace):
         with diagnostics.embedding_call("gemini-embedding-2-preview", texts=["texto"]):
             pass
+    from concurrent.futures import wait
+    wait(trace.embedding_counts, timeout=2)
     assert trace.models[0]["input_tokens"] == 12 and trace.models[0]["kind"] == "embedding"
 
 

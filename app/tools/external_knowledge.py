@@ -6,12 +6,10 @@ from langchain_core.tools import tool
 from pydantic import Field
 
 from app.config import get_settings, validate_mcp_config
-from app.integrations.mcp.client import fetch_source
 from app.integrations.mcp.sources import SOURCES
 from app.observability.diagnostics import current_trace
-from app.services.rag import (
-    create_embeddings, create_qdrant, ensure_document_indexed, external_document, search_document,
-)
+from app.services.rag import create_embeddings, create_qdrant
+from app.services.external_knowledge import load_active_sources, search_active_sources
 from app.tools.rag import _run_phase
 
 
@@ -24,7 +22,7 @@ def build_external_knowledge_tool(access_kind: str | None):
         topic: str | None = None,
         source_id: str | None = None,
     ) -> dict:
-        """Busca orientações gerais sobre uso consciente da água em fontes públicas via MCP.
+        """Busca orientações gerais em fontes públicas previamente atualizadas via MCP.
 
         Temas: water_conservation e commercial_efficiency. Fontes propostas no handbook:
         midr-water-conservation (geral), epa-residential-saving (residencial) e
@@ -53,30 +51,16 @@ def build_external_knowledge_tool(access_kind: str | None):
                 return {"status": "unavailable", "chunks": [], "message": "Base externa não configurada."}
 
             client = _run_phase("external_client", create_qdrant)
+            active = load_active_sources([source.id for source in selected], client=client)
+            failures = [source.id for source in selected if source.id not in {s["source_id"] for s in active}]
+            if not active:
+                return {"status": "unavailable", "chunks": [], "unavailable_sources": failures,
+                        "message": "As fontes externas ainda não possuem uma revisão completa dentro da validade."}
             embeddings = _run_phase("external_embeddings", create_embeddings)
-            results = []
-            failures = []
-            for source in selected:
-                try:
-                    snapshot = _run_phase("mcp_fetch", lambda: fetch_source(source.id))
-                    if snapshot.source_id != source.id:
-                        raise ValueError("A fonte retornada difere da solicitada.")
-                    document = external_document(snapshot)
-                    _run_phase("external_index", lambda: ensure_document_indexed(
-                        document, client=client, embeddings=embeddings,
-                    ))
-                    results.extend(_run_phase("external_search", lambda: search_document(
-                        document, question, client=client, embeddings=embeddings, top_k=top_k,
-                    )))
-                except Exception:
-                    failures.append(source.id)
+            results = search_active_sources(active, question, client=client, embeddings=embeddings, top_k=top_k)
             chunks = []
             for result in sorted(results, key=lambda item: item["score"], reverse=True)[:top_k]:
-                citation = (
-                    f"[{result['title']}]({result['url']}) — publicação: {result['published_at'] or 'não informada'}; "
-                    f"coletado em {result['collected_at']}; revisão {result['revision']}; "
-                    f"linhas {result['start_line']}-{result['end_line']} do texto extraído"
-                )
+                citation = f"[{result['title']}]({result['url']})"
                 chunks.append({**result, "citation": citation})
             return {"status": "ok" if chunks else "unavailable" if failures else "insufficient_data",
                     "chunks": chunks, "unavailable_sources": failures}

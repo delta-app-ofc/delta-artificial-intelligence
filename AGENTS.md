@@ -73,7 +73,11 @@ Os componentes abaixo foram implementados e têm cobertura de testes:
 `app/integrations/mcp/` contém catálogo fechado, extrator HTML, contrato,
 servidor MCP e cliente stdio. O catálogo adota as três fontes propostas no
 handbook: MIDR, EPA Start Saving e EPA Types of Facilities. O Senado foi retirado
-do catálogo ativo. `app/tools/external_knowledge.py` recupera artigos públicos
+do catálogo ativo. `app/services/external_knowledge.py` atualiza as fontes no lifespan ou via
+`python -m scripts.refresh_external_knowledge`, publica marcadores persistentes
+somente para revisões completas e aplica validade máxima da coleta. O chat não
+coleta nem indexa páginas: gera um embedding e uma busca para as fontes
+autorizadas. `app/tools/external_knowledge.py` recupera artigos públicos
 com top-k e filtros exatos de tema/fonte. `RagAgent` vincula a ferramenta ao perfil
 confiável: residential para residencial e organizational para comercial. O LLM
 não recebe argumento livre de perfil. Sem perfil, somente a fonte geral é usada.
@@ -128,7 +132,7 @@ delta-artificial-intelligence/
 │   ├── guardrails/          # Validações de entrada e saída (PII, injeção)
 │   ├── integrations/mcp/    # Catálogo público, servidor e cliente MCP stdio
 │   ├── memory/              # Sessão (MongoDB) e longo prazo (Qdrant)
-│   ├── observability/       # Reservado para métricas
+│   ├── observability/       # Traces, métricas e contagem de embeddings em segundo plano
 │   ├── routes/              # API HTTP: chat, health, sessions e playground
 │   ├── services/            # LLMs, Jev, prompts e segmentação/recuperação documental RAG
 │   ├── tools/               # consumption/, forecast/, leak/, habits/, modelos e exceções
@@ -139,7 +143,7 @@ delta-artificial-intelligence/
 │   ├── postgres-init/       # Cópias locais de bootstrap PostgreSQL, arquivos 01 a 09
 │   └── README.md
 ├── tests/                   # Testes com provedores, bancos e ferramentas substituídos
-├── scripts/                 # Diagnóstico do MCP e da fonte pública
+├── scripts/                 # Diagnóstico MCP e atualização das fontes externas
 ├── .env.example
 ├── AGENTS.md
 ├── docker-compose.dev.yml   # PostgreSQL e MongoDB locais para desenvolvimento manual

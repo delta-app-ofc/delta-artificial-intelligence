@@ -29,7 +29,7 @@ def eventos_sse(texto: str) -> list[tuple[str, dict]]:
 def client(monkeypatch):
     monkeypatch.setattr(playground, "get_settings", lambda: SimpleNamespace(playground_enabled=True))
     monkeypatch.setattr(
-        playground, "validate_input", lambda user_id, message: {"ok": True, "message": message, "pii_map": {}}
+        playground, "validate_input_rules", lambda user_id, message: {"ok": True, "message": message, "pii_map": {}}
     )
     monkeypatch.setattr(playground, "append_turn", lambda *args, **kwargs: None)
     app = FastAPI()
@@ -128,7 +128,7 @@ def test_excecao_inesperada_vira_erro_500(client, monkeypatch):
 
 def test_mensagem_bloqueada_pela_guarda_vira_resultado_com_erro(client, monkeypatch):
     monkeypatch.setattr(
-        playground, "validate_input",
+        playground, "validate_input_rules",
         lambda user_id, message: {"ok": False, "reason": "Mensagem bloqueada."},
     )
     chamadas = usa_eventos(monkeypatch, ETAPAS)

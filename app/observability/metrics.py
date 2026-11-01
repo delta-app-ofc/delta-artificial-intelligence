@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from collections import deque
+from concurrent.futures import wait
 from datetime import datetime, timezone
 import hashlib
 import hmac
@@ -109,8 +110,9 @@ def model_cost(model: str, input_tokens: int, output_tokens: int) -> float:
 
 def build_record(trace, outcome: str, total_ms: float) -> dict:
     """Resume o Trace sem guardar prompt, resposta nem dados pessoais."""
-    events = list(trace.events)
-    models = list(trace.models)
+    with trace.lock:
+        events = list(trace.events)
+        models = [dict(row) for row in trace.models]
     stages: dict[str, float] = {}
     for item in trace.stages:
         stages[item["stage"]] = stages.get(item["stage"], 0.0) + float(item.get("duration_ms") or 0)
@@ -137,7 +139,7 @@ def build_record(trace, outcome: str, total_ms: float) -> dict:
         agent["model_ms"] += float(call.get("duration_ms") or 0)
         agent["cost_usd"] += model_cost(call.get("model") or "", tokens_in, tokens_out)
 
-    embedding_tokens, embedding_cost, embedding_ms, embedding_uncounted = 0, 0.0, 0.0, 0
+    embedding_tokens, embedding_cost, embedding_uncounted = 0, 0.0, 0
     jev_tokens, jev_cost = 0, 0.0
     for call in models:
         kind = call.get("kind")
@@ -154,7 +156,8 @@ def build_record(trace, outcome: str, total_ms: float) -> dict:
         else:
             embedding_tokens += int(tokens)
             embedding_cost += model_cost(call.get("model") or "", int(tokens), 0)
-            embedding_ms += float(call.get("duration_ms") or 0)
+
+    embedding_ms = sum(float(c.get("duration_ms") or 0) for c in models if c.get("kind") == "embedding")
 
     llm_cost = sum(item["cost_usd"] for item in by_agent.values())
     blocked = any(e.get("component") == "block" and e.get("event") == "graph.node.end" for e in events)
@@ -168,6 +171,7 @@ def build_record(trace, outcome: str, total_ms: float) -> dict:
         "total_ms": round(total_ms, 1),
         "nodes_ms": {k: round(v, 1) for k, v in nodes.items()},
         "agents_ms": {k: round(v, 1) for k, v in stages.items() if k in AGENT_NAMES},
+        "rag_phases_ms": {k.removeprefix("rag_"): round(v, 1) for k, v in stages.items() if k.startswith("rag_")},
         "overhead_ms": round(max(0.0, total_ms - sum(nodes.values())), 1),
         "client": getattr(trace, "client", "unknown"),
         **({"user_hash": digest} if (digest := user_hash(trace.user_id)) else {}),
@@ -176,6 +180,8 @@ def build_record(trace, outcome: str, total_ms: float) -> dict:
         "output_tokens": sum(item["output_tokens"] for item in by_agent.values()),
         "embedding_tokens": embedding_tokens,
         "embedding_uncounted": embedding_uncounted,
+        "embedding_pending": sum(c.get("count_status") == "pending" for c in models),
+        "embedding_count_ms": round(sum(float(c.get("count_duration_ms") or 0) for c in models), 1),
         "jev_tokens": jev_tokens,
         "model_calls": sum(item["calls"] for item in by_agent.values()),
         "fallback_calls": sum(1 for c in models if c.get("fallback")),
@@ -183,7 +189,7 @@ def build_record(trace, outcome: str, total_ms: float) -> dict:
             **{k: {**v, "cost_usd": round(v["cost_usd"], 8), "model_ms": round(v["model_ms"], 1)} for k, v in by_agent.items()},
             **({"embeddings": {"calls": sum(1 for c in models if c.get("kind") == "embedding"), "input_tokens": embedding_tokens,
                                "output_tokens": 0, "model_ms": round(embedding_ms, 1), "cost_usd": round(embedding_cost, 8)}}
-               if embedding_tokens else {}),
+               if any(c.get("kind") == "embedding" for c in models) else {}),
         },
         "llm_cost_usd": round(llm_cost, 8),
         "embedding_cost_usd": round(embedding_cost, 8),
@@ -202,9 +208,20 @@ def record_request(trace, outcome: str, total_ms: float) -> None:
         with _lock:
             _recent.append(record)
         # A gravação é síncrona e pode demorar; sai do event loop numa thread.
-        Thread(target=_persist, args=(dict(record),), daemon=True).start()
+        Thread(target=_finalize_record, args=(trace, outcome, total_ms, record), daemon=True).start()
     except Exception:
         pass
+
+
+def _finalize_record(trace, outcome, total_ms, record):
+    """Espera a contagem somente na thread de persistência, nunca na requisição."""
+    if trace.embedding_counts:
+        wait(list(trace.embedding_counts), timeout=25)
+        final = build_record(trace, outcome, total_ms)
+        final["created_at"] = record["created_at"]
+        with _lock:
+            record.update(final)
+    _persist(dict(record))
 
 
 def _db_available() -> bool:

@@ -18,7 +18,7 @@ from app.config import BASE_DIR, get_settings
 from app.graph.router import AGENT_REGISTRY, classify
 from app.graph.profile import resolve_access_kind
 from app.graph.workflow import execute_agent, run_workflow, run_workflow_events
-from app.guardrails.input import validate_input
+from app.guardrails.input import validate_input, validate_input_rules
 from app.guardrails.output import validate_output
 from app.memory.session import append_turn
 from app.observability.diagnostics import Trace, capture, component, current_trace, public_data
@@ -160,7 +160,9 @@ def run_test(req: PlaygroundRequest, mode: str, *, workflow_runner=None):
     with capture(trace):
         try:
             with component("input_guard"):
-                guard = validate_input(USER_ID, req.message)
+                # O chat já classifica no grafo; as abas isoladas precisam da guarda completa.
+                validate = validate_input_rules if mode in {"chat", "judge"} else validate_input
+                guard = validate(USER_ID, req.message)
                 if not guard["ok"]:
                     trace.event("guardrail.rejected", component="input_guard", operation="validate",
                                 status="rejected", metadata={"outcome": "input_rejected"})

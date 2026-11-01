@@ -30,7 +30,9 @@ SOURCE = "delta-product-reference"
 VECTOR_SIZE = 3072
 MAX_SECTION_CHARS = 6000
 _PARSER_VERSION = "markdown-headings-v2"
+EXTERNAL_PARSER_VERSION = "external-text-v1"
 _INDEX_LOCK = Lock()
+_SOURCE_LOCKS: dict[str, Lock] = {}
 _CLIENTS_LOCK = Lock()
 _CLIENTS: dict = {}
 
@@ -72,7 +74,7 @@ def external_document(snapshot) -> RagDocument:
         body.append(line)
     if body:
         chunks.append(DocumentChunk((snapshot.title, snapshot.topic), "\n".join(body), start, len(lines)))
-    revision = hashlib.sha256(("external-text-v1\n" + snapshot.revision).encode("utf-8")).hexdigest()
+    revision = hashlib.sha256((EXTERNAL_PARSER_VERSION + "\n" + snapshot.revision).encode("utf-8")).hexdigest()
     return RagDocument(
         source=f"mcp:{snapshot.source_id}", revision=revision, chunks=tuple(chunks),
         metadata={"origin": "external", "source_id": snapshot.source_id, "url": snapshot.url,
@@ -82,17 +84,19 @@ def external_document(snapshot) -> RagDocument:
     )
 
 
-def validate_collection(*, client) -> None:
+def validate_collection(*, client):
     """Recusa esquema incompatível antes de gerar embeddings; nunca recria a coleção."""
     if not client.collection_exists(COLLECTION):
         raise ValueError("Coleção RAG ausente. Crie rag_documents no Qdrant antes de indexar.")
-    vectors = client.get_collection(COLLECTION).config.params.vectors
+    collection = client.get_collection(COLLECTION)
+    vectors = collection.config.params.vectors
     if isinstance(vectors, dict):
         # Qdrant também representa o vetor padrão por um mapa cuja única chave é "".
         vectors = vectors.get("") if set(vectors) == {""} else None
     if (vectors is None or vectors.size != VECTOR_SIZE
             or vectors.distance != Distance.COSINE):
         raise ValueError("rag_documents deve usar um vetor sem nome, 3072 dimensões e distância Cosine.")
+    return collection
 
 
 def split_markdown(text: str) -> tuple[DocumentChunk, ...]:
@@ -216,7 +220,7 @@ async def close_rag_clients() -> None:
         raise RuntimeError("Falha ao fechar clientes RAG.") from close_error
 
 
-def index_document(document: RagDocument, *, client, embeddings) -> int:
+def index_document(document: RagDocument, *, client, embeddings, validated: bool = False) -> int:
     """Reprocessa com IDs estáveis por fonte/revisão/modelo/posição.
 
     Repetir a mesma revisão sobrescreve seus pontos, sem duplicá-los. Revisões
@@ -224,7 +228,8 @@ def index_document(document: RagDocument, *, client, embeddings) -> int:
     Embeddings são gerados antes da gravação; uma falha nessa etapa preserva o índice.
     """
 
-    validate_collection(client=client)
+    if not validated:
+        validate_collection(client=client)
 
     model = embedding_model_name()
 
@@ -271,11 +276,14 @@ def _revision_is_complete(document: RagDocument, *, client) -> bool:
 def ensure_document_indexed(document: RagDocument, *, client, embeddings) -> None:
     """Garante os índices de payload antes de consultar a revisão."""
 
+    # A atualização externa não deve segurar o lock da documentação interna.
     with _INDEX_LOCK:
-        validate_collection(client=client)
+        source_lock = _SOURCE_LOCKS.setdefault(document.source, Lock())
+    with source_lock:
+        collection = validate_collection(client=client)
 
         # Cria os índices necessários antes de utilizar filtros
-        existing_indexes = client.get_collection(COLLECTION).payload_schema or {}
+        existing_indexes = collection.payload_schema or {}
 
         for field in ("source", "revision", "embedding_model"):
             if field not in existing_indexes:
@@ -290,7 +298,7 @@ def ensure_document_indexed(document: RagDocument, *, client, embeddings) -> Non
         if _revision_is_complete(document, client=client):
             return
 
-        index_document(document, client=client, embeddings=embeddings)
+        index_document(document, client=client, embeddings=embeddings, validated=True)
 
         if not _revision_is_complete(document, client=client):
             raise ValueError(
