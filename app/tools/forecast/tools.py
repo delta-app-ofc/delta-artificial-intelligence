@@ -45,6 +45,14 @@ def build_tools(user_id: int, today: date, access_kind: str | None = None) -> li
     """
     validate_user_id(user_id)
 
+    # Memória desta pergunta: o conjunto de tools nasce a cada execução do agente.
+    memo_units: list[list] = []
+
+    def _org_units() -> list:
+        if not memo_units:
+            memo_units.append(list(db_postgres.get_user_organization_properties(user_id)))
+        return list(memo_units[0])
+
     def _resolve_scope(property_name: str | None):
         """Resolve o escopo (propriedade(s)) do user_id para esta chamada.
 
@@ -63,7 +71,7 @@ def build_tools(user_id: int, today: date, access_kind: str | None = None) -> li
         if kind != "organizational":
             return kind, None, None
 
-        all_props = db_postgres.get_user_organization_properties(user_id)
+        all_props = _org_units()
         needle = (property_name or "").strip().lower()
         if not needle:
             return "organizational", [p.property_id for p in all_props], all_props

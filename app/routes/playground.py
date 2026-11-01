@@ -1,18 +1,22 @@
 """Console local de testes reais dos agentes e do fluxo do aplicativo."""
 from __future__ import annotations
 
+import contextvars
 from functools import lru_cache
 import importlib
+import json
+import queue
+import threading
 from typing import Literal
 import uuid
 
 from fastapi import APIRouter, Depends, HTTPException
-from fastapi.responses import FileResponse, Response
+from fastapi.responses import FileResponse, Response, StreamingResponse
 from pydantic import BaseModel, ConfigDict, Field
 
 from app.config import BASE_DIR, get_settings
 from app.graph.router import AGENT_REGISTRY, classify
-from app.graph.workflow import execute_agent, run_workflow
+from app.graph.workflow import execute_agent, run_workflow, run_workflow_events
 from app.guardrails.input import validate_input
 from app.guardrails.output import validate_output
 from app.memory.session import append_turn
@@ -124,10 +128,14 @@ def envelope(trace, session_id, response="", chart_data=None, results=None, skip
         status = "partial"
     else:
         status = "success"
-    return public_data({"status": status, "response": response, "session_id": session_id,
-                        "chart_data": chart_data, "agent_results": results or [],
-                        "judge_results": judge_results or [],
-                        "diagnostics": trace.snapshot()})
+    payload = public_data({"status": status, "response": response,
+                           "chart_data": chart_data, "agent_results": results or [],
+                           "judge_results": judge_results or [],
+                           "diagnostics": trace.snapshot()})
+    # O session_id é nosso (uuid4) e o console o reenvia na próxima mensagem. O redator de dados pessoais
+    # confunde pedaços de alguns UUIDs com telefone ou CPF e o estragaria; por isso ele não passa por lá.
+    payload["session_id"] = session_id
+    return payload
 
 
 def _judge_results(state: dict) -> list[dict]:
@@ -142,7 +150,8 @@ def _judge_results(state: dict) -> list[dict]:
     return summaries
 
 
-def run_test(req: PlaygroundRequest, mode: str):
+def run_test(req: PlaygroundRequest, mode: str, *, workflow_runner=None):
+    """Executa um teste; `workflow_runner` troca só a forma de rodar o grafo (usado pelo streaming)."""
     session_id = req.session_id or str(uuid.uuid4())
     trace = current_trace() or Trace(mode=mode)
     trace.mode, trace.user_id, trace.test_label = mode, USER_ID, TEST_LABEL
@@ -159,7 +168,7 @@ def run_test(req: PlaygroundRequest, mode: str):
                     return envelope(trace, session_id)
             message = guard["message"]
             if mode in {"chat", "judge"}:
-                state = run_workflow(USER_ID, session_id, message, persist_session=False)
+                state = (workflow_runner or run_workflow)(USER_ID, session_id, message, persist_session=False)
                 response, chart = state["response"], state.get("chart_data")
                 results = state.get("agent_results", [])
                 judge_results = _judge_results(state)
@@ -220,6 +229,72 @@ def run_test(req: PlaygroundRequest, mode: str):
 )
 def chat(req: PlaygroundRequest):
     return run_test(req, "chat")
+
+
+def _event(name: str, data: dict) -> str:
+    return f"event: {name}\ndata: {json.dumps(data, ensure_ascii=False)}\n\n"
+
+
+@router.post(
+    "/chat/stream",
+    summary="Testa o fluxo completo do chat e mostra as etapas (SSE)",
+    description=(
+        "Igual ao `POST /playground/chat`, mas devolve eventos `text/event-stream` enquanto o fluxo roda: "
+        "`stage` (`{\"stage\", \"label\"}`, só rótulos fixos), `result` (o mesmo JSON do `/playground/chat`, "
+        "com os diagnósticos) e `error` (`{\"status\", \"detail\"}`) se o processamento falhar. "
+        "Sem autenticação, como o resto do console."
+    ),
+    responses={
+        200: {"description": "Fluxo de eventos.", "content": {"text/event-stream": {"schema": {"type": "string"}}}},
+        **PLAYGROUND_DISABLED,
+    },
+)
+def chat_stream(req: PlaygroundRequest):
+    events: queue.Queue = queue.Queue()
+
+    def runner(user_id, session_id, message, *, persist_session=False):
+        """Roda o grafo por eventos: repassa as etapas à fila e devolve o estado final."""
+        final = None
+        for item in run_workflow_events(user_id, session_id, message, persist_session=persist_session):
+            if item["type"] == "stage":
+                events.put(item)
+            elif item["type"] == "final":
+                final = item["state"]
+            elif item["type"] == "failed":
+                raise RuntimeError("Falha na execução do fluxo.")
+        return final or {}
+
+    def work():
+        try:
+            events.put({"type": "result", "data": run_test(req, "chat", workflow_runner=runner)})
+        except Exception:
+            events.put({"type": "failed"})
+        finally:
+            events.put({"type": "end"})
+
+    # O mesmo contexto da requisição mantém o rastreamento (X-Request-ID) do console.
+    threading.Thread(target=contextvars.copy_context().run, args=(work,), daemon=True).start()
+
+    def stream():
+        while True:
+            try:
+                item = events.get(timeout=15)
+            except queue.Empty:
+                yield ": keep-alive\n\n"
+                continue
+            if item["type"] == "end":
+                return
+            if item["type"] == "stage":
+                yield _event("stage", {"stage": item["stage"], "label": item["label"]})
+            elif item["type"] == "result":
+                yield _event("result", item["data"])
+            elif item["type"] == "failed":
+                yield _event("error", {"status": 500, "detail": "Não foi possível concluir a execução."})
+
+    return StreamingResponse(
+        stream(), media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+    )
 
 
 @router.post(
