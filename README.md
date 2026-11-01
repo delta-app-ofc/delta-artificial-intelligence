@@ -136,7 +136,7 @@ limitado ao catálogo, e não serve conteúdo vencido quando a fonte falha.
 Para testar apenas MCP e a página pública, sem embeddings ou banco:
 
 ```powershell
-python -m scripts.check_mcp
+python -m scripts.check_mcp --all
 ```
 
 Esse diagnóstico acessa a internet e pode ser executado mesmo com a consulta
@@ -149,8 +149,19 @@ dados da conta nem definem funcionalidades do Delta.
 
 O agente preserva os trechos nas evidências do Juiz e monta a lista final de
 fontes a partir das ferramentas. Falhas retornam `unavailable`; filtros sem
-correspondência retornam `insufficient_data`. A fonte inicial é um artigo
-histórico do Senado, publicado em 12/09/2005; não é uma atualização em tempo real.
+correspondência retornam `insufficient_data`. O catálogo segue as fontes
+propostas no handbook: MIDR/gov.br sobre uso consciente, EPA Start Saving para
+residências e EPA Types of Facilities para instalações comerciais. A fonte geral
+atende os dois perfis; a ferramenta é vinculada ao perfil confiável do backend
+(`residential` ou `organizational`), que o LLM não pode mudar. Chamadas sem perfil
+usam somente a fonte geral. O artigo do Senado foi retirado do catálogo ativo.
+
+O prompt proíbe recomendações ou promoção de programas, selos, produtos e
+campanhas WaterSense, mantendo a citação da URL original da EPA. As orientações
+devem ser adequadas ao perfil e à instalação, com resposta em português. As
+páginas educativas não comprovam tarifas vigentes, normas brasileiras ou dados
+da conta; a ausência de fonte tarifária deve ser declarada. A publicação da
+página MIDR fica sem data quando não confirmada, sem inventar uma data.
 
 ```powershell
 $env:APP_ENV = 'test'

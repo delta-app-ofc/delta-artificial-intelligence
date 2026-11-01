@@ -71,8 +71,14 @@ Os componentes abaixo foram implementados e têm cobertura de testes:
 ### Conhecimento externo via MCP
 
 `app/integrations/mcp/` contém catálogo fechado, extrator HTML, contrato,
-servidor MCP e cliente stdio. `app/tools/external_knowledge.py` recupera artigos
-públicos para o RAG com top-k e filtros exatos de tema/fonte. A busca exige
+servidor MCP e cliente stdio. O catálogo adota as três fontes propostas no
+handbook: MIDR, EPA Start Saving e EPA Types of Facilities. O Senado foi retirado
+do catálogo ativo. `app/tools/external_knowledge.py` recupera artigos públicos
+com top-k e filtros exatos de tema/fonte. `RagAgent` vincula a ferramenta ao perfil
+confiável: residential para residencial e organizational para comercial. O LLM
+não recebe argumento livre de perfil. Sem perfil, somente a fonte geral é usada.
+O prompt proíbe recomendar WaterSense, seus programas, selos e produtos, mantendo
+a URL original da EPA na citação. Não invente tarifas a partir dessas páginas. A busca exige
 `MCP_EXTERNAL_ENABLED=true`, além dos settings Gemini/Qdrant. O subprocesso
 recebe somente o identificador da fonte; não recebe perguntas ou credenciais
 do backend. O transporte é local, sem serviço HTTP público.
