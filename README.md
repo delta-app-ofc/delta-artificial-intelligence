@@ -590,11 +590,27 @@ uvicorn app.main:app --reload
 | GET | `/sessions/{session_id}/messages` | Histórico de uma sessão do usuário |
 | POST | `/sessions/{session_id}/close` | Encerra uma sessão do usuário |
 
-Todas as rotas, exceto `/health` e `/playground`, exigem `Authorization: Bearer <token>`. O token é um JWT
-assinado com HS256 e o segredo `JWT_SECRET` (32 caracteres ou mais), com dois campos: `sub` (o id do usuário,
-inteiro positivo) e `exp` (até quando o token vale). O `user_id` vem só do token; o cliente não o envia. Sem
-`JWT_SECRET` configurado, as rotas respondem 503, e token ausente, inválido ou expirado responde 401. O
-back-end ainda precisa emitir esse token.
+Todas as rotas, exceto `/health` e `/playground`, exigem `Authorization: Bearer <token>`. **Quem emite o token é o
+back-end** (`delta-api-postgres`, `POST /delta/auth/login`); a IA só o confere, sem emitir nada.
+
+- **O token do back-end:** JWT assinado com **RS256** (chave privada dele), válido por 15 minutos. O cabeçalho traz
+  `kid`; os campos são `sub` (o id do usuário em `tb_user`, inteiro positivo), `iss`, `aud` e `exp`.
+- **O que a IA confere** com a **chave pública** do back-end (`AUTH_PUBLIC_KEY`, caminho do PEM com ou sem
+  `file:`, ou o próprio texto PEM; RSA de 2048 bits ou mais): assinatura, `exp`, `iss` (`AUTH_ISSUER`), `aud`
+  (`AUTH_AUDIENCE`), `kid` (`AUTH_KEY_ID`) e `sub`. Os padrões (`delta-api`, `delta-api`, `delta-1`) são os do back-end.
+- **Usuário ativo:** com `AUTH_CHECK_ACTIVE=true` (padrão), cada requisição confere em `tb_user` se o usuário existe e
+  está ativo (`fn_user_is_active`), como o back-end faz. É uma consulta pela chave primária na conexão do pool, cerca
+  de 5 ms contra os 8 a 12 s de uma resposta do chat. Inativo ou inexistente responde o mesmo 401; se o banco não
+  responder, a requisição é bloqueada com 503, sem detalhes.
+- **Respostas:** token ausente, inválido, vencido, de outro emissor ou de outro destinatário, ou `sub` fora do padrão, é
+  **401** (a mesma mensagem para todos os casos). Sem chave pública configurada, é **503**.
+- **Só desenvolvimento e teste:** sem `AUTH_PUBLIC_KEY`, o `JWT_SECRET` (32 caracteres ou mais) habilita um token
+  HS256 com `sub` e `exp`. **Nunca valem os dois ao mesmo tempo** (com a chave pública definida o segredo é ignorado)
+  e o HS256 é recusado em `staging` e `production`. O algoritmo é escolhido pela configuração, nunca pelo token, o
+  que bloqueia o ataque de "confusão de algoritmo".
+
+O `user_id` vem só do token; o cliente não o envia. O app faz o login no back-end, guarda o `accessToken` e o envia
+em cada chamada à IA; quando ele vence, renova no back-end (`/delta/auth/refresh`) e tenta de novo.
 
 `POST /chat` aceita `{"message": "Quanto consumi?"}` (e `session_id` para continuar uma conversa existente;
 ids que o servidor não devolveu retornam 404) e devolve
