@@ -62,11 +62,11 @@ Os componentes abaixo foram implementados e têm cobertura de testes:
   `app/guardrails/output.py` (redação de PII na saída).
 - Memória de sessão: `app/memory/session.py` (MongoDB, ownership validado).
 - Memória de longo prazo: `app/memory/long_term.py` (Qdrant + embeddings Gemini).
+- Observabilidade: `app/observability/` mede tokens, custo, latência por etapa/agente, erros, resolução e ROI; aba Monitor no console, PDF e projeção para 100/1000 usuários. Veja `delta-handbook/IA/observabilidade.md`; LangSmith é opcional e a conexão real não foi validada.
 
 ### Componentes ainda sem implementação
 
 - Agente `profile`.
-- Métricas em `app/observability/`.
 
 API, grafo, guardrails, memória e agentes registrados têm código. Verifique
 o comportamento e as dependências reais antes de descrevê-los como validados.
@@ -89,7 +89,7 @@ em uma chamada. Python exige os quatro limites inclusivos configurados em
 `app/config.py`: confidence 0,70, probabilidade da categoria 0,50, suporte factual
 0,60 e relevância 0,25. Não há Score nem etapa de subcritérios. Erro crítico
 bloqueia sempre; erro corrigível ou limite não atingido pede uma revisão e,
-se persistir, bloqueia. Veja `docs/judge-policy.md` e `manual_chat_judge.py`.
+se persistir, bloqueia. Veja `manual_chat_judge.py` e a documentação no `delta-handbook`.
 O runner permite `--no-history` e não imprime candidatas bloqueadas.
 
 ### Estrutura atual
@@ -113,7 +113,6 @@ delta-artificial-intelligence/
 ├── db/
 │   ├── postgres-init/       # Cópias locais de bootstrap PostgreSQL, arquivos 01 a 09
 │   └── README.md
-├── docs/                    # Guias técnicos, inclusive do Agente Juiz
 ├── tests/                   # Testes com provedores, bancos e ferramentas substituídos
 ├── .env.example
 ├── AGENTS.md
@@ -203,6 +202,8 @@ Tipos permitidos: `feat`, `fix`, `refactor`, `docs`, `test` e `style`, `chore`. 
 Os commits seguem Conventional Commits no formato `<tipo>: descrição`, com os mesmos tipos. Mantenha cada alteração coesa e restrita ao repositório e à tarefa correspondente.
 
 ## 8. Padrão de documentação
+
+**Não crie a pasta `docs/` neste repositório.** Toda documentação técnica, de arquitetura e de operação fica no `delta-handbook` (por exemplo, `IA/observabilidade.md`), em branch própria daquele repositório. Aqui só entram o `README.md` e o `AGENTS.md`; comentários e docstrings continuam no código.
 
 Siga o padrão do `delta-handbook`: use Markdown, título e objetivo claros, contexto e justificativas relevantes, seções com hierarquia coerente e nomes de arquivo em minúsculas separados por hífens. Use listas, tabelas, comandos e diagramas quando ajudarem a explicar o conteúdo. Prefira links relativos e confira se apontam para arquivos existentes.
 

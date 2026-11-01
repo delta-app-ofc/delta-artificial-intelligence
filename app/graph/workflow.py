@@ -635,7 +635,10 @@ def _invoke_workflow(
     """Roda o grafo da pergunta a partir do estado inicial e libera o checkpoint ao final quando a
     sessão persiste.
     """
-    config = {"configurable": {"thread_id": f"{user_id}:{session_id}"}}
+    # O session_id nos metadados agrupa os runs filhos do LangSmith por conversa.
+    config = {"configurable": {"thread_id": f"{user_id}:{session_id}"},
+              "metadata": {"session_id": session_id,
+                           "client": getattr(current_trace(), "client", "unknown")}}
     initial: GraphState = {
         "user_id": user_id, "session_id": session_id, "question": question,
         "response": "", "agent_used": "", "chart_data": None,
