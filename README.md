@@ -121,6 +121,47 @@ no Qdrant. A busca usa `GEMINI_EMBEDDING_MODEL`, vetores de 3072 dimensões
 e filtros de fonte, revisão do documento e modelo. O agente recebe trechos
 com capítulos, subtópicos e linhas para citar nas respostas.
 
+### Conhecimento externo via MCP
+
+O `RagAgent` também oferece `search_external_knowledge` para orientações gerais
+sobre conservação e uso consciente da água. O cliente inicia um servidor MCP
+local via stdio, que lê somente artigos públicos cadastrados em
+`app/integrations/mcp/sources.py`. Não há porta HTTP nem URL livre escolhida pelo
+modelo. Perguntas, histórico, dados da conta e chaves do backend não são enviados
+à fonte pública. A dependência `mcp>=2.2,<3` fornece o protocolo.
+
+Habilite `MCP_EXTERNAL_ENABLED=true`; timeout total e cache dos textos usam
+`MCP_TIMEOUT_SECONDS=45` e `MCP_CACHE_TTL_SECONDS=3600`. O cache é por processo,
+limitado ao catálogo, e não serve conteúdo vencido quando a fonte falha.
+Para testar apenas MCP e a página pública, sem embeddings ou banco:
+
+```powershell
+python -m scripts.check_mcp
+```
+
+Esse diagnóstico acessa a internet e pode ser executado mesmo com a consulta
+externa desabilitada no chatbot. A busca vetorial exige a mesma configuração
+Gemini/Qdrant da base local. As fontes externas são indexadas separadamente por
+fonte, revisão e modelo, sem alterar a coleção de memória. O resultado oferece
+top-k de 1 a 20, filtros exatos `topic`/`source_id`, URL, título, publicação,
+coleta e linhas do texto extraído normalizado. Artigos públicos não comprovam
+dados da conta nem definem funcionalidades do Delta.
+
+O agente preserva os trechos nas evidências do Juiz e monta a lista final de
+fontes a partir das ferramentas. Falhas retornam `unavailable`; filtros sem
+correspondência retornam `insufficient_data`. A fonte inicial é um artigo
+histórico do Senado, publicado em 12/09/2005; não é uma atualização em tempo real.
+
+```powershell
+$env:APP_ENV = 'test'
+python -m pytest tests/test_mcp_sources.py tests/test_external_rag.py tests/test_rag_workflow_integration.py -q
+```
+
+Os testes usam protocolo MCP e Qdrant em memória, HTTP e modelos controlados.
+Não medem a qualidade semântica do Gemini nem validam o Qdrant remoto ou A2A.
+Contrato, operação e critérios de aceite estão no
+[guia MCP/RAG do handbook](https://github.com/delta-app-ofc/delta-handbook/blob/docs/mcp-fontes-externas-rag/IA/mcp-fontes-externas-rag.md).
+
 ### Indexação automática antes da consulta
 
 A coleção `rag_documents` precisa existir no Qdrant, com vetores de 3072 dimensões.

@@ -68,6 +68,23 @@ Os componentes abaixo foram implementados e têm cobertura de testes:
 - Agente `profile`.
 - Métricas em `app/observability/`.
 
+### Conhecimento externo via MCP
+
+`app/integrations/mcp/` contém catálogo fechado, extrator HTML, contrato,
+servidor MCP e cliente stdio. `app/tools/external_knowledge.py` recupera artigos
+públicos para o RAG com top-k e filtros exatos de tema/fonte. A busca exige
+`MCP_EXTERNAL_ENABLED=true`, além dos settings Gemini/Qdrant. O subprocesso
+recebe somente o identificador da fonte; não recebe perguntas ou credenciais
+do backend. O transporte é local, sem serviço HTTP público.
+
+As fontes externas usam o mesmo modelo e esquema de `rag_documents`, com
+identificador próprio, revisão, URL e localização no texto extraído. Nunca
+recrie uma coleção incompatível. O RAG mantém documentação interna e conteúdo
+externo separados e leva os trechos ao Juiz. `scripts/check_mcp.py` verifica
+MCP e fonte pública sem banco/LLM; os testes novos distinguem HTTP controlado,
+protocolo real, Qdrant em memória e grafo com modelos substituídos. A2A não foi
+implementado e não pode ser declarado validado por esses testes.
+
 API, grafo, guardrails, memória e agentes registrados têm código. Verifique
 o comportamento e as dependências reais antes de descrevê-los como validados.
 
@@ -102,6 +119,7 @@ delta-artificial-intelligence/
 │   ├── data/                # Acesso PostgreSQL e MongoDB
 │   ├── graph/               # Workflow LangGraph, router, state, context e revisão do Juiz
 │   ├── guardrails/          # Validações de entrada e saída (PII, injeção)
+│   ├── integrations/mcp/    # Catálogo público, servidor e cliente MCP stdio
 │   ├── memory/              # Sessão (MongoDB) e longo prazo (Qdrant)
 │   ├── observability/       # Reservado para métricas
 │   ├── routes/              # API HTTP: chat, health, sessions e playground
@@ -115,6 +133,7 @@ delta-artificial-intelligence/
 │   └── README.md
 ├── docs/                    # Guias técnicos, inclusive do Agente Juiz
 ├── tests/                   # Testes com provedores, bancos e ferramentas substituídos
+├── scripts/                 # Diagnóstico do MCP e da fonte pública
 ├── .env.example
 ├── AGENTS.md
 ├── docker-compose.dev.yml   # PostgreSQL e MongoDB locais para desenvolvimento manual
