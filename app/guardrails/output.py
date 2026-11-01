@@ -43,6 +43,38 @@ def chart_mentions_other_user(chart_data: Any, user_id: int | None) -> bool:
     return False
 
 
+_TECHNICAL_SENTENCE = re.compile(
+    r"\b[a-z]+(?:_[a-z0-9]+)+\b"  # nomes de ferramentas e status internos (snake_case)
+    r"|\bagente\s+(?:de\s+|do\s+|da\s+)?(?:consumo|previs[aã]o|vazamentos?|h[aá]bitos|rag|juiz|jev)\b"
+    r"|\b(?:consumption|forecast|leak|habits|judge)\s*agent\b"
+    r"|\b(?:especialista|ferramentas?|tools?)\b"
+    r"|\bstatus\s*[:=]"
+    r"|\b(?:traceback|stack\s*trace|exception|timeout|time-out|json|http\s*\d{3}|erro\s+[45]\d\d)\b"
+    r"|\b(?:psycopg2?|pymongo|postgres(?:ql)?|mongo(?:db)?|qdrant|langgraph|langchain|openai|gemini|groq)\b"
+    r"|\b(?:api|banco\s+de\s+dados|servidor|servi[cç]o\s+de\s+linguagem)\b[^.!?\n]*"
+    r"\b(?:erro|falh[ao]u?|indispon[ií]vel|fora\s+do\s+ar|n[aã]o\s+respond)",
+    re.I,
+)
+
+TECHNICAL_FALLBACK = "Não consegui consultar essa informação agora. Tente novamente em instantes."
+
+
+def hide_technical_details(text: str) -> str:
+    """Remove frases com detalhes internos (agentes, ferramentas, erros de API ou de banco).
+
+    O usuário só deve ver uma explicação em linguagem comum. Se sobrar nada, devolve um aviso genérico.
+    """
+    kept: list[str] = []
+    for line in text.split("\n"):
+        sentences = re.split(r"(?<=[.!?])\s+", line)
+        remaining = [s for s in sentences if not _TECHNICAL_SENTENCE.search(s)]
+        if remaining or not line.strip():
+            kept.append(" ".join(remaining))
+    cleaned = "\n".join(kept).strip()
+    cleaned = re.sub(r"\n{3,}", "\n\n", cleaned)
+    return cleaned if cleaned else TECHNICAL_FALLBACK
+
+
 def validate_output(response: str, pii_map: dict[str, str] | None = None) -> dict:
     """Retorna {"ok": True, "response": ...} ou {"ok": False, "reason": ...}."""
 
@@ -59,7 +91,7 @@ def validate_output(response: str, pii_map: dict[str, str] | None = None) -> dic
     if _SENHA_RE.search(response):
         return {"ok": False, "reason": "Resposta contém possível credencial."}
 
-    return {"ok": True, "response": response}
+    return {"ok": True, "response": hide_technical_details(response)}
 
 
 def validate_ownership(response: str, user_id: int | None) -> dict:

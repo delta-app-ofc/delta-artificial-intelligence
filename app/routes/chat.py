@@ -81,7 +81,6 @@ def chat(req: ChatRequest, user_id: int = Depends(get_current_user_id)):
 
     return ChatResponse(
         response=state["response"],
-        agents_used=state.get("selected_agents", []),
         session_id=session_id,
         chart_data=state.get("chart_data"),
     )
@@ -115,7 +114,7 @@ STREAM_EVENTS_DESCRIPTION = (
             "description": "Fluxo de eventos.",
             "content": {"text/event-stream": {"schema": {"type": "string"}, "example": (
                 'event: stage\ndata: {"stage": "checking", "label": "Verificando a mensagem"}\n\n'
-                'event: result\ndata: {"response": "...", "agents_used": ["consumption"], '
+                'event: result\ndata: {"response": "...", '
                 '"session_id": "...", "chart_data": null}\n\n'
             )}},
         },
@@ -150,7 +149,6 @@ def chat_stream(req: ChatRequest, user_id: int = Depends(get_current_user_id)):
                         failed = False
                         yield _sse("result", ChatResponse(
                             response=state["response"],
-                            agents_used=state.get("selected_agents", []),
                             session_id=session_id,
                             chart_data=state.get("chart_data"),
                         ).model_dump(mode="json"))
