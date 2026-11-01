@@ -202,7 +202,7 @@ async function loadConfig() {
   configLoading = true; renderPanels(); renderControls();
   try {
     const value = await requestJSON('/playground/config');
-    if (value.user_id !== 12345679 || value.test_label !== 'teste_agentes_25_10' || !Array.isArray(value.agents)) throw new Error('A configuração retornada não corresponde ao usuário e ao teste fixos deste console.');
+    if (value.user_id !== 123456789 || value.test_label !== 'teste_agentes_25_10' || !Array.isArray(value.agents)) throw new Error('A configuração retornada não corresponde ao usuário e ao teste fixos deste console.');
     config = value; configError = value.enabled ? '' : 'O servidor desativou o console de testes.';
   } catch (error) { config = null; configError = error.message; }
   finally { configLoading = false; renderPanels(); renderControls(); }

@@ -11,7 +11,7 @@ from fastapi.testclient import TestClient
 from app.graph import workflow
 from app.memory import session as memory
 from app.routes import chat as chat_route
-from tests.conftest import JWT_SECRET, auth_header
+from tests.conftest import JWT_SECRET, auth_header, auth_settings
 
 RESPOSTA = "Você consumiu 120 litros."
 
@@ -32,7 +32,7 @@ def eventos_sse(texto: str) -> list[tuple[str, dict]]:
 
 @pytest.fixture
 def client(mongo_db, monkeypatch):
-    monkeypatch.setattr("app.auth.get_settings", lambda: SimpleNamespace(jwt_secret=JWT_SECRET))
+    monkeypatch.setattr("app.auth.get_settings", lambda: auth_settings(jwt_secret=JWT_SECRET))
     app = FastAPI()
     app.include_router(chat_route.router)
     return TestClient(app)

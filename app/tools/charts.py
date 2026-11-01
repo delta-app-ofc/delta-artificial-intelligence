@@ -49,6 +49,33 @@ def build_habits_chart(tool_calls: list[ToolCall]) -> dict | None:
     return fig.to_dict()
 
 
+def build_simulation_chart(tool_calls: list[ToolCall]) -> dict | None:
+    """Barras do consumo no período: cenário atual contra o simulado."""
+    scenario: dict | None = None
+    for tc in tool_calls:
+        if tc.name == "simulate_consumption_change" and isinstance(tc.output, dict):
+            if tc.output.get("status") == "ok":
+                scenario = tc.output.get("scenario")
+    if not scenario:
+        return None
+
+    import plotly.graph_objects as go
+
+    change = scenario["change_pct"]
+    labels = ["Cenário atual", f"Simulado ({change:+g}%)"]
+    values = [scenario["base_period_liters"], scenario["scenario_period_liters"]]
+    fig = go.Figure(
+        go.Bar(x=labels, y=values, marker_color=["#2196F3", "#4CAF50" if change < 0 else "#F44336"],
+               text=[f"{v:.0f} L" for v in values], textposition="outside")
+    )
+    fig.update_layout(
+        title=f"Consumo em {scenario['days']} dias: atual x simulado",
+        yaxis_title="Litros",
+        **_LAYOUT,
+    )
+    return fig.to_dict()
+
+
 def build_forecast_chart(tool_calls: list[ToolCall]) -> dict | None:
     points: list[dict] = []
     forecast: dict | None = None

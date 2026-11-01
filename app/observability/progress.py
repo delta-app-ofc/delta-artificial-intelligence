@@ -40,6 +40,7 @@ _TOOL_LABELS = {
     "calculate_forecast": "Calculando a previsão",
     "get_habit_baseline": "Lendo os hábitos cadastrados",
     "get_habit_windows": "Lendo os hábitos cadastrados",
+    "simulate_consumption_change": "Simulando o cenário",
     "get_anomalous_windows": "Lendo as janelas de consumo anômalas",
     "get_alerts_history": "Lendo os alertas registrados",
     "summarize_anomalous_windows": "Resumindo os sinais de vazamento",

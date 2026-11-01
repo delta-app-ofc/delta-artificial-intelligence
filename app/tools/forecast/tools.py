@@ -19,6 +19,7 @@ from app.data import db_mongo, db_postgres
 from app.tools.exceptions import RegionRateNotFound
 from app.tools.forecast import calculations as calc
 from app.tools.habits.calculations import summarize_habit_baseline
+from app.tools.simulation.calculations import simulate_percentage_change
 from app.tools.validation import days_error, validate_user_id
 
 # Janela padrão de histórico consultada no MongoDB (dias).
@@ -337,6 +338,52 @@ def build_tools(user_id: int, today: date, access_kind: str | None = None) -> li
             "note": "Estimativa por média de referência; não é medição nem parte da previsão.",
         }
 
+    @tool
+    def simulate_consumption_change(
+        change_pct: float, days: int = 30, property_name: str | None = None
+    ) -> dict:
+        """Simula "e se o consumo diário mudasse X%" e compara com o cenário atual.
+
+        change_pct: variação percentual do consumo diário. Use número negativo para
+          redução (ex.: -10 para "cair 10%") e positivo para aumento.
+        days: período da comparação em dias (padrão 30).
+
+        A base é a média diária recente do próprio usuário (a mesma do cálculo de
+        previsão), buscada pela ferramenta. Retorna base e cenário por dia e no
+        período, a diferença em litros e as hipóteses usadas. É uma simulação, não
+        uma previsão nem uma medição. Sem histórico suficiente, devolve
+        insufficient_data e não calcula nada.
+
+        Use property_name somente se o usuário mencionar uma unidade específica da
+        organização pelo nome ou endereço; em branco, usa a organização toda.
+        """
+        if invalid := days_error(days, "days"):
+            return invalid
+        forecast_result = calculate_forecast.invoke({"property_name": property_name})
+        if forecast_result.get("status") != "ok":
+            return forecast_result
+        forecast = forecast_result["forecast"]
+        if not forecast.get("has_enough_history"):
+            return {
+                "status": "insufficient_data",
+                "message": "Histórico de consumo insuficiente para simular com segurança.",
+            }
+        baseline = (forecast.get("projection") or {}).get("daily_average_liters")
+        try:
+            scenario = simulate_percentage_change(float(baseline or 0), change_pct, days)
+        except ValueError as exc:
+            return {"status": "error", "message": str(exc)}
+        return {
+            "status": "ok",
+            "scenario": dataclasses.asdict(scenario),
+            "assumptions": [
+                "Base: média diária dos dias recentes com registro (a mesma usada na previsão).",
+                f"Variação aplicada de forma uniforme a todos os {days} dias.",
+                "Não considera sazonalidade, clima nem mudança de hábitos além da variação informada.",
+                "Simulação: não é previsão nem medição do hidrômetro.",
+            ],
+        }
+
     return [
         check_can_estimate,
         get_last_bill,
@@ -345,4 +392,5 @@ def build_tools(user_id: int, today: date, access_kind: str | None = None) -> li
         get_region_rate,
         calculate_forecast,
         get_habit_baseline,
+        simulate_consumption_change,
     ]
