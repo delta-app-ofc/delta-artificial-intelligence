@@ -109,10 +109,11 @@ def build_tools(user_id: int, today: date, access_kind: str | None = None) -> li
     def _history(kind: str, ids: list[int] | None, days: int) -> list[Any]:
         """Histórico de consumo: MongoDB primeiro e, se a telemetria estiver indisponível, a view
         diária do PostgreSQL. Documento inválido não troca de fonte."""
+        # A autorização vem do PostgreSQL: se ele falhar aqui, não é indisponibilidade do MongoDB.
+        devices = [] if kind == "residential" else db_postgres.get_authorized_device_ids(user_id, ids or [])
         try:
             if kind == "residential":
                 return db_mongo.get_consumption_history(user_id, days)
-            devices = db_postgres.get_authorized_device_ids(user_id, ids or [])
             return [
                 dataclasses.replace(point, user_id=user_id)
                 for point in db_mongo.get_consumption_history_by_devices(devices, days)

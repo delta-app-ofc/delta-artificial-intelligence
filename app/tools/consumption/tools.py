@@ -75,8 +75,15 @@ def _read_period(
     """Lê o consumo do período no escopo autorizado: MongoDB primeiro e, se a telemetria
     estiver indisponível, a view diária do PostgreSQL.
     """
+    # A autorização vem do PostgreSQL: se ele falhar aqui, não é indisponibilidade do MongoDB e
+    # não pode virar leitura da view.
+    device_ids: list[str] = []
+    if scope.kind != "residential" and period.end > period.start:
+        device_ids = db_postgres.get_authorized_device_ids(user_id, list(scope.property_ids))
     try:
-        return _read_period_mongo(user_id=user_id, scope=scope, period=period, as_of=as_of)
+        return _read_period_mongo(
+            user_id=user_id, scope=scope, period=period, as_of=as_of, device_ids=device_ids
+        )
     except DatabaseDataError:
         raise  # documento inválido é problema do dado, não indisponibilidade: não troca de fonte
     except (DatabaseAccessError, ConfigurationError) as exc:
@@ -93,9 +100,10 @@ def _read_period_mongo(
     scope: _Scope,
     period: analysis.ConsumptionPeriod,
     as_of: datetime,
+    device_ids: list[str],
 ) -> _ReadResult:
     """Lê as janelas de consumption_summary: pelo usuário (residencial) ou pelos dispositivos
-    das unidades autorizadas (organizacional).
+    das unidades autorizadas (organizacional, já resolvidos por quem chama).
     """
     notes = list(period.notes)
     local_today = as_of.astimezone(ZoneInfo(period.timezone_name)).date()
@@ -115,7 +123,6 @@ def _read_period_mongo(
                 user_id, start_utc, end_utc, as_of_utc
             )
         else:
-            device_ids = db_postgres.get_authorized_device_ids(user_id, list(scope.property_ids))
             # A autorização já foi feita pelos dispositivos; o dono gravado no documento pode faltar.
             points = [
                 replace(point, user_id=user_id)
