@@ -158,7 +158,8 @@ python -m pytest tests/test_mcp_sources.py tests/test_external_rag.py tests/test
 ```
 
 Os testes usam protocolo MCP e Qdrant em memória, HTTP e modelos controlados.
-Não medem a qualidade semântica do Gemini nem validam o Qdrant remoto ou A2A.
+Não medem a qualidade semântica do Gemini nem validam o Qdrant remoto.
+A2A está fora do escopo por decisão de negócio em 01/11/2026.
 Contrato, operação e critérios de aceite estão no
 [guia MCP/RAG do handbook](https://github.com/delta-app-ofc/delta-handbook/blob/docs/mcp-fontes-externas-rag/IA/mcp-fontes-externas-rag.md).
 

@@ -82,8 +82,9 @@ identificador próprio, revisão, URL e localização no texto extraído. Nunca
 recrie uma coleção incompatível. O RAG mantém documentação interna e conteúdo
 externo separados e leva os trechos ao Juiz. `scripts/check_mcp.py` verifica
 MCP e fonte pública sem banco/LLM; os testes novos distinguem HTTP controlado,
-protocolo real, Qdrant em memória e grafo com modelos substituídos. A2A não foi
-implementado e não pode ser declarado validado por esses testes.
+protocolo real, Qdrant em memória e grafo com modelos substituídos. A2A foi
+excluído por decisão de negócio em 01/11/2026; não deve ser implementado nem
+tratado como pendência desta entrega.
 
 API, grafo, guardrails, memória e agentes registrados têm código. Verifique
 o comportamento e as dependências reais antes de descrevê-los como validados.
