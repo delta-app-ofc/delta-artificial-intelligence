@@ -342,6 +342,10 @@ def get_organization_consumption_history(
             (user_id, property_ids, days, today),
         )
         rows = cur.fetchall()
+    return _daily_points(rows)
+
+
+def _daily_points(rows) -> list[ConsumptionPoint]:
     points = []
     for full_date, total_liters in rows:
         start = datetime(full_date.year, full_date.month, full_date.day)
@@ -356,6 +360,30 @@ def get_organization_consumption_history(
             )
         )
     return points
+
+
+def get_residential_consumption_history(
+    user_id: int, days: int, today: date
+) -> list[ConsumptionPoint]:
+    """Histórico diário (litros) dos imóveis vinculados ao usuário, pela view.
+
+    Fallback da previsão residencial quando a telemetria MongoDB está indisponível.
+    Mesmo formato de get_organization_consumption_history.
+    """
+    with _cursor() as cur:
+        cur.execute(
+            """
+            SELECT full_date, SUM(total_liters)
+              FROM dw.vw_ft_consumption_daily
+             WHERE property_id IN (SELECT property_id FROM tb_user_property WHERE user_id = %s)
+               AND full_date BETWEEN (%s::date - (%s - 1)) AND %s::date
+             GROUP BY full_date
+             ORDER BY full_date;
+            """,
+            (user_id, today, days, today),
+        )
+        rows = cur.fetchall()
+    return _daily_points(rows)
 
 
 def _validate_daily_bounds(start_date: date, end_date: date) -> None:

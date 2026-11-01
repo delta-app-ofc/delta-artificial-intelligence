@@ -283,6 +283,26 @@ def get_consumption_history_between_devices(
     )
 
 
+def get_consumption_history_by_devices(device_ids: list[str], days: int) -> list[ConsumptionPoint]:
+    """Histórico dos dispositivos informados nos últimos ``days`` dias (usado pela previsão
+    organizacional; os dispositivos vêm das unidades que o Postgres autorizou)."""
+    if not device_ids:
+        return []
+    return _read_many(
+        "telemetry",
+        "consumption_summary",
+        {
+            "device_id": {"$in": list(device_ids)},
+            "window_started_at": {
+                "$gte": datetime.now(timezone.utc) - timedelta(days=days)
+            },
+        },
+        "window_started_at",
+        ASCENDING,
+        _to_device_point,
+    )
+
+
 def get_daily_liters_target(user_id: int) -> float | None:
     doc = _read_one("app", "user_preferences", {"user_id": user_id})
     if not doc or doc.get("daily_liters_target") is None:

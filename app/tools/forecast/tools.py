@@ -9,16 +9,20 @@ uma, sem repetir a descrição.
 from __future__ import annotations
 
 import dataclasses
+import logging
 from datetime import date
 from decimal import Decimal
 from typing import Any
 
 from langchain_core.tools import BaseTool, tool
 
+from app.config import ConfigurationError
 from app.data import db_mongo, db_postgres
-from app.tools.exceptions import RegionRateNotFound
+from app.tools.exceptions import DatabaseAccessError, DatabaseDataError, RegionRateNotFound
 from app.tools.forecast import calculations as calc
 from app.tools.validation import days_error, validate_user_id
+
+logger = logging.getLogger(__name__)
 
 # Janela padrão de histórico consultada no MongoDB (dias).
 DEFAULT_HISTORY_DAYS = 45
@@ -102,6 +106,28 @@ def build_tools(user_id: int, today: date, access_kind: str | None = None) -> li
             "candidates": [_serialize(c) for c in candidates],
         }
 
+    def _history(kind: str, ids: list[int] | None, days: int) -> list[Any]:
+        """Histórico de consumo: MongoDB primeiro e, se a telemetria estiver indisponível, a view
+        diária do PostgreSQL. Documento inválido não troca de fonte."""
+        try:
+            if kind == "residential":
+                return db_mongo.get_consumption_history(user_id, days)
+            devices = db_postgres.get_authorized_device_ids(user_id, ids or [])
+            return [
+                dataclasses.replace(point, user_id=user_id)
+                for point in db_mongo.get_consumption_history_by_devices(devices, days)
+            ]
+        except DatabaseDataError:
+            raise
+        except (DatabaseAccessError, ConfigurationError) as exc:
+            logger.warning(
+                "Telemetria MongoDB indisponível (%s); usando dw.vw_ft_consumption_daily.",
+                type(exc).__name__,
+            )
+            if kind == "residential":
+                return db_postgres.get_residential_consumption_history(user_id, days, today)
+            return db_postgres.get_organization_consumption_history(user_id, ids or [], days, today)
+
     @tool
     def check_can_estimate(property_name: str | None = None) -> dict:
         """Verifica se o usuário está apto a receber estimativas de previsão.
@@ -172,10 +198,8 @@ def build_tools(user_id: int, today: date, access_kind: str | None = None) -> li
         if invalid := days_error(days):
             return invalid
         kind, ids, candidates = _resolve_scope(property_name)
-        if kind == "residential":
-            points = db_mongo.get_consumption_history(user_id, days)
-        elif kind == "organizational":
-            points = db_postgres.get_organization_consumption_history(user_id, ids, days, today)
+        if kind in ("residential", "organizational"):
+            points = _history(kind, ids, days)
         else:
             return _scope_error_response(kind, candidates)
         return {
@@ -283,8 +307,9 @@ def build_tools(user_id: int, today: date, access_kind: str | None = None) -> li
 
         daily_target = db_mongo.get_daily_liters_target(user_id)
 
+        history = _history(kind, ids, history_days)
+
         if kind == "residential":
-            history = db_mongo.get_consumption_history(user_id, history_days)
             last_bill = db_postgres.get_last_water_bill(user_id)
             region_id = db_postgres.get_user_region_id(user_id)
             classification_id = db_postgres.get_user_property_classification_id(user_id)
@@ -295,9 +320,6 @@ def build_tools(user_id: int, today: date, access_kind: str | None = None) -> li
                 except RegionRateNotFound:
                     region_rate = None
         else:
-            history = db_postgres.get_organization_consumption_history(
-                user_id, ids, history_days, today
-            )
             last_bill = db_postgres.get_organization_last_billed_period(user_id, ids, today)
             region_rate = db_postgres.get_organization_effective_rate(user_id, ids, today)
 
