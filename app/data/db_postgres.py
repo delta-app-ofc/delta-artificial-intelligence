@@ -14,6 +14,7 @@ from app.config import get_settings, validate_postgres_config
 from app.tools.exceptions import (
     DatabaseConnectionError,
     DatabaseQueryError,
+    HabitConflictError,
     RegionRateNotFound,
 )
 from app.tools.models import ConsumptionPoint, LastWaterBill, OrganizationProperty
@@ -483,26 +484,47 @@ def get_user_location(user_id: int) -> dict | None:
     return {"city": row[0], "state": row[1], "country": "BR"}
 
 
-def create_habit(user_id: int, name: str, frequency: int, days: list[str]) -> dict:
-    """Cadastra um hábito e vincula os dias da semana.
+def create_habit(
+    user_id: int,
+    name: str,
+    frequency: int,
+    days: list[str],
+    start_time: str | None = None,
+    end_time: str | None = None,
+) -> dict:
+    """Cadastra um hábito (com dias e horário opcionais) e devolve o id gravado.
 
-    Retorna confirmação com name, frequency e days.
-    Levanta ValueError se o hábito já existir ou os dados forem inválidos.
+    Levanta HabitConflictError se o usuário já tem o hábito no mesmo dia e horário
+    e ValueError se o banco recusar os dados.
     """
     with _cursor() as cur:
         try:
             cur.execute(
-                "SELECT fn_create_user_habit(%s, %s, %s, %s);",
-                (user_id, name, frequency, days),
+                "SELECT fn_create_user_habit(%s, %s, %s, %s::varchar[], %s::time, %s::time);",
+                (user_id, name, frequency, days, start_time, end_time),
             )
+            row = cur.fetchone()
         except psycopg2.errors.RaiseException as exc:  # type: ignore[attr-defined]
             # A mensagem do banco pode trazer detalhes internos: vai só para o log.
-            logger.warning("Cadastro de hábito recusado pelo banco: %s", exc.diag.message_primary)
+            message = exc.diag.message_primary or ""
+            logger.warning("Cadastro de hábito recusado pelo banco: %s", message)
+            if "já possui esse hábito" in message:
+                raise HabitConflictError(
+                    "Você já tem esse hábito cadastrado nesse dia e horário."
+                ) from exc
             raise ValueError(
-                "Não foi possível cadastrar o hábito. Ele pode já estar cadastrado "
-                "ou os dados informados são inválidos."
+                "Não foi possível cadastrar o hábito: o banco recusou os dados informados."
             ) from exc
-    return {"name": name, "frequency": frequency, "days": days}
+    if not row or row[0] is None:
+        raise DatabaseQueryError("PostgreSQL")
+    return {
+        "habit_id": row[0],
+        "name": name,
+        "frequency": frequency,
+        "days": days,
+        "start_time": start_time,
+        "end_time": end_time,
+    }
 
 
 def get_organization_effective_rate(
