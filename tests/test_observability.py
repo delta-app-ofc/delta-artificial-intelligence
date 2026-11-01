@@ -393,3 +393,9 @@ def test_langsmith_hides_prompts_and_answers_by_default(monkeypatch):
     _use_env(monkeypatch, LANGSMITH_TRACING="true", LANGSMITH_API_KEY="chave-de-teste", LANGSMITH_SEND_CONTENT="true")
     assert enable_langsmith() is True
     assert os.environ["LANGSMITH_HIDE_INPUTS"] == "false"
+
+
+def test_default_latency_slo_is_15_seconds():
+    from app.config import Settings
+
+    assert Settings.obs_latency_p95_limit_ms == 15000.0
