@@ -32,6 +32,7 @@ def client(monkeypatch):
         playground, "validate_input", lambda user_id, message: {"ok": True, "message": message, "pii_map": {}}
     )
     monkeypatch.setattr(playground, "append_turn", lambda *args, **kwargs: None)
+    monkeypatch.setattr(playground, "session_belongs_to_user", lambda *args: False)
     app = FastAPI()
     app.include_router(playground.router)
     return TestClient(app)
@@ -197,3 +198,13 @@ def test_chat_sem_stream_tambem_devolve_o_id_sem_redacao(client, monkeypatch):
     resposta = client.post("/playground/chat", json={"message": "oi"})
 
     assert resposta.json()["session_id"] == UUID_QUE_PARECE_TELEFONE
+
+
+def test_sessao_do_console_sem_historico_nao_vira_erro(client, monkeypatch):
+    """O uuid do console não existe no Mongo: grava nada, avisa e não registra erro de session_save."""
+    usa_eventos(monkeypatch, [{"type": "final", "state": ESTADO_FINAL}])
+    resposta = client.post("/playground/chat/stream", json={"message": "oi"})
+    resultado = [dado for evento, dado in eventos_sse(resposta.text) if evento == "result"][-1]
+    diag = resultado["diagnostics"]
+    assert not [e for e in diag["errors"] if "session_save" in str(e)]
+    assert any("não foram gravadas" in str(w) for w in diag["warnings"])

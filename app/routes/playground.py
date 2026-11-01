@@ -20,7 +20,7 @@ from app.graph.profile import resolve_access_kind
 from app.graph.workflow import execute_agent, run_workflow, run_workflow_events
 from app.guardrails.input import validate_input
 from app.guardrails.output import validate_output
-from app.memory.session import append_turn
+from app.memory.session import append_turn, session_belongs_to_user
 from app.observability.diagnostics import Trace, capture, component, current_trace, public_data
 from app.schemas import ErrorResponse
 
@@ -206,13 +206,19 @@ def run_test(req: PlaygroundRequest, mode: str, *, workflow_runner=None):
                     else:
                         response = out["response"]
                 if mode in {"chat", "judge"} and response:
-                    try:
-                        with component("session_save"):
-                            append_turn(session_id, USER_ID, "human", req.message)
-                            append_turn(session_id, USER_ID, "assistant", response)
-                    except Exception:
-                        # A resposta fica visível com erro de persistência no painel.
-                        pass
+                    # O console gera um uuid próprio: sem sessão existente no Mongo não há onde gravar,
+                    # o que não é erro. Só uma falha ao gravar numa sessão real fica no painel.
+                    if session_belongs_to_user(USER_ID, session_id):
+                        try:
+                            with component("session_save"):
+                                append_turn(session_id, USER_ID, "human", req.message)
+                                append_turn(session_id, USER_ID, "assistant", response)
+                        except Exception:
+                            pass
+                    else:
+                        trace.warnings.append(
+                            "Sessão de teste sem histórico: a pergunta e a resposta não foram gravadas."
+                        )
         except Exception as error:
             # Erros de etapas já instrumentadas estão registrados uma única vez.
             trace.error(mode, error)
