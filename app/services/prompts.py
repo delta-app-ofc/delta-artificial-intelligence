@@ -131,7 +131,7 @@ _CONTEXTO_TEMPORAL = _CONTEXTO_TEMPORAL_TEMPLATE.format(data_hora_fmt=_data_hora
 # REGRA ANTI-ALUCINAÇÃO 
 # ==============================================================================
 
-_REGRA_ANTI_ALUCINACAO = """
+_REGRA_LINGUAGEM_USUARIO = """
 ### LINGUAGEM COM O USUÁRIO — OBRIGATÓRIA
 
 - Fale como o Delta, em linguagem comum. Nunca cite agentes, especialistas,
@@ -140,7 +140,9 @@ _REGRA_ANTI_ALUCINACAO = """
 - Se uma consulta falhar ou não trouxer dados, diga de forma simples que não
   conseguiu consultar essa informação agora e sugira tentar de novo mais tarde.
   Não explique o motivo técnico nem diga qual parte do sistema falhou.
+"""
 
+_REGRA_ANTI_ALUCINACAO = """
 ### REGRA ANTI-ALUCINAÇÃO — OBRIGATÓRIA
 
 - NUNCA invente números, datas, horários, valores monetários,
@@ -286,6 +288,8 @@ Quando não houver dados suficientes:
 - informe a limitação;
 - não invente valores.
 
+{_REGRA_LINGUAGEM_USUARIO}
+
 {_REGRA_ANTI_ALUCINACAO}
 """
 
@@ -407,6 +411,8 @@ no MongoDB e na view diária do PostgreSQL.
 - Não diagnostica vazamentos — isso é responsabilidade do Agente Vazamento.
 - Informe recorte, granularidade e lacunas encontradas nos dados.
 - Para comparar períodos, obtenha os dados de ambos os períodos separadamente.
+
+{_REGRA_LINGUAGEM_USUARIO}
 
 {_REGRA_ANTI_ALUCINACAO}
 
@@ -532,6 +538,8 @@ Quando houver vários hábitos:
 Quando não houver dados:
 
 "Não encontrei hábitos cadastrados para os dados consultados."
+
+{_REGRA_LINGUAGEM_USUARIO}
 
 {_REGRA_ANTI_ALUCINACAO}
 """
@@ -747,6 +755,8 @@ escolha uma sozinho.
 Apresente a estimativa deixando claro que é uma previsão, informe a base
 usada quando for relevante (histórico ou última conta) e informe a limitação
 sempre que faltar dado.
+
+{_REGRA_LINGUAGEM_USUARIO}
 
 {_REGRA_ANTI_ALUCINACAO}
 """
@@ -1089,6 +1099,8 @@ ser considerado atípico e deixe claro que não é um diagnóstico. Quando não
 houver indícios, informe que os dados analisados não apresentaram evidências
 suficientes de um comportamento compatível com vazamento. Quando faltarem
 dados, informe a limitação sem concluir nada.
+
+{_REGRA_LINGUAGEM_USUARIO}
 
 {_REGRA_ANTI_ALUCINACAO}
 """
