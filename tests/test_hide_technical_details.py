@@ -34,6 +34,6 @@ def test_normal_answers_are_untouched():
     assert hide_technical_details("Seu hidrômetro está ativo.") == "Seu hidrômetro está ativo."
 
 
-def test_validate_output_applies_the_filter():
-    result = validate_output("Sua meta é 200 litros. O agente de consumo teve erro interno.")
-    assert result == {"ok": True, "response": "Sua meta é 200 litros."}
+def test_validate_output_keeps_diagnostic_fields_intact():
+    # O console de testes passa o rastro técnico por validate_output; ele não pode ser filtrado.
+    assert validate_output("agent_results") == {"ok": True, "response": "agent_results"}

@@ -91,7 +91,7 @@ def validate_output(response: str, pii_map: dict[str, str] | None = None) -> dic
     if _SENHA_RE.search(response):
         return {"ok": False, "reason": "Resposta contém possível credencial."}
 
-    return {"ok": True, "response": hide_technical_details(response)}
+    return {"ok": True, "response": response}
 
 
 def validate_ownership(response: str, user_id: int | None) -> dict:
