@@ -87,7 +87,10 @@ def validate_collection(*, client) -> None:
     if not client.collection_exists(COLLECTION):
         raise ValueError("Coleção RAG ausente. Crie rag_documents no Qdrant antes de indexar.")
     vectors = client.get_collection(COLLECTION).config.params.vectors
-    if (isinstance(vectors, dict) or vectors is None or vectors.size != VECTOR_SIZE
+    if isinstance(vectors, dict):
+        # Qdrant também representa o vetor padrão por um mapa cuja única chave é "".
+        vectors = vectors.get("") if set(vectors) == {""} else None
+    if (vectors is None or vectors.size != VECTOR_SIZE
             or vectors.distance != Distance.COSINE):
         raise ValueError("rag_documents deve usar um vetor sem nome, 3072 dimensões e distância Cosine.")
 

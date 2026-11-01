@@ -134,6 +134,39 @@ def test_incompatible_collection_fails_before_embeddings_without_recreating(rag_
         client.close()
 
 
+def test_default_vector_empty_name_map_supports_indexing_and_search(rag_backend):
+    _, embeddings, _ = rag_backend
+    client = QdrantClient(":memory:")
+    try:
+        client.create_collection(rag.COLLECTION, vectors_config={"": models.VectorParams(
+            size=rag.VECTOR_SIZE, distance=models.Distance.COSINE,
+        )})
+        document = rag.external_document(make_snapshot())
+        rag.ensure_document_indexed(document, client=client, embeddings=embeddings)
+        results = rag.search_document(document, "banho", client=client, embeddings=embeddings)
+        assert results and results[0]["source"] == document.source
+        assert client.count(rag.COLLECTION).count == len(document.chunks)
+        assert set(client.get_collection(rag.COLLECTION).config.params.vectors) == {""}
+    finally:
+        client.close()
+
+
+@pytest.mark.parametrize("names,size", [(["dense"], 3072), (["", "dense"], 3072), ([""], 768)])
+def test_schema_guard_still_rejects_other_named_vectors_or_wrong_dimensions(rag_backend, names, size):
+    _, embeddings, _ = rag_backend
+    client = QdrantClient(":memory:")
+    try:
+        client.create_collection(rag.COLLECTION, vectors_config={name: models.VectorParams(
+            size=size, distance=models.Distance.COSINE,
+        ) for name in names})
+        with pytest.raises(ValueError, match="3072"):
+            rag.ensure_document_indexed(rag.external_document(make_snapshot()), client=client, embeddings=embeddings)
+        assert embeddings.document_calls == 0
+        assert set(client.get_collection(rag.COLLECTION).config.params.vectors) == set(names)
+    finally:
+        client.close()
+
+
 def test_external_failure_is_unavailable_and_does_not_search_old_revision(rag_backend, monkeypatch):
     def unavailable(source_id):
         raise ExternalSourceError("DETALHE_PRIVADO")
