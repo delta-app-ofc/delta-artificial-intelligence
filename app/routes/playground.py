@@ -128,10 +128,14 @@ def envelope(trace, session_id, response="", chart_data=None, results=None, skip
         status = "partial"
     else:
         status = "success"
-    return public_data({"status": status, "response": response, "session_id": session_id,
-                        "chart_data": chart_data, "agent_results": results or [],
-                        "judge_results": judge_results or [],
-                        "diagnostics": trace.snapshot()})
+    payload = public_data({"status": status, "response": response,
+                           "chart_data": chart_data, "agent_results": results or [],
+                           "judge_results": judge_results or [],
+                           "diagnostics": trace.snapshot()})
+    # O session_id é nosso (uuid4) e o console o reenvia na próxima mensagem. O redator de dados pessoais
+    # confunde pedaços de alguns UUIDs com telefone ou CPF e o estragaria; por isso ele não passa por lá.
+    payload["session_id"] = session_id
+    return payload
 
 
 def _judge_results(state: dict) -> list[dict]:

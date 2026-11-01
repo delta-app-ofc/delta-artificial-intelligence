@@ -159,3 +159,41 @@ def test_o_chat_normal_do_console_continua_igual(client, monkeypatch):
 
     assert resposta.status_code == 200
     assert resposta.json()["response"] == RESPOSTA
+
+
+# --- o session_id não pode ser alterado pelo redator de dados pessoais ---------------------------
+# Este UUID tem sequências que o redator confunde com telefone ou CPF.
+UUID_QUE_PARECE_TELEFONE = "5b215538-6503-498d-9f1b-df0507204b55"
+UUID_QUE_PARECE_CPF = "25d4a0ff-5a26-45a9-9bfd-606369071296"
+PADRAO_DO_CONSOLE = r"^[A-Za-z0-9_-]{1,100}$"
+
+
+@pytest.mark.parametrize("session_id", [UUID_QUE_PARECE_TELEFONE, UUID_QUE_PARECE_CPF])
+def test_envelope_devolve_o_session_id_sem_redacao(session_id):
+    from app.observability.diagnostics import Trace
+
+    resultado = playground.envelope(Trace(mode="chat"), session_id)
+
+    assert resultado["session_id"] == session_id
+
+
+@pytest.mark.parametrize("session_id", [UUID_QUE_PARECE_TELEFONE, UUID_QUE_PARECE_CPF])
+def test_session_id_devolvido_pode_ser_reenviado_pelo_console(client, monkeypatch, session_id):
+    import re
+
+    usa_eventos(monkeypatch, ETAPAS)
+    monkeypatch.setattr(playground.uuid, "uuid4", lambda: session_id)
+
+    primeiro = eventos_sse(post(client).text)[-1][1]["session_id"]
+
+    assert re.fullmatch(PADRAO_DO_CONSOLE, primeiro)
+    assert client.post("/playground/chat/stream", json={"message": "de novo", "session_id": primeiro}).status_code == 200
+
+
+def test_chat_sem_stream_tambem_devolve_o_id_sem_redacao(client, monkeypatch):
+    monkeypatch.setattr(playground, "run_workflow", lambda *a, **k: {**ESTADO_FINAL})
+    monkeypatch.setattr(playground.uuid, "uuid4", lambda: UUID_QUE_PARECE_TELEFONE)
+
+    resposta = client.post("/playground/chat", json={"message": "oi"})
+
+    assert resposta.json()["session_id"] == UUID_QUE_PARECE_TELEFONE
