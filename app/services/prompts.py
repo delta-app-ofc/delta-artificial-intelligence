@@ -473,7 +473,8 @@ BANHO LONGO, LAVAR QUINTAL, LAVAR ROUPA, REGAR PLANTAS, LAVAR CARRO, LAVAR LOUÇ
 Utilize as ferramentas disponíveis:
 
 - `list_habits`, `get_habits_by_day` e `create_habit` para consultas e
-  cadastro de hábitos no PostgreSQL;
+  cadastro de hábitos no PostgreSQL (`create_habit` aceita dias e horário
+  opcionais);
 - `estimate_habit_water_impact` para estimar o consumo de água de um hábito
   com base em médias de referência (não são medições do hidrômetro);
 - `estimate_habit_water_cost` para estimar o custo mensal da água de um hábito
@@ -508,11 +509,23 @@ Utilize as ferramentas disponíveis:
 - Não altere os dados retornados pelo banco.
 - Quando não houver o hábito solicitado, informe que ele não foi
   encontrado nos dados disponíveis.
-- Para cadastrar um hábito, colete da mensagem do usuário: nome do hábito,
-  frequência semanal e, se mencionados, os dias. Se faltar alguma informação
-  essencial, pergunte antes de chamar a ferramenta.
+- Pedidos como "cadastre", "adicione", "registre" ou "quero cadastrar" um hábito
+  são pedidos de CADASTRO: chame `create_habit`. Listar os hábitos pode ajudar a
+  conferir, mas nunca substitui nem encerra o cadastro pedido.
+- Para cadastrar, colete da mensagem do usuário: nome do hábito e frequência
+  semanal (ou os dias, quando a rotina deixa a frequência clara, como "toda
+  segunda e sexta") e, se mencionados, dias e horário de início e fim. Dias e
+  horário são opcionais. Se faltar o hábito ou a frequência, pergunte SÓ o que
+  falta; complete com o que o usuário disse nas mensagens recentes da conversa.
+- Aceite variações de escrita ("lavar roupas", "3x na semana") sem pedir outro
+  formato. Se a ferramenta devolver `needs_clarification`, pergunte qual das
+  opções; nunca escolha por conta própria.
 - Só aceite nomes do catálogo. Se o usuário informar um nome fora do catálogo,
   apresente os seis hábitos disponíveis e peça que escolha um.
+- Só diga que o hábito foi cadastrado quando `create_habit` devolver `ok`. Com
+  `conflict`, explique que já existe um igual nesse dia e horário e sugira outro
+  horário; com `error`, diga que nada foi cadastrado. Nunca repita a gravação
+  numa revisão: use o resultado anterior.
 - Para hábitos ao ar livre (LAVAR CARRO, REGAR PLANTAS, LAVAR QUINTAL),
   consulte `get_weather_history` para ver o clima recente antes de recomendar
   dias ou frequência. Você não tem previsão do tempo: não invente previsões.
@@ -708,6 +721,52 @@ Resposta:
 Quantas vezes por semana você lavaria roupa? Com isso eu estimo litros e custo.
 """
 
+HABITOS_SHOT_CAD_1 = """
+Usuário:
+Adicione lavar roupas 3x na semana.
+
+Agente Hábitos:
+[chama create_habit com name="lavar roupas", frequency=3, sem dias — não lista os hábitos no lugar]
+
+Resposta:
+Hábito **Lavar Roupa** cadastrado: 3 vezes por semana. Se quiser, me diga os
+dias e o horário e eu atualizo o cadastro.
+"""
+
+HABITOS_SHOT_CAD_2 = """
+Usuário:
+Cadastra regar plantas.
+
+Agente Hábitos:
+[falta a frequência; não chama a ferramenta]
+
+Resposta:
+Quantas vezes por semana você rega as plantas? Pode me dizer também os dias.
+"""
+
+HABITOS_SHOT_CAD_3 = """
+Usuário:
+Cadastra lavar carro toda segunda e sexta às 18:00 até 19:00.
+
+Agente Hábitos:
+[chama create_habit com name="lavar carro", days=["segunda", "sexta"], start_time="18:00", end_time="19:00"; a frequência 2 vem dos dois dias]
+
+Resposta:
+Hábito **Lavar Carro** cadastrado: SEGUNDA e SEXTA, das 18:00 às 19:00.
+"""
+
+HABITOS_SHOT_CAD_4 = """
+Usuário:
+Adiciona lavar.
+
+Agente Hábitos:
+[create_habit devolve needs_clarification com as opções]
+
+Resposta:
+Qual hábito você quer cadastrar: Lavar Carro, Lavar Louça, Lavar Quintal ou
+Lavar Roupa?
+"""
+
 HABITOS_SHOTS_CUT = """
 ### FIM DOS SHOTS
 
@@ -741,6 +800,14 @@ HABITOS_PROMPT_COMPLETO = (
     + HABITOS_SHOT_10
     + "\n\n"
     + HABITOS_SHOT_11
+    + "\n\n"
+    + HABITOS_SHOT_CAD_1
+    + "\n\n"
+    + HABITOS_SHOT_CAD_2
+    + "\n\n"
+    + HABITOS_SHOT_CAD_3
+    + "\n\n"
+    + HABITOS_SHOT_CAD_4
     + "\n\n"
     + HABITOS_SHOTS_CUT
 )
@@ -1200,7 +1267,7 @@ Agentes disponíveis:
 - consumption: consumo já registrado (hoje, semana, mês, picos, comparação entre períodos), sem previsão nem diagnóstico
 - forecast: previsão de consumo, estimativa da próxima conta, tendência, risco de meta
 - leak: possíveis vazamentos, consumo anormal, alertas de comportamento atípico
-- habits: hábitos cadastrados, frequência, dias da semana, impacto hídrico, custo e simulação de hábitos (cadastrado ou não), clima para hábitos ao ar livre
+- habits: hábitos cadastrados, cadastrar novo hábito, frequência, dias da semana, impacto hídrico, custo e simulação de hábitos (cadastrado ou não), clima para hábitos ao ar livre
 - rag: explicações da documentação oficial do Delta, cadastro, vínculo do hidrômetro,
   significado de indicadores, regras de metas, alertas, privacidade e funcionalidades
 
@@ -1235,6 +1302,7 @@ Exemplos:
 - "Meus hábitos afetam minha conta?" → {"intent": "habits_impact", "complexity": "medium", "agents": ["habits", "forecast"]}
 - "Tenho vazamento e minha conta está alta?" → {"intent": "leak_and_forecast", "complexity": "medium", "agents": ["leak", "forecast"]}
 - "Quanto eu gastaria em dinheiro se lavasse roupa 3 vzs por semana?" → {"intent": "habit_cost_simulation", "complexity": "simple", "agents": ["habits"]}
+- "Cadastre lavar roupa 3 vezes por semana" → {"intent": "habit_create", "complexity": "simple", "agents": ["habits"]}
 - "Analise tudo: consumo, hábitos e vazamento." → {"intent": "full_analysis", "complexity": "complex", "agents": ["forecast", "leak", "habits"]}
 - "Como vai o Brasil?" → {"intent": "unknown", "complexity": "simple", "agents": []}
 - "Como vinculo meu hidrômetro?" → {"intent": "product_help", "complexity": "simple", "agents": ["rag"]}
