@@ -1,4 +1,5 @@
 import { createExecutionTerminal } from "./event-terminal.js";
+import { renderMarkdown } from "./markdown.js";
 
 // Todo conteúdo retornado pela API entra no DOM como texto, sem HTML do modelo.
 export function element(tag, className = '', text = '') {
@@ -205,7 +206,7 @@ export function renderDiagnostics(target, result, busy = false) {
   if (!diagnostics.models?.length) models.append(element('p', 'neutral-message', 'Nenhum modelo registrado.'));
   else diagnostics.models.forEach(model => {
     const card = element('div', 'model-card');
-    card.append(element('strong', '', model.component || 'Modelo'), element('p', '', `${model.provider || 'Provedor não informado'} · ${model.model || 'Modelo não informado'}`), element('p', '', `Status: ${model.status || 'não informado'} · ${duration(model.duration_ms)}`), element('p', '', `Fallback: ${model.fallback === true ? 'sim' : model.fallback === false ? 'não' : pretty(model.fallback)}`));
+    card.append(element('strong', '', model.component || 'Modelo'), element('p', '', `${model.provider || 'Provedor não informado'} · ${model.model || 'Modelo não informado'}${model.reasoning_effort ? ` · esforço: ${model.reasoning_effort}` : ''}`), element('p', '', `Status: ${model.status || 'não informado'} · ${duration(model.duration_ms)}`), element('p', '', `Fallback: ${model.fallback === true ? 'sim' : model.fallback === false ? 'não' : pretty(model.fallback)}`));
     models.append(card);
   });
   technical.append(models);
@@ -246,7 +247,10 @@ export function renderMessages(target, messages, tab) {
     const node = element('article', `message ${message.role}`);
     const meta = element('div', 'message-meta');
     meta.append(element('span', 'message-role', message.role === 'user' ? '↗' : 'δ'), element('span', '', message.role === 'user' ? 'Você' : 'Delta'));
-    node.append(meta, element('div', 'message-body', message.text));
+    const body = element('div', 'message-body');
+    if (message.role === 'user' || message.role === 'system') body.textContent = String(message.text ?? '');
+    else renderMarkdown(body, message.text);
+    node.append(meta, body);
     if (message.context) node.append(details('Ver entrada da avaliação', [['Resposta e evidências enviadas', message.context]]));
     if (message.result) {
       const tools = message.result.diagnostics?.tools || [];
