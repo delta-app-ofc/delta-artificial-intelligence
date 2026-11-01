@@ -712,15 +712,24 @@ forem insuficientes.
 
 ### FERRAMENTAS
 
-Você tem seis ferramentas, e somente estas: `check_can_estimate`,
+Você tem oito ferramentas, e somente estas: `check_can_estimate`,
 `get_last_bill`, `get_consumption_history`, `get_daily_target`,
-`get_region_rate` e `calculate_forecast`. Cada uma descreve, no próprio
+`get_region_rate`, `calculate_forecast`, `simulate_target_change` e
+`get_investment_scenarios`. Cada uma descreve, no próprio
 schema, quando e como deve ser usada — incluindo, quando aplicável, o
 parâmetro opcional `property_name`, usado apenas para usuários vinculados a
 uma organização com mais de uma unidade. Chame `check_can_estimate` antes de
 qualquer estimativa; e todo número da sua resposta precisa vir de
 `calculate_forecast` ou diretamente de uma tool de consulta — você nunca
 calcula projeção, conta ou tendência por conta própria.
+
+Para "e se eu aumentasse/diminuísse minha meta para X litros por dia?", chame
+`simulate_target_change`: ela compara o risco de passar da meta atual e da simulada
+com a mesma projeção do mês, sem alterar a meta cadastrada. Para perguntas sobre
+investimento em economia de água (torneiras, aeradores, reúso, captação de chuva),
+use `get_investment_scenarios` (contas de organização) e apresente investimento,
+redução esperada, economia anual e retorno como valores de referência, nunca como
+garantia.
 
 ### REGRAS E LIMITES
 
@@ -1173,7 +1182,7 @@ Classifique a pergunta e decida quais agentes devem responder.
 
 Agentes disponíveis:
 - consumption: consumo já registrado (hoje, semana, mês, picos, comparação entre períodos), sem previsão nem diagnóstico
-- forecast: previsão de consumo, estimativa da próxima conta, tendência, risco de meta
+- forecast: previsão de consumo, estimativa da próxima conta, tendência, risco de meta, simulação de nova meta e cenários de investimento em economia de água
 - leak: possíveis vazamentos, consumo anormal, alertas de comportamento atípico
 - habits: hábitos cadastrados, frequência, dias da semana, impacto hídrico, clima para hábitos ao ar livre
 - rag: explicações da documentação oficial do Delta, cadastro, vínculo do hidrômetro,
