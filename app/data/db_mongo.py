@@ -242,6 +242,47 @@ def get_consumption_history_between(
     )
 
 
+def _to_device_point(doc: dict) -> ConsumptionPoint:
+    """Converte uma janela lida pelo dispositivo; o user_id do documento pode faltar."""
+    return _to_point({**doc, "user_id": doc.get("user_id", 0)})
+
+
+def get_consumption_history_between_devices(
+    device_ids: list[str],
+    start_at_utc: datetime,
+    end_at_utc: datetime,
+    finished_before_utc: datetime,
+) -> list[ConsumptionPoint]:
+    """Lê janelas dos dispositivos informados em [start, end) já finalizadas até o limite.
+
+    Usado pelo caminho organizacional: os dispositivos vêm das unidades que o Postgres
+    autorizou para o usuário, nunca de um argumento do modelo.
+    """
+    bounds = (start_at_utc, end_at_utc, finished_before_utc)
+    if any(not isinstance(value, datetime) or value.utcoffset() is None for value in bounds):
+        raise ValueError("Os limites da consulta precisam ter fuso horário explícito.")
+    if not device_ids:
+        return []
+
+    start = start_at_utc.astimezone(timezone.utc)
+    end = end_at_utc.astimezone(timezone.utc)
+    if start >= end:
+        raise ValueError("O início da consulta precisa ser anterior ao fim.")
+
+    return _read_many(
+        "telemetry",
+        "consumption_summary",
+        {
+            "device_id": {"$in": list(device_ids)},
+            "window_started_at": {"$gte": start, "$lt": end},
+            "window_finished_at": {"$lte": finished_before_utc.astimezone(timezone.utc)},
+        },
+        "window_started_at",
+        ASCENDING,
+        _to_device_point,
+    )
+
+
 def get_daily_liters_target(user_id: int) -> float | None:
     doc = _read_one("app", "user_preferences", {"user_id": user_id})
     if not doc or doc.get("daily_liters_target") is None:

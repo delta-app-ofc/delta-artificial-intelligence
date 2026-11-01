@@ -358,6 +358,63 @@ def get_organization_consumption_history(
     return points
 
 
+def _validate_daily_bounds(start_date: date, end_date: date) -> None:
+    if (
+        not isinstance(start_date, date)
+        or isinstance(start_date, datetime)
+        or not isinstance(end_date, date)
+        or isinstance(end_date, datetime)
+    ):
+        raise ValueError("O período diário precisa usar datas sem horário.")
+    if start_date > end_date:
+        raise ValueError("A data inicial é posterior à data final.")
+
+
+def get_authorized_device_ids(user_id: int, property_ids: list[int]) -> list[str]:
+    """Dispositivos das unidades que o usuário está autorizado a ver.
+
+    O banco descarta ids de outras organizações (fn_user_authorized_property_ids).
+    """
+    if not property_ids:
+        return []
+    with _cursor() as cur:
+        cur.execute(
+            """
+            SELECT device_id
+              FROM tb_device
+             WHERE property_id IN (SELECT UNNEST(fn_user_authorized_property_ids(%s, %s)))
+             ORDER BY device_id;
+            """,
+            (user_id, property_ids),
+        )
+        rows = cur.fetchall()
+    return [row[0] for row in rows]
+
+
+def get_residential_consumption_daily(
+    user_id: int, start_date: date, end_date: date
+) -> list[tuple[date, Decimal]]:
+    """Consumo diário dos imóveis vinculados ao usuário (tb_user_property), pela view.
+
+    Fallback do consumo residencial quando a telemetria MongoDB está indisponível.
+    Os limites são datas inclusivas locais.
+    """
+    _validate_daily_bounds(start_date, end_date)
+    with _cursor() as cur:
+        cur.execute(
+            """
+            SELECT full_date, total_liters
+              FROM dw.vw_ft_consumption_daily
+             WHERE property_id IN (SELECT property_id FROM tb_user_property WHERE user_id = %s)
+               AND full_date BETWEEN %s AND %s
+             ORDER BY full_date, property_id;
+            """,
+            (user_id, start_date, end_date),
+        )
+        rows = cur.fetchall()
+    return [(row[0], row[1]) for row in rows]
+
+
 def get_organization_consumption_daily(
     user_id: int, property_ids: list[int], start_date: date, end_date: date
 ) -> list[tuple[date, Decimal]]:
@@ -368,15 +425,7 @@ def get_organization_consumption_daily(
     """
     if not property_ids:
         return []
-    if (
-        not isinstance(start_date, date)
-        or isinstance(start_date, datetime)
-        or not isinstance(end_date, date)
-        or isinstance(end_date, datetime)
-    ):
-        raise ValueError("O período diário precisa usar datas sem horário.")
-    if start_date > end_date:
-        raise ValueError("A data inicial é posterior à data final.")
+    _validate_daily_bounds(start_date, end_date)
 
     with _cursor() as cur:
         cur.execute(
