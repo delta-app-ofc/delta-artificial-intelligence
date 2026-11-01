@@ -1,5 +1,4 @@
 from contextlib import asynccontextmanager
-import asyncio
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
@@ -20,33 +19,20 @@ async def lifespan(app: FastAPI):
     from app.data.db_postgres import close_pool
     from app.services.rag import close_rag_clients
     from app.services.llms import close_openai_clients
-    from app.services.external_knowledge import ExternalRefreshWorker
-    from app.observability.embedding_usage import close_usage_clients
-
-    worker = ExternalRefreshWorker() if get_settings().mcp_external_enabled else None
-    if worker is not None:
-        worker.start()
 
     try:
         yield
     finally:
         try:
-            try:
-                if worker is not None:
-                    await asyncio.to_thread(worker.stop)
-            finally:
-                await asyncio.to_thread(close_usage_clients)
+            await close_rag_clients()
         finally:
             try:
-                await close_rag_clients()
+                await close_judge_clients()
             finally:
                 try:
-                    await close_judge_clients()
+                    await close_openai_clients()
                 finally:
-                    try:
-                        await close_openai_clients()
-                    finally:
-                        close_pool()
+                    close_pool()
 
 
 enable_langsmith()

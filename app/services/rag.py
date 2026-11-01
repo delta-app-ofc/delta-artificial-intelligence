@@ -30,9 +30,7 @@ SOURCE = "delta-product-reference"
 VECTOR_SIZE = 3072
 MAX_SECTION_CHARS = 6000
 _PARSER_VERSION = "markdown-headings-v2"
-EXTERNAL_PARSER_VERSION = "external-text-v1"
 _INDEX_LOCK = Lock()
-_SOURCE_LOCKS: dict[str, Lock] = {}
 _CLIENTS_LOCK = Lock()
 _CLIENTS: dict = {}
 
@@ -74,7 +72,7 @@ def external_document(snapshot) -> RagDocument:
         body.append(line)
     if body:
         chunks.append(DocumentChunk((snapshot.title, snapshot.topic), "\n".join(body), start, len(lines)))
-    revision = hashlib.sha256((EXTERNAL_PARSER_VERSION + "\n" + snapshot.revision).encode("utf-8")).hexdigest()
+    revision = hashlib.sha256(("external-text-v1\n" + snapshot.revision).encode("utf-8")).hexdigest()
     return RagDocument(
         source=f"mcp:{snapshot.source_id}", revision=revision, chunks=tuple(chunks),
         metadata={"origin": "external", "source_id": snapshot.source_id, "url": snapshot.url,
@@ -84,19 +82,17 @@ def external_document(snapshot) -> RagDocument:
     )
 
 
-def validate_collection(*, client):
+def validate_collection(*, client) -> None:
     """Recusa esquema incompatível antes de gerar embeddings; nunca recria a coleção."""
     if not client.collection_exists(COLLECTION):
         raise ValueError("Coleção RAG ausente. Crie rag_documents no Qdrant antes de indexar.")
-    collection = client.get_collection(COLLECTION)
-    vectors = collection.config.params.vectors
+    vectors = client.get_collection(COLLECTION).config.params.vectors
     if isinstance(vectors, dict):
         # Qdrant também representa o vetor padrão por um mapa cuja única chave é "".
         vectors = vectors.get("") if set(vectors) == {""} else None
     if (vectors is None or vectors.size != VECTOR_SIZE
             or vectors.distance != Distance.COSINE):
         raise ValueError("rag_documents deve usar um vetor sem nome, 3072 dimensões e distância Cosine.")
-    return collection
 
 
 def split_markdown(text: str) -> tuple[DocumentChunk, ...]:
@@ -220,7 +216,7 @@ async def close_rag_clients() -> None:
         raise RuntimeError("Falha ao fechar clientes RAG.") from close_error
 
 
-def index_document(document: RagDocument, *, client, embeddings, validated: bool = False) -> int:
+def index_document(document: RagDocument, *, client, embeddings) -> int:
     """Reprocessa com IDs estáveis por fonte/revisão/modelo/posição.
 
     Repetir a mesma revisão sobrescreve seus pontos, sem duplicá-los. Revisões
@@ -228,8 +224,7 @@ def index_document(document: RagDocument, *, client, embeddings, validated: bool
     Embeddings são gerados antes da gravação; uma falha nessa etapa preserva o índice.
     """
 
-    if not validated:
-        validate_collection(client=client)
+    validate_collection(client=client)
 
     model = embedding_model_name()
 
@@ -276,14 +271,11 @@ def _revision_is_complete(document: RagDocument, *, client) -> bool:
 def ensure_document_indexed(document: RagDocument, *, client, embeddings) -> None:
     """Garante os índices de payload antes de consultar a revisão."""
 
-    # A atualização externa não deve segurar o lock da documentação interna.
     with _INDEX_LOCK:
-        source_lock = _SOURCE_LOCKS.setdefault(document.source, Lock())
-    with source_lock:
-        collection = validate_collection(client=client)
+        validate_collection(client=client)
 
         # Cria os índices necessários antes de utilizar filtros
-        existing_indexes = collection.payload_schema or {}
+        existing_indexes = client.get_collection(COLLECTION).payload_schema or {}
 
         for field in ("source", "revision", "embedding_model"):
             if field not in existing_indexes:
@@ -298,7 +290,7 @@ def ensure_document_indexed(document: RagDocument, *, client, embeddings) -> Non
         if _revision_is_complete(document, client=client):
             return
 
-        index_document(document, client=client, embeddings=embeddings, validated=True)
+        index_document(document, client=client, embeddings=embeddings)
 
         if not _revision_is_complete(document, client=client):
             raise ValueError(
@@ -307,7 +299,8 @@ def ensure_document_indexed(document: RagDocument, *, client, embeddings) -> Non
 
 
 def search_document(document: RagDocument, question: str, *, client, embeddings,
-                    top_k: int = 3, score_threshold: float | None = None) -> list[dict]:
+                    top_k: int = 3, score_threshold: float | None = None,
+                    query_vector: list[float] | None = None) -> list[dict]:
     """Converte a pergunta em vetor e retorna trechos e scores, sem validar relevância."""
 
     if not question.strip() or not 1 <= top_k <= 20:
@@ -321,11 +314,16 @@ def search_document(document: RagDocument, question: str, *, client, embeddings,
     if not _revision_is_complete(document, client=client):
         raise ValueError("Revisão ausente ou incompleta. Indexe o documento atual antes de consultar.")
 
-    with embedding_call(embedding_model_name(), texts=[question]):
-        vector = embeddings.embed_query(question, task_type="RETRIEVAL_QUERY")
+    vector = query_vector if query_vector is not None else embed_question(question, embeddings=embeddings)
     response = client.query_points(
         COLLECTION, query=vector, query_filter=_revision_filter(document), limit=top_k,
         score_threshold=score_threshold, with_payload=True,
     )
 
     return [{"id": str(point.id), "score": point.score, **(point.payload or {})} for point in response.points]
+
+
+def embed_question(question: str, *, embeddings) -> list[float]:
+    """Gera uma vez o vetor que pode ser reutilizado na busca de várias fontes."""
+    with embedding_call(embedding_model_name(), texts=[question]):
+        return embeddings.embed_query(question, task_type="RETRIEVAL_QUERY")

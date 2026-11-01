@@ -1,7 +1,6 @@
 """Recuperação real no Qdrant em memória; embeddings temáticos controlados."""
 
 from dataclasses import replace
-from datetime import datetime, timezone
 import json
 from unittest.mock import patch
 
@@ -14,7 +13,6 @@ from app.agents.rag import RagAgent
 from app.config import load_settings
 from app.integrations.mcp.sources import ExternalSourceError
 from app.services import rag
-from app.services import external_knowledge as external_service
 from app.tools import external_knowledge as external_tool
 from app.tools.rag import search_knowledge_base
 from test_mcp_sources import SOURCE_ID, make_snapshot
@@ -51,31 +49,11 @@ def rag_backend(monkeypatch):
     settings = load_settings({"APP_ENV": "test", "MCP_EXTERNAL_ENABLED": "true",
                               "GEMINI_API_KEY": "chave-sintetica", "QDRANT_URL": "http://unused.test"})
     monkeypatch.setattr(rag, "get_settings", lambda: settings)
-    monkeypatch.setattr(external_service, "get_settings", lambda: settings)
-    monkeypatch.setattr(external_service, "create_qdrant", lambda: client)
-    monkeypatch.setattr(external_service, "create_embeddings", lambda: embeddings)
     monkeypatch.setattr(external_tool, "get_settings", lambda: settings)
     monkeypatch.setattr(external_tool, "create_qdrant", lambda: client)
     monkeypatch.setattr(external_tool, "create_embeddings", lambda: embeddings)
     yield client, embeddings, settings
     client.close()
-
-
-def prepare_sources(monkeypatch, fetch=None):
-    """Atualização explícita: a pergunta não tem permissão para coletar/indexar."""
-    fetch = fetch or (lambda source_id: make_snapshot(source_id=source_id))
-    def snapshots(source_ids, **kwargs):
-        result = {}
-        for source_id in source_ids:
-            try:
-                result[source_id] = fetch(source_id).model_copy(update={
-                    "collected_at": datetime.now(timezone.utc).isoformat(),
-                })
-            except ExternalSourceError:
-                result[source_id] = None
-        return result
-    monkeypatch.setattr(external_service, "fetch_sources", snapshots)
-    return external_service.refresh_external_knowledge()
 
 
 def thematic_snapshot():
@@ -88,7 +66,7 @@ def thematic_snapshot():
 
 @pytest.mark.parametrize("question,expected", [("banho", "No banho"), ("jardim", "No jardim")])
 def test_top_k_relevance_and_source_filters(rag_backend, monkeypatch, question, expected):
-    prepare_sources(monkeypatch, lambda source_id: thematic_snapshot())
+    monkeypatch.setattr(external_tool, "fetch_source", lambda source_id: thematic_snapshot())
     output = external_tool.search_external_knowledge.invoke({
         "question": question, "top_k": 1, "topic": "water_conservation", "source_id": SOURCE_ID,
     })
@@ -104,7 +82,7 @@ def test_top_k_relevance_and_source_filters(rag_backend, monkeypatch, question, 
 def test_unknown_metadata_does_not_fetch_or_fallback(rag_backend, monkeypatch):
     def unexpected(*args):
         pytest.fail("Filtro sem correspondência não deve consultar MCP.")
-    monkeypatch.setattr(external_service, "fetch_sources", unexpected)
+    monkeypatch.setattr(external_tool, "fetch_source", unexpected)
     for filters in ({"topic": "weather"}, {"source_id": "http://127.0.0.1/private"}):
         assert external_tool.search_external_knowledge.invoke({"question": "banho", **filters}) == {
             "status": "insufficient_data", "chunks": [],
@@ -190,11 +168,12 @@ def test_schema_guard_still_rejects_other_named_vectors_or_wrong_dimensions(rag_
         client.close()
 
 
-def test_no_active_revision_is_unavailable_without_fetching(rag_backend, monkeypatch):
-    monkeypatch.setattr(external_service, "fetch_sources", lambda *a, **k: pytest.fail("Chat não coleta"))
+def test_external_failure_is_unavailable_and_does_not_search_old_revision(rag_backend, monkeypatch):
+    def unavailable(source_id):
+        raise ExternalSourceError("DETALHE_PRIVADO")
+    monkeypatch.setattr(external_tool, "fetch_source", unavailable)
     output = external_tool.search_external_knowledge.invoke({"question": "banho"})
-    assert output["status"] == "unavailable" and output["chunks"] == []
-    assert output["unavailable_sources"] == [SOURCE_ID]
+    assert output == {"status": "unavailable", "chunks": [], "unavailable_sources": [SOURCE_ID]}
     assert "DETALHE_PRIVADO" not in json.dumps(output)
 
 
@@ -213,12 +192,12 @@ def test_tools_bound_top_k(top_k):
 
 
 def test_agent_records_external_context_and_builds_citations_from_tool(rag_backend, monkeypatch):
-    prepare_sources(monkeypatch, lambda source_id: make_snapshot())
+    monkeypatch.setattr(external_tool, "fetch_source", lambda source_id: make_snapshot())
     output = external_tool.search_external_knowledge.invoke({"question": "banho"})
     messages = [
         AIMessage(content="", tool_calls=[{"name": "search_external_knowledge", "args": {"question": "banho"}, "id": "mcp-1"}]),
         ToolMessage(content=json.dumps(output), name="search_external_knowledge", tool_call_id="mcp-1"),
-        AIMessage(content="Feche o chuveiro ao se ensaboar.\nFonte: CITAÇÃO DUPLICADA\n\nFontes consultadas:\n- FONTE INVENTADA"),
+        AIMessage(content="Feche o chuveiro ao se ensaboar.\n\nFontes consultadas:\n- FONTE INVENTADA"),
     ]
     with patch("app.agents.rag.create_agent") as create:
         create.return_value.invoke.return_value = {"messages": messages}
@@ -226,7 +205,6 @@ def test_agent_records_external_context_and_builds_citations_from_tool(rag_backe
     assert result.tool_calls[0].output == output
     assert result.sources == [output["chunks"][0]["citation"]]
     assert "FONTE INVENTADA" not in result.response
-    assert "CITAÇÃO DUPLICADA" not in result.response
     assert result.sources[0] in result.response
 
 
@@ -254,18 +232,18 @@ def test_backend_profile_selects_only_applicable_sources(rag_backend, monkeypatc
     def fetch(source_id):
         fetched.append(source_id)
         return make_snapshot(source_id=source_id)
-    prepare_sources(monkeypatch, fetch)
+    monkeypatch.setattr(external_tool, "fetch_source", fetch)
     tool = external_tool.build_external_knowledge_tool(access_kind)
     # Mesmo com tentativa de substituir o perfil nos argumentos, o fechamento permanece confiável.
     output = tool.invoke({"question": "banho", "top_k": 20, "access_kind": "organizational"})
-    assert set(fetched) == set(external_service.SOURCES)  # atualização independe de perguntas/perfis
+    assert set(fetched) == expected
     assert {chunk["source_id"] for chunk in output["chunks"]} == expected
     assert "access_kind" not in tool.args
     assert output["status"] == ("ok" if expected else "insufficient_data")
 
 
 def test_residential_profile_cannot_request_commercial_source(rag_backend, monkeypatch):
-    monkeypatch.setattr(external_service, "fetch_sources", lambda *a, **k: pytest.fail("Consulta não pode coletar"))
+    monkeypatch.setattr(external_tool, "fetch_source", lambda source_id: pytest.fail("Fonte comercial não permitida"))
     output = external_tool.build_external_knowledge_tool("residential").invoke({
         "question": "instalações", "source_id": "epa-commercial-facilities",
     })
@@ -277,7 +255,7 @@ def test_partial_failure_keeps_successful_sources_and_reports_missing_one(rag_ba
         if source_id == "epa-residential-saving":
             raise ExternalSourceError("MENSAGEM PRIVADA DO SERVIÇO")
         return make_snapshot(source_id=source_id)
-    prepare_sources(monkeypatch, fetch)
+    monkeypatch.setattr(external_tool, "fetch_source", fetch)
     output = external_tool.build_external_knowledge_tool("residential").invoke({"question": "banho"})
     assert output["status"] == "ok"
     assert output["unavailable_sources"] == ["epa-residential-saving"]
@@ -291,12 +269,31 @@ def test_agent_binds_backend_profile_and_contains_watersense_restriction(rag_bac
     def fetch(source_id):
         fetched.append(source_id)
         return make_snapshot(source_id=source_id)
-    prepare_sources(monkeypatch, fetch)
+    monkeypatch.setattr(external_tool, "fetch_source", fetch)
     with patch("app.agents.rag.create_agent") as create:
         RagAgent(7, llm=object(), access_kind="organizational")
         options = create.call_args.kwargs
     external = next(tool for tool in options["tools"] if tool.name == "search_external_knowledge")
-    output = external.invoke({"question": "instalações"})
-    assert {chunk["source_id"] for chunk in output["chunks"]} == {"midr-water-conservation", "epa-commercial-facilities"}
+    external.invoke({"question": "instalações"})
+    assert fetched == ["midr-water-conservation", "epa-commercial-facilities"]
     assert "Não indique, recomende ou promova WaterSense" in options["system_prompt"]
     assert "URL original" in options["system_prompt"]
+
+
+
+def test_same_question_embedding_is_reused_across_authorized_sources(rag_backend, monkeypatch):
+    client, embeddings, _ = rag_backend
+    monkeypatch.setattr(external_tool, "fetch_source", lambda source_id: make_snapshot(source_id=source_id))
+    queries, filters = [], []
+    original_embed, original_query = embeddings.embed_query, client.query_points
+    def embed(question, **kwargs):
+        queries.append(question)
+        return original_embed(question, **kwargs)
+    def query(*args, **kwargs):
+        filters.append(kwargs["query_filter"])
+        return original_query(*args, **kwargs)
+    monkeypatch.setattr(embeddings, "embed_query", embed)
+    monkeypatch.setattr(client, "query_points", query)
+    output = external_tool.build_external_knowledge_tool("residential").invoke({"question": "banho"})
+    assert output["status"] == "ok" and queries == ["banho"] and len(filters) == 2
+    assert all("origin" not in f.model_dump_json() for f in filters)

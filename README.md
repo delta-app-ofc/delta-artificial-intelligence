@@ -99,9 +99,8 @@ busca e são fechados, incluindo transportes sync/async, pelo `lifespan` da API.
 O encerramento tenta fechar os demais recursos mesmo se um deles falhar.
 Runners fora da API devem aguardar as funções de fechamento ao terminar.
 
-Na documentação interna, as verificações de revisão/índice continuam em cada
-busca. Para fontes externas, a atualização e a ativação ficam em segundo plano,
-como descrito a seguir; cada consulta gera somente um embedding da pergunta. O primeiro uso ainda paga a criação dos
+As verificações de revisão/índice e a geração do embedding da pergunta
+continuam acontecendo em cada busca. O primeiro uso ainda paga a criação dos
 clientes; essa reutilização não elimina latência de geração ou erros 429.
 
 A metodologia e os resultados medidos estão em
@@ -135,41 +134,7 @@ modelo. Perguntas, histórico, dados da conta e chaves do backend não são envi
 
 Habilite `MCP_EXTERNAL_ENABLED=true`; timeout total e cache dos textos usam
 `MCP_TIMEOUT_SECONDS=45` e `MCP_CACHE_TTL_SECONDS=3600`. O cache é por processo,
-limitado ao catálogo. A API atualiza as fontes em segundo plano ao iniciar e a
-cada `MCP_REFRESH_INTERVAL_SECONDS=3600`. Cada lote compartilha uma sessão MCP;
-coletas concorrentes no mesmo processo compartilham o cache.
-
-A pergunta consulta somente revisões completas já publicadas no Qdrant: não
-coleta páginas nem indexa documentos. Um marcador por fonte/modelo/catálogo,
-com `origin=external_manifest`, persiste em `rag_documents` depois da conferência
-de completude. Ele não entra na busca nem na contagem dos chunks. Isso permite
-reiniciar a API sem depender do cache de textos. A busca gera um embedding da
-pergunta e uma consulta vetorial para todas as fontes permitidas ao perfil.
-Os locks de indexação são por fonte, para a atualização de uma página não
-bloquear a preparação da documentação interna.
-
-Se uma atualização falhar, a revisão anterior continua utilizável até
-`MCP_MAX_STALE_SECONDS=86400` desde a coleta confirmada. Depois disso, ou antes
-da primeira atualização bem-sucedida, a ferramenta retorna `unavailable` sem
-inventar orientações. Essa validade é destinada às páginas educativas do catálogo,
-não a tarifas ou informações em tempo real. Não há recriação de coleção nem
-mudança de dimensão/modelo. Processos diferentes podem atualizar em paralelo;
-IDs determinísticos evitam duplicação, mas o lock é somente por processo.
-
-Para preparar as fontes antes de disponibilizar o chat, na raiz do repositório
-com Gemini/Qdrant e MCP configurados:
-
-```powershell
-python -m scripts.refresh_external_knowledge
-```
-
-O comando coleta páginas e escreve chunks/marcadores no Qdrant, sem executar
-chat ou Juiz. Retorna código 1 se alguma fonte não for atualizada. O worker da
-API registra falhas seguras no log e tenta novamente no próximo intervalo;
-o encerramento espera a atualização ativa antes de fechar os clientes.
-O resultado do comando e o log em nível INFO do worker incluem fases, tokens
-oficiais e custo dos embeddings da atualização. Essas métricas de manutenção
-ficam separadas do Monitor/ROI das requisições de chat.
+limitado ao catálogo, e não serve conteúdo vencido quando a fonte falha.
 Para testar apenas MCP e a página pública, sem embeddings ou banco:
 
 ```powershell
@@ -184,10 +149,22 @@ top-k de 1 a 20, filtros exatos `topic`/`source_id`, URL, título, publicação,
 coleta e linhas do texto extraído normalizado. Artigos públicos não comprovam
 dados da conta nem definem funcionalidades do Delta.
 
-O agente preserva revisão, linhas, datas e trechos nas evidências do Juiz e monta
-a lista final de fontes a partir das ferramentas. As citações externas mostram
-título e link uma vez por documento; URLs exatas do catálogo permanecem visíveis
-no console, enquanto outras URIs continuam omitidas. Falhas retornam `unavailable`; filtros sem
+A pergunta reaproveita o mesmo embedding entre as fontes selecionadas. A coleta,
+o cache e a verificação/indexação das revisões continuam no fluxo anterior; a
+primeira consulta ou uma revisão nova ainda pode demorar. As citações mostram
+título/link uma vez por documento, com datas/revisão/linhas nas evidências do Juiz.
+
+A contagem oficial dos tokens de embeddings ocorre na mesma thread que já grava
+as métricas HTTP, depois da resposta. O Monitor indica custo parcial e contagem
+pendente até a atualização do mesmo request_id; falhas ficam sem contagem, sem
+estimar tokens. O tempo dessa contagem fica separado da latência da resposta.
+Os textos usados para contar ficam apenas em memória e não são persistidos.
+Se o processo for interrompido antes de concluir, o registro pode permanecer
+pendente. Runners que usam Trace fora do HTTP podem chamar
+complete_embedding_counts(trace) ao terminar para fechar a contabilização.
+
+O agente preserva os trechos nas evidências do Juiz e monta a lista final de
+fontes a partir das ferramentas. Falhas retornam `unavailable`; filtros sem
 correspondência retornam `insufficient_data`. O catálogo segue as fontes
 propostas no handbook: MIDR/gov.br sobre uso consciente, EPA Start Saving para
 residências e EPA Types of Facilities para instalações comerciais. A fonte geral
@@ -205,23 +182,10 @@ página MIDR fica sem data quando não confirmada, sem inventar uma data.
 ```powershell
 $env:APP_ENV = 'test'
 python -m pytest tests/test_mcp_sources.py tests/test_external_rag.py tests/test_rag_workflow_integration.py -q
-python -m pytest tests/test_rag_performance.py -q
 ```
 
 Os testes usam protocolo MCP e Qdrant em memória, HTTP e modelos controlados.
 Não medem a qualidade semântica do Gemini nem validam o Qdrant remoto.
-As medições separam leitura dos marcadores, validação do schema, embedding e
-busca (`rag_phases_ms`). A contagem oficial de tokens de embeddings roda fora
-da resposta, com dois workers, fila de oito trabalhos, timeout de 5 s e cache
-de até 256 resultados identificados por hash. O console pode mostrar `pending`;
-a persistência das métricas aguarda a contagem em segundo plano. Falhas ou fila
-cheia ficam sem contagem, sem estimar custo. `embedding_count_ms` fica separado
-do tempo do embedding. O cliente de contagem é fechado no lifespan.
-
-O playground faz somente as regras determinísticas antes de entrar no chat;
-a classificação LLM continua no grafo, uma vez, inclusive no SSE e na aba Juiz.
-As abas de especialistas e roteador mantêm a validação completa de entrada.
-SSE informa progresso e não publica candidatas antes da validação do Juiz.
 A2A está fora do escopo por decisão de negócio em 01/11/2026.
 Contrato, operação e critérios de aceite estão no
 [guia MCP/RAG do handbook](https://github.com/delta-app-ofc/delta-handbook/blob/docs/mcp-fontes-externas-rag/IA/mcp-fontes-externas-rag.md).
@@ -576,7 +540,7 @@ recebendo a pergunta atual conforme o contrato existente.
 Não há modo demonstrativo. Configure o arquivo .env a partir de
 [.env.example](.env.example): OpenAI para os papéis generativos, Groq opcional
 para fallback, PostgreSQL e MongoDB para os dados e Qdrant/Gemini embeddings
-para a recuperação documental. O RAG interno pode indexar a revisão documental antes da primeira
+para a recuperação documental. O RAG pode indexar a revisão documental antes da primeira
 consulta. Ausência de dados não comprova falha de conexão, e erro de conexão
 não vira consumo zero.
 
@@ -820,11 +784,6 @@ MongoDB. Os de isolamento ficam em `tests/isolation/`. O acesso da IA ao `chat_s
 `role_api_service`.
 
 
-### Sessões e filtros no console
-
-O console cria uma sessão MongoDB ao salvar a primeira resposta e devolve o
-ObjectId para os próximos turnos. IDs livres/UUIDs antigos são substituídos por
-uma sessão nova nessa gravação; IDs MongoDB continuam sujeitos à validação de
-ownership do usuário fixo. Erros de persistência permanecem nos diagnósticos.
-A busca externa filtra por fonte, revisão e modelo, usando os índices existentes;
-não exige um novo índice de `origin` nem altera a configuração da coleção.
+O playground classifica a entrada uma vez no grafo do chat/Juiz; abas isoladas
+mantêm a validação completa. Ao salvar a primeira resposta, o console cria uma
+sessão MongoDB válida; UUIDs antigos são substituídos pelo ObjectId retornado.

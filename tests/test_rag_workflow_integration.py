@@ -11,11 +11,12 @@ from qdrant_client import models
 
 from app.agents.judge import JudgeResult, SAFE_RESPONSE
 from app.graph.router import RoutingDecision
+from app.integrations.mcp.sources import ExternalSourceError
 from app.memory import long_term
 from app.services import llms
 from app.tools import external_knowledge as external_tool
-from test_external_rag import rag_backend, prepare_sources
-from app.services import external_knowledge as external_service
+from test_external_rag import rag_backend
+from test_mcp_sources import make_snapshot
 
 
 @pytest.fixture
@@ -37,7 +38,7 @@ def pipeline(rag_backend, monkeypatch):
     monkeypatch.setattr(graph, "load_history_validated", lambda *args: [])
     monkeypatch.setattr(context, "load_history_validated", lambda *args: [])
     monkeypatch.setattr(graph, "resolve_access_kind", lambda user_id: "residential")
-    prepare_sources(monkeypatch)
+    monkeypatch.setattr(external_tool, "fetch_source", lambda source_id: make_snapshot(source_id=source_id))
     classifier_inputs = []
 
     class Classifier:
@@ -106,7 +107,9 @@ def test_memory_rag_guardrails_and_judge_preserve_external_evidence(pipeline):
 
 
 def test_mcp_unavailability_reaches_judge_without_fabricated_answer(pipeline, monkeypatch):
-    monkeypatch.setattr(external_tool, "load_active_sources", lambda *a, **k: [])
+    def fail(source_id):
+        raise ExternalSourceError("MCP fora")
+    monkeypatch.setattr(external_tool, "fetch_source", fail)
     state = run(pipeline, "Como economizar água no banho?")
     output = pipeline.judge_inputs[0].agent_results[0]["tool_calls"][0]["output"]
     assert output["status"] == "unavailable"
@@ -132,10 +135,15 @@ def test_malicious_input_stops_before_router_mcp_and_judge(pipeline):
 
 
 def test_personal_data_is_anonymized_before_model_and_does_not_enter_mcp(pipeline, monkeypatch):
-    monkeypatch.setattr(external_service, "fetch_sources", lambda *a, **k: pytest.fail("Chat não deve coletar"))
+    source_ids = []
+    def read(source_id):
+        source_ids.append(source_id)
+        return make_snapshot(source_id=source_id)
+    monkeypatch.setattr(external_tool, "fetch_source", read)
     state = run(pipeline, "Meu e-mail é pessoa@example.com. Como economizar água no banho?")
     assert "pessoa@example.com" not in str(pipeline.classifier_inputs)
     assert "pessoa@example.com" not in state["response"]
+    assert source_ids == ["midr-water-conservation", "epa-residential-saving"]
 
 
 @pytest.mark.parametrize("mode", ["chat", "judge"])

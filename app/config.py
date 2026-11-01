@@ -196,8 +196,6 @@ class Settings:
     mcp_external_enabled: bool = False
     mcp_timeout_seconds: float = 45.0
     mcp_cache_ttl_seconds: int = 3600
-    mcp_refresh_interval_seconds: int = 3600
-    mcp_max_stale_seconds: int = 86400
     obs_support_cost_usd: float = 8.01  # Gartner, 2019: contato atendido por pessoa (telefone, chat, e-mail)
     obs_questions_per_user_week: float = 0.0  # 0 = usar o valor medido; não há fonte externa confiável
     obs_usd_to_brl: float = 5.4212  # PTAX de venda do Banco Central em 30/10/2026
@@ -332,8 +330,6 @@ def load_settings(
     numeric_settings = {
         "MCP_TIMEOUT_SECONDS": (45.0, float, "deve ser um número finito"),
         "MCP_CACHE_TTL_SECONDS": (3600, int, "deve ser um número inteiro"),
-        "MCP_REFRESH_INTERVAL_SECONDS": (3600, int, "deve ser um número inteiro"),
-        "MCP_MAX_STALE_SECONDS": (86400, int, "deve ser um número inteiro"),
         "OBS_SUPPORT_COST_USD": (Settings.obs_support_cost_usd, float, "deve ser um número finito"),
         "OBS_QUESTIONS_PER_USER_WEEK": (Settings.obs_questions_per_user_week, float, "deve ser um número finito"),
         "OBS_USD_TO_BRL": (Settings.obs_usd_to_brl, float, "deve ser um número finito"),
@@ -404,8 +400,6 @@ def load_settings(
         mcp_external_enabled=(values.get("MCP_EXTERNAL_ENABLED") or "false").casefold() == "true",
         mcp_timeout_seconds=parsed_numbers["MCP_TIMEOUT_SECONDS"],
         mcp_cache_ttl_seconds=parsed_numbers["MCP_CACHE_TTL_SECONDS"],
-        mcp_refresh_interval_seconds=parsed_numbers["MCP_REFRESH_INTERVAL_SECONDS"],
-        mcp_max_stale_seconds=parsed_numbers["MCP_MAX_STALE_SECONDS"],
         openai_fast_reasoning_effort=(
             values.get("OPENAI_FAST_REASONING_EFFORT", Settings.openai_fast_reasoning_effort) or ""
         ).casefold(),
@@ -469,10 +463,6 @@ def validate_mcp_config(*, settings: Settings | None = None) -> None:
         problems.append("MCP_TIMEOUT_SECONDS deve estar entre 1 e 120")
     if not 0 <= current.mcp_cache_ttl_seconds <= 86400:
         problems.append("MCP_CACHE_TTL_SECONDS deve estar entre 0 e 86400")
-    if not 60 <= current.mcp_refresh_interval_seconds <= 86400:
-        problems.append("MCP_REFRESH_INTERVAL_SECONDS deve estar entre 60 e 86400")
-    if not current.mcp_refresh_interval_seconds <= current.mcp_max_stale_seconds <= 604800:
-        problems.append("MCP_MAX_STALE_SECONDS deve ficar entre o intervalo de atualização e 604800")
     if problems:
         raise ConfigurationError(f"Configuração MCP inválida: {', '.join(problems)}.")
 

@@ -2,7 +2,6 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
-from concurrent.futures import Future
 from contextlib import contextmanager
 from contextvars import ContextVar
 from copy import deepcopy
@@ -703,8 +702,11 @@ def _count_embedding_tokens(model: str, texts) -> int | None:
     if not texts:
         return None
     try:
-        from app.observability.embedding_usage import count_tokens
-        return count_tokens(model, texts)
+        from google import genai
+        from app.config import get_settings
+        with genai.Client(api_key=get_settings().gemini_api_key, vertexai=False,
+                          http_options={"timeout": 5000, "retry_options": {"attempts": 1}}) as client:
+            return int(client.models.count_tokens(model=model, contents=list(texts)).total_tokens)
     except Exception:
         return None
 
@@ -739,30 +741,10 @@ def embedding_call(model: str, texts=None):
         yield
         ended = perf_counter()
         row["status"] = "success"
-        if trace:
-            from app.observability.embedding_usage import submit_count
-            count_started = perf_counter()
+        if trace and texts:
             row["count_status"] = "pending"
-            try:
-                future = submit_count(model, texts, _count_embedding_tokens)
-            except Exception:
-                future = None
-            if future is None:
-                row["count_status"] = "unavailable"
-            else:
-                accounted = Future()
-                trace.embedding_counts.append(accounted)
-                def counted(done):
-                    try:
-                        tokens = done.result()
-                    except Exception:
-                        tokens = None
-                    with trace.lock:
-                        row["input_tokens"] = tokens
-                        row["count_status"] = "success" if tokens is not None else "unavailable"
-                        row["count_duration_ms"] = round((perf_counter() - count_started) * 1000, 1)
-                    accounted.set_result(tokens)
-                future.add_done_callback(counted)
+            with trace.lock:
+                trace.embedding_counts.append((row, tuple(texts)))
     except Exception as error:
         row["status"] = "error"
         if trace:
@@ -796,3 +778,20 @@ def embedding_call(model: str, texts=None):
                     **({"cause_type": row["cause_type"]} if row.get("cause_type") else {}),
                 },
             )
+
+
+def complete_embedding_counts(trace: Trace) -> None:
+    """Conta após a resposta, na thread de métricas; textos nunca são persistidos."""
+    with trace.lock:
+        pending = list(trace.embedding_counts)
+        trace.embedding_counts.clear()
+    for row, texts in pending:
+        started = perf_counter()
+        try:
+            tokens = _count_embedding_tokens(row["model"], texts)
+        except Exception:
+            tokens = None
+        with trace.lock:
+            row.update(input_tokens=tokens,
+                       count_status="success" if tokens is not None else "unavailable",
+                       count_duration_ms=round((perf_counter() - started) * 1000, 1))
