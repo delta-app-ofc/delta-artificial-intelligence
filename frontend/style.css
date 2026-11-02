@@ -463,6 +463,17 @@ h1 {
   white-space:normal;
 }
 
+.message-body.typing::after {
+  content:'▍';
+  margin-left:2px;
+  opacity:.7;
+  animation:blink 1s steps(2, start) infinite;
+}
+
+@keyframes blink {
+  to { visibility:hidden; }
+}
+
 .message-body.markdown p {
   margin:0 0 10px;
 }

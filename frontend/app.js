@@ -178,7 +178,7 @@ byId('request-form').addEventListener('submit', async event => {
     state.latest = result;
     if (typeof result.session_id === 'string') state.sessionId = result.session_id;
     state.messages.push({
-      role: 'assistant', text: result.response || 'A API não retornou texto para esta execução.', chart: result.chart_data, result,
+      role: 'assistant', text: result.response || 'A API não retornou texto para esta execução.', chart: result.chart_data, result, animate: tab.mode === 'chat',
       steps: progress.steps, totalMs: performance.now() - progress.startedAt,
       inspect: saved => { state.latest = saved; state.localError = ''; if (activeId === tab.id) renderPanels(); },
       onChartError: warning => { if (!state.chartWarnings.includes(warning)) state.chartWarnings.push(warning); if (activeId === tab.id) renderPanels(); },
