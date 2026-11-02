@@ -199,7 +199,7 @@ class Settings:
     obs_support_cost_usd: float = 8.01  # Gartner, 2019: contato atendido por pessoa (telefone, chat, e-mail)
     obs_questions_per_user_week: float = 0.0  # 0 = usar o valor medido; não há fonte externa confiável
     obs_usd_to_brl: float = 5.4212  # PTAX de venda do Banco Central em 30/10/2026
-    obs_latency_p95_limit_ms: float = 8000.0
+    obs_latency_p95_limit_ms: float = 15000.0
     obs_error_rate_limit: float = 0.05
     obs_prices_json: str | None = None
     obs_hash_secret: str | None = field(default=None, repr=False)

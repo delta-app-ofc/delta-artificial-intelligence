@@ -452,3 +452,9 @@ def test_persist_updates_by_request_id_instead_of_duplicating(monkeypatch):
     record = metrics.build_record(_trace(), "success", 100.0)
     metrics._persist(record)
     assert calls == [(({"request_id": record["request_id"]}, record), {"upsert": True})]
+
+
+def test_default_latency_slo_is_15_seconds():
+    from app.config import Settings
+
+    assert Settings.obs_latency_p95_limit_ms == 15000.0
