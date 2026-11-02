@@ -63,6 +63,14 @@ class ChatResponse(BaseModel):
     chart_data: dict | None = Field(
         default=None, description="Dados de gráfico (Plotly) quando a resposta traz um; senão nulo."
     )
+    suggestions: list[str] = Field(
+        default_factory=list,
+        description="Até 3 perguntas sugeridas para continuar a conversa.",
+    )
+
+
+class SuggestionsResponse(BaseModel):
+    suggestions: list[str] = Field(..., description="Perguntas para começar a conversa.")
 
 
 class SessionInfo(BaseModel):

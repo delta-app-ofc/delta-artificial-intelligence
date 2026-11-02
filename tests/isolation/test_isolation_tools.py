@@ -46,6 +46,8 @@ def organization(monkeypatch, calls):
     monkeypatch.setattr(db_postgres, "get_organization_last_billed_period", registra("last_bill", None))
     monkeypatch.setattr(db_postgres, "get_organization_effective_rate", registra("rate", None))
     monkeypatch.setattr(db_postgres, "get_organization_consumption_daily", registra("daily", []))
+    monkeypatch.setattr(db_postgres, "get_authorized_device_ids", registra("devices", ["D1"]))
+    monkeypatch.setattr(db_mongo, "get_consumption_history_between_devices", registra("mongo_devices", []))
 
 
 @pytest.fixture
@@ -234,6 +236,6 @@ def test_consumo_unidade_propria_consulta_so_o_id_dela(organization, calls):
 
     tools["get_consumption_summary"].invoke({"period": "last_7_days", "unit_id": 10})
 
-    assert [nome for nome, _ in calls] == ["daily"]
+    assert [nome for nome, _ in calls] == ["devices", "mongo_devices"]
     _, (user_id, property_ids, *_resto) = calls[0]
     assert user_id == 1 and property_ids == [10]

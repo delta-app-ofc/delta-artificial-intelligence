@@ -13,6 +13,7 @@ concurrency:
 
 jobs:
   test:
+    name: ci-tecnico
     runs-on: ubuntu-latest
     timeout-minutes: 15
     env:
@@ -30,14 +31,14 @@ jobs:
       - name: Verificar sintaxe
         run: python -m compileall -q app
       - name: Executar testes
-        run: python -m unittest discover -s tests -v
+        run: python -m pytest tests -q
 
   report-ci:
     name: Reportar resultado do CI na PR
     if: always() && github.event_name == 'pull_request'
     needs:
       - test
-    uses: delta-app-ofc/.github/.github/workflows/report_ci.yml@8f4329cdde8ad39527069966a5cb97bbb49675b5
+    uses: delta-app-ofc/.github/.github/workflows/report_ci.yml@d30cc21215e716966e2e05a22e0caa1d410f1b65
     with:
       needs_results: ${{ toJSON(needs) }}
     secrets:

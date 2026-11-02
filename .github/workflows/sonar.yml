@@ -10,7 +10,7 @@ permissions:
 
 jobs:
   tests:
-    name: Testes e relatórios
+    name: Testes Sonar
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4

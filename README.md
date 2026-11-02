@@ -149,6 +149,20 @@ top-k de 1 a 20, filtros exatos `topic`/`source_id`, URL, título, publicação,
 coleta e linhas do texto extraído normalizado. Artigos públicos não comprovam
 dados da conta nem definem funcionalidades do Delta.
 
+A pergunta reaproveita o mesmo embedding entre as fontes selecionadas. A coleta,
+o cache e a verificação/indexação das revisões continuam no fluxo anterior; a
+primeira consulta ou uma revisão nova ainda pode demorar. As citações mostram
+título/link uma vez por documento, com datas/revisão/linhas nas evidências do Juiz.
+
+A contagem oficial dos tokens de embeddings ocorre na mesma thread que já grava
+as métricas HTTP, depois da resposta. O Monitor indica custo parcial e contagem
+pendente até a atualização do mesmo request_id; falhas ficam sem contagem, sem
+estimar tokens. O tempo dessa contagem fica separado da latência da resposta.
+Os textos usados para contar ficam apenas em memória e não são persistidos.
+Se o processo for interrompido antes de concluir, o registro pode permanecer
+pendente. Runners que usam Trace fora do HTTP podem chamar
+complete_embedding_counts(trace) ao terminar para fechar a contabilização.
+
 O agente preserva os trechos nas evidências do Juiz e monta a lista final de
 fontes a partir das ferramentas. Falhas retornam `unavailable`; filtros sem
 correspondência retornam `insufficient_data`. O catálogo segue as fontes
@@ -768,3 +782,8 @@ Testes de histórico e de isolamento usam MongoDB real em um banco descartável 
 (`DELTA_TEST_MONGO_URI`, padrão `mongodb://localhost:27018` do `docker-compose.dev.yml`) e são pulados sem
 MongoDB. Os de isolamento ficam em `tests/isolation/`. O acesso da IA ao `chat_sessions` exige a role
 `role_api_service`.
+
+
+O playground classifica a entrada uma vez no grafo do chat/Juiz; abas isoladas
+mantêm a validação completa. Ao salvar a primeira resposta, o console cria uma
+sessão MongoDB válida; UUIDs antigos são substituídos pelo ObjectId retornado.

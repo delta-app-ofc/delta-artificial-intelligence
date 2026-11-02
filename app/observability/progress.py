@@ -53,6 +53,7 @@ _TOOL_LABELS = {
     "estimate_habit_water_cost": "Estimando o custo do hábito",
     "get_weather_history": "Consultando o clima",
     "search_knowledge_base": "Buscando na documentação do Delta",
+    "search_external_knowledge": "Buscando em fontes públicas",
 }
 
 # O que "Vou consultar ..." diz de cada agente.
