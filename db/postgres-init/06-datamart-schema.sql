@@ -1,6 +1,3 @@
--- Cópia read-only de script-datamart.sql (delta-sql-database), sem
--- dw.vw_audit_history_chain nem os GRANTs de roles que não existem aqui.
-
 CREATE SCHEMA IF NOT EXISTS stage;
 
 CREATE TABLE stage.consumption_summary (
@@ -17,6 +14,34 @@ CREATE TABLE stage.consumption_summary (
       CONSTRAINT chk_stage_consumption_summary_lpm_average
         CHECK (lpm_average IS NULL OR lpm_average >= 0)
     , anomaly_detected      BOOLEAN
+    , loaded_at             TIMESTAMP     NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE stage.user_preferences (
+      id                    BIGSERIAL     PRIMARY KEY
+    , mongo_id              CHAR(24)      UNIQUE
+    , user_id               INTEGER       NOT NULL
+    , daily_liters_target   INTEGER
+    , notifications_enabled BOOLEAN
+    , quiet_start_hour      VARCHAR(10)
+    , quiet_end_hour        VARCHAR(10)
+    , dark_mode_enabled     BOOLEAN       NOT NULL
+    , loaded_at             TIMESTAMP     NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE stage.alerts_history (
+      id                    BIGSERIAL     PRIMARY KEY
+    , mongo_id              CHAR(24)      UNIQUE
+    , device_id             VARCHAR(100)  NOT NULL
+    , user_id               INTEGER       NOT NULL
+    , alert_type            VARCHAR(30)   NOT NULL
+      CONSTRAINT chk_stage_alerts_history_alert_type
+        CHECK (alert_type IN ('vazamento_continuo', 'fluxo_atipico', 'dispositivo_offline', 'leitura_impossivel'))
+    , triggered_at          TIMESTAMP     NOT NULL
+    , resolved_at           TIMESTAMP
+    , severity              VARCHAR(10)
+      CONSTRAINT chk_stage_alerts_history_severity
+        CHECK (severity IS NULL OR severity IN ('low', 'medium', 'high'))
     , loaded_at             TIMESTAMP     NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 
@@ -73,6 +98,29 @@ CREATE TABLE silver.ft_water_bill (
     , m3_value              NUMERIC(10,2) NOT NULL
     , CONSTRAINT uq_silver_ft_water_bill_user_month
         UNIQUE (user_id, bill_month)
+);
+
+CREATE TABLE silver.ft_alert (
+      id                    BIGSERIAL     PRIMARY KEY
+    , property_id           INTEGER       NOT NULL
+    , user_id               INTEGER       NOT NULL
+    , device_id             VARCHAR(100)  NOT NULL
+    , alert_type            VARCHAR(30)   NOT NULL
+    , severity              VARCHAR(10)
+    , triggered_at          TIMESTAMP     NOT NULL
+    , resolved_at           TIMESTAMP
+    , CONSTRAINT uq_silver_ft_alert_device_type_triggered
+        UNIQUE (device_id, alert_type, triggered_at)
+);
+
+CREATE TABLE silver.dm_user_preference (
+      user_id               INTEGER       PRIMARY KEY
+    , name                  VARCHAR(100)  NOT NULL
+    , daily_liters_target   INTEGER
+    , notifications_enabled BOOLEAN
+    , quiet_start_hour      VARCHAR(10)
+    , quiet_end_hour        VARCHAR(10)
+    , dark_mode_enabled     BOOLEAN       NOT NULL
 );
 
 CREATE OR REPLACE PROCEDURE silver.sp_load_dm_property()
@@ -185,6 +233,60 @@ BEGIN
 END;
 $$;
 
+CREATE OR REPLACE PROCEDURE silver.sp_load_ft_alert()
+LANGUAGE plpgsql
+AS $$
+BEGIN
+
+    INSERT INTO silver.ft_alert (property_id, user_id, device_id, alert_type, severity, triggered_at, resolved_at)
+    SELECT
+          d.property_id
+        , a.user_id
+        , a.device_id
+        , a.alert_type
+        , a.severity
+        , a.triggered_at
+        , a.resolved_at
+    FROM stage.alerts_history a
+    JOIN tb_device d ON d.device_id = a.device_id
+    ON CONFLICT (device_id, alert_type, triggered_at) DO UPDATE
+        SET severity    = EXCLUDED.severity
+          , resolved_at = EXCLUDED.resolved_at;
+
+END;
+$$;
+
+CREATE OR REPLACE PROCEDURE silver.sp_load_dm_user_preference()
+LANGUAGE plpgsql
+AS $$
+BEGIN
+
+    INSERT INTO silver.dm_user_preference
+    (
+          user_id, name, daily_liters_target, notifications_enabled
+        , quiet_start_hour, quiet_end_hour, dark_mode_enabled
+    )
+    SELECT
+          p.user_id
+        , u.name
+        , p.daily_liters_target
+        , p.notifications_enabled
+        , p.quiet_start_hour
+        , p.quiet_end_hour
+        , p.dark_mode_enabled
+    FROM stage.user_preferences p
+    JOIN tb_user u ON u.id = p.user_id
+    ON CONFLICT (user_id) DO UPDATE
+        SET name                  = EXCLUDED.name
+          , daily_liters_target   = EXCLUDED.daily_liters_target
+          , notifications_enabled = EXCLUDED.notifications_enabled
+          , quiet_start_hour      = EXCLUDED.quiet_start_hour
+          , quiet_end_hour        = EXCLUDED.quiet_end_hour
+          , dark_mode_enabled     = EXCLUDED.dark_mode_enabled;
+
+END;
+$$;
+
 CREATE OR REPLACE PROCEDURE silver.sp_load()
 LANGUAGE plpgsql
 AS $$
@@ -192,9 +294,11 @@ BEGIN
 
     CALL silver.sp_load_ft_consumption_reading();
     CALL silver.sp_load_ft_consumption_daily();
+    CALL silver.sp_load_ft_alert();
     CALL silver.sp_load_dm_property();
     CALL silver.sp_load_dm_person();
     CALL silver.sp_load_ft_water_bill();
+    CALL silver.sp_load_dm_user_preference();
 
 END;
 $$;
@@ -261,6 +365,38 @@ CREATE TABLE gold.ft_water_bill_monthly (
         FOREIGN KEY (date_key) REFERENCES gold.dm_date (date_key)
 );
 
+CREATE TABLE gold.ft_alert (
+      alert_key             BIGSERIAL     PRIMARY KEY
+    , property_key          INTEGER       NOT NULL
+    , person_key            INTEGER       NOT NULL
+    , date_key              INTEGER       NOT NULL
+    , device_id             VARCHAR(100)  NOT NULL
+    , alert_type            VARCHAR(30)   NOT NULL
+    , severity              VARCHAR(10)
+    , triggered_at          TIMESTAMP     NOT NULL
+    , resolved_at           TIMESTAMP
+    , CONSTRAINT uq_gold_ft_alert_device_type_triggered
+        UNIQUE (device_id, alert_type, triggered_at)
+    , CONSTRAINT fk_gold_ft_alert_property
+        FOREIGN KEY (property_key) REFERENCES gold.dm_property (property_key)
+    , CONSTRAINT fk_gold_ft_alert_person
+        FOREIGN KEY (person_key) REFERENCES gold.dm_person (person_key)
+    , CONSTRAINT fk_gold_ft_alert_date
+        FOREIGN KEY (date_key) REFERENCES gold.dm_date (date_key)
+);
+
+CREATE TABLE gold.dm_user_preference (
+      preference_key        SERIAL        PRIMARY KEY
+    , person_key            INTEGER       NOT NULL UNIQUE
+    , daily_liters_target   INTEGER
+    , notifications_enabled BOOLEAN
+    , quiet_start_hour      VARCHAR(10)
+    , quiet_end_hour        VARCHAR(10)
+    , dark_mode_enabled     BOOLEAN       NOT NULL
+    , CONSTRAINT fk_gold_dm_user_preference_person
+        FOREIGN KEY (person_key) REFERENCES gold.dm_person (person_key)
+);
+
 CREATE TABLE gold.ft_investment_scenario (
       scenario_key          SERIAL        PRIMARY KEY
     , scenario_id           INTEGER       NOT NULL UNIQUE
@@ -274,7 +410,22 @@ CREATE TABLE gold.ft_investment_scenario (
 CREATE OR REPLACE PROCEDURE gold.sp_load_dm_date()
 LANGUAGE plpgsql
 AS $$
+DECLARE
+    v_min_date DATE;
+    v_max_date DATE;
 BEGIN
+
+    -- Intervalo de referência (5 anos pra trás, 2 pra frente) combinado com as datas
+    -- reais que já existem na Silver - nunca deixa a dimensão mais curta que o dado real.
+    SELECT
+          LEAST(CURRENT_DATE - INTERVAL '5 years', MIN(d))::DATE
+        , GREATEST(CURRENT_DATE + INTERVAL '2 years', MAX(d))::DATE
+      INTO v_min_date, v_max_date
+      FROM (
+          SELECT consumption_day AS d FROM silver.ft_consumption_daily
+          UNION ALL
+          SELECT bill_month      AS d FROM silver.ft_water_bill
+      ) datas;
 
     INSERT INTO gold.dm_date (date_key, full_date, day_of_week, day_name, week_of_year, month_number, quarter_number, year_number, is_weekend)
     SELECT
@@ -287,7 +438,7 @@ BEGIN
         , EXTRACT(QUARTER FROM d)
         , EXTRACT(YEAR FROM d)
         , EXTRACT(DOW FROM d) IN (0, 6)
-    FROM generate_series('2024-01-01'::DATE, '2028-12-31'::DATE, INTERVAL '1 day') AS d
+    FROM generate_series(v_min_date, v_max_date, INTERVAL '1 day') AS d
     ON CONFLICT (date_key) DO NOTHING;
 
 END;
@@ -298,8 +449,11 @@ LANGUAGE plpgsql
 AS $$
 BEGIN
 
+    -- Nunca remove uma propriedade que ainda tem fato vinculado (preserva histórico) -
+    -- só limpa dimensão órfã sem nenhum dado de consumo associado.
     DELETE FROM gold.dm_property
-    WHERE property_id NOT IN (SELECT property_id FROM silver.dm_property);
+    WHERE property_id NOT IN (SELECT property_id FROM silver.dm_property)
+      AND property_key NOT IN (SELECT property_key FROM gold.ft_consumption_daily);
 
     INSERT INTO gold.dm_property (property_id, name, property_type, classification_group, city, state, built_area_m2, organization_name, has_operational_profile)
     SELECT property_id, name, property_type, classification_group, city, state, built_area_m2, organization_name, has_operational_profile
@@ -322,8 +476,11 @@ LANGUAGE plpgsql
 AS $$
 BEGIN
 
+    -- Nunca remove uma pessoa que ainda tem fato vinculado (preserva histórico) -
+    -- só limpa dimensão órfã sem nenhuma fatura associada.
     DELETE FROM gold.dm_person
-    WHERE user_id NOT IN (SELECT user_id FROM silver.dm_person);
+    WHERE user_id NOT IN (SELECT user_id FROM silver.dm_person)
+      AND person_key NOT IN (SELECT person_key FROM gold.ft_water_bill_monthly);
 
     INSERT INTO gold.dm_person (user_id, name)
     SELECT user_id, name
@@ -421,6 +578,61 @@ BEGIN
 END;
 $$;
 
+CREATE OR REPLACE PROCEDURE gold.sp_load_ft_alert()
+LANGUAGE plpgsql
+AS $$
+BEGIN
+
+    INSERT INTO gold.ft_alert (property_key, person_key, date_key, device_id, alert_type, severity, triggered_at, resolved_at)
+    SELECT
+          dp.property_key
+        , dpe.person_key
+        , TO_CHAR(a.triggered_at, 'YYYYMMDD')::INTEGER
+        , a.device_id
+        , a.alert_type
+        , a.severity
+        , a.triggered_at
+        , a.resolved_at
+    FROM silver.ft_alert a
+    JOIN gold.dm_property dp  ON dp.property_id = a.property_id
+    JOIN gold.dm_person   dpe ON dpe.user_id    = a.user_id
+    JOIN gold.dm_date     dd  ON dd.date_key    = TO_CHAR(a.triggered_at, 'YYYYMMDD')::INTEGER
+    ON CONFLICT (device_id, alert_type, triggered_at) DO UPDATE
+        SET severity    = EXCLUDED.severity
+          , resolved_at = EXCLUDED.resolved_at;
+
+END;
+$$;
+
+CREATE OR REPLACE PROCEDURE gold.sp_load_dm_user_preference()
+LANGUAGE plpgsql
+AS $$
+BEGIN
+
+    INSERT INTO gold.dm_user_preference
+    (
+          person_key, daily_liters_target, notifications_enabled
+        , quiet_start_hour, quiet_end_hour, dark_mode_enabled
+    )
+    SELECT
+          dpe.person_key
+        , up.daily_liters_target
+        , up.notifications_enabled
+        , up.quiet_start_hour
+        , up.quiet_end_hour
+        , up.dark_mode_enabled
+    FROM silver.dm_user_preference up
+    JOIN gold.dm_person dpe ON dpe.user_id = up.user_id
+    ON CONFLICT (person_key) DO UPDATE
+        SET daily_liters_target   = EXCLUDED.daily_liters_target
+          , notifications_enabled = EXCLUDED.notifications_enabled
+          , quiet_start_hour      = EXCLUDED.quiet_start_hour
+          , quiet_end_hour        = EXCLUDED.quiet_end_hour
+          , dark_mode_enabled     = EXCLUDED.dark_mode_enabled;
+
+END;
+$$;
+
 CREATE OR REPLACE PROCEDURE gold.sp_load()
 LANGUAGE plpgsql
 AS $$
@@ -432,6 +644,8 @@ BEGIN
     CALL gold.sp_load_ft_consumption_daily();
     CALL gold.sp_load_ft_water_bill_monthly();
     CALL gold.sp_load_ft_investment_scenario();
+    CALL gold.sp_load_ft_alert();
+    CALL gold.sp_load_dm_user_preference();
 
 END;
 $$;
@@ -604,3 +818,100 @@ SELECT
     , RANK()         OVER (PARTITION BY reference_month ORDER BY m3_value ASC) AS rank_efficiency
     , PERCENT_RANK() OVER (PARTITION BY reference_month ORDER BY m3_value)     AS consumption_percent_rank
 FROM staging_bill;
+
+CREATE OR REPLACE VIEW dw.vw_audit_history_chain AS
+WITH RECURSIVE chain AS (
+    SELECT
+          id
+        , region_rate_id
+        , m3_value
+        , operation
+        , executed_by
+        , executed_at
+        , previous_log_id
+        , 1 AS level
+    FROM tb_log_region_rate
+    WHERE previous_log_id IS NULL
+
+    UNION ALL
+
+    SELECT
+          l.id
+        , l.region_rate_id
+        , l.m3_value
+        , l.operation
+        , l.executed_by
+        , l.executed_at
+        , l.previous_log_id
+        , c.level + 1
+    FROM tb_log_region_rate l
+    JOIN chain c ON l.previous_log_id = c.id
+)
+SELECT
+      id AS log_id
+    , region_rate_id
+    , m3_value
+    , operation
+    , executed_by
+    , executed_at
+    , level
+FROM chain;
+
+CREATE OR REPLACE VIEW dw.vw_ft_alert AS
+SELECT
+      fa.alert_key
+    , dp.property_id
+    , dp.name           AS property_name
+    , dpe.user_id
+    , dpe.name          AS person_name
+    , dd.full_date      AS alert_date
+    , fa.device_id
+    , fa.alert_type
+    , fa.severity
+    , fa.triggered_at
+    , fa.resolved_at
+    , ROUND(EXTRACT(EPOCH FROM (fa.resolved_at - fa.triggered_at)) / 60.0, 1) AS resolution_minutes
+FROM gold.ft_alert fa
+JOIN gold.dm_property dp  ON dp.property_key  = fa.property_key
+JOIN gold.dm_person   dpe ON dpe.person_key   = fa.person_key
+JOIN gold.dm_date     dd  ON dd.date_key      = fa.date_key;
+
+CREATE OR REPLACE VIEW dw.vw_ft_user_goal AS
+WITH consumption_per_person AS (
+    SELECT
+          up.user_id
+        , AVG(cd.total_liters) AS avg_liters_last_30d
+    FROM tb_user_property up
+    JOIN gold.dm_property          gp ON gp.property_id   = up.property_id
+    JOIN gold.ft_consumption_daily cd ON cd.property_key  = gp.property_key
+    JOIN gold.dm_date              dd ON dd.date_key      = cd.date_key
+    WHERE dd.full_date >= CURRENT_DATE - INTERVAL '30 days'
+    GROUP BY up.user_id
+)
+SELECT
+      dpe.user_id
+    , dpe.name
+    , pr.daily_liters_target
+    , COALESCE(c.avg_liters_last_30d, 0) AS avg_liters_last_30d
+    , ROUND(COALESCE(c.avg_liters_last_30d, 0) / NULLIF(pr.daily_liters_target, 0) * 100, 1) AS pct_of_target
+FROM gold.dm_user_preference pr
+JOIN gold.dm_person dpe ON dpe.person_key = pr.person_key
+LEFT JOIN consumption_per_person c ON c.user_id = dpe.user_id;
+
+GRANT USAGE ON SCHEMA stage, silver, gold, dw TO sys_data_engineer;
+GRANT ALL PRIVILEGES ON ALL TABLES IN SCHEMA stage, silver, gold TO sys_data_engineer;
+GRANT ALL PRIVILEGES ON ALL SEQUENCES IN SCHEMA stage, silver, gold TO sys_data_engineer;
+GRANT SELECT ON ALL TABLES IN SCHEMA dw TO sys_data_engineer;
+
+GRANT USAGE ON SCHEMA gold, dw TO sys_bi_analyst;
+GRANT SELECT ON ALL TABLES IN SCHEMA gold, dw TO sys_bi_analyst;
+
+ALTER DEFAULT PRIVILEGES IN SCHEMA stage, silver, gold
+    GRANT ALL ON TABLES TO sys_data_engineer;
+ALTER DEFAULT PRIVILEGES IN SCHEMA stage, silver, gold
+    GRANT ALL ON SEQUENCES TO sys_data_engineer;
+ALTER DEFAULT PRIVILEGES IN SCHEMA dw
+    GRANT SELECT ON TABLES TO sys_data_engineer;
+ALTER DEFAULT PRIVILEGES IN SCHEMA gold, dw
+    GRANT SELECT ON TABLES TO sys_bi_analyst;
+
