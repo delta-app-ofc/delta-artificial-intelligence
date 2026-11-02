@@ -5,7 +5,7 @@ from __future__ import annotations
 import re
 from typing import Any
 
-from app.guardrails.input import PII_PATTERNS
+from app.guardrails.input import replace_pii
 
 _SENHA_RE = re.compile(r"\b(senha|password|secret)\b\s*[:=]\s*\S+", re.I)
 
@@ -92,8 +92,7 @@ def validate_output(response: str, pii_map: dict[str, str] | None = None) -> dic
     if not response or not response.strip():
         return {"ok": False, "reason": "Resposta vazia do agente."}
 
-    for label, pattern in PII_PATTERNS:
-        response = pattern.sub(f"[{label} OMITIDO]", response)
+    response = replace_pii(response, lambda label, value: f"[{label} OMITIDO]")
 
     for token in pii_map or {}:
         label = token.split("_")[1]  # [PII_CPF_abc123] → CPF
