@@ -161,3 +161,55 @@ def test_update_baseline_refuses_a_new_undocumented_failure(tmp_path):
     before = baseline.read_text(encoding="utf-8")
     assert main(["--datasets", str(datasets), "--baseline", str(baseline), "--update-baseline"]) == 1
     assert baseline.read_text(encoding="utf-8") == before
+
+
+def test_expected_response_cannot_allow_declared_sensitive_value():
+    report = evaluate({"output_pii": [{
+        "id": "declared-secret", "response": "Identificador: TEST-PERSON-42.",
+        "sensitive": ["TEST-PERSON-42"], "expected_response": "Identificador: TEST-PERSON-42.",
+    }]})
+    assert report["results"][0]["passed"] is False
+
+
+@pytest.mark.parametrize("reason", [None, "", "   ", 42])
+def test_update_rejects_missing_or_invalid_reason(tmp_path, reason):
+    datasets, baseline = _copy_workspace(tmp_path)
+    data = json.loads(baseline.read_text(encoding="utf-8"))
+    data["known_failures"][next(iter(data["known_failures"]))] = reason
+    baseline.write_text(json.dumps(data), encoding="utf-8")
+    before = baseline.read_text(encoding="utf-8")
+    assert main(["--datasets", str(datasets), "--baseline", str(baseline), "--update-baseline"]) == 2
+    assert baseline.read_text(encoding="utf-8") == before
+
+
+def test_update_cannot_remove_existing_case(tmp_path):
+    datasets, baseline = _copy_workspace(tmp_path)
+    path = datasets / "input_guardrail.json"
+    cases = json.loads(path.read_text(encoding="utf-8"))
+    cases.pop()
+    path.write_text(json.dumps(cases), encoding="utf-8")
+    before = baseline.read_text(encoding="utf-8")
+    assert main(["--datasets", str(datasets), "--baseline", str(baseline), "--update-baseline"]) == 2
+    assert baseline.read_text(encoding="utf-8") == before
+
+
+def test_unmeasured_failure_is_not_an_improvement(evaluation):
+    report, baseline = deepcopy(evaluation)
+    row = next(row for row in report["results"] if row["passed"] is False)
+    row["passed"] = None
+    gate = check_gate(report, baseline)
+    assert row["id"] not in gate["improved_cases"]
+    assert row["id"] in gate["known_failures_not_evaluated"]
+
+
+def test_update_keeps_a_failure_moved_to_the_llm_layer(tmp_path):
+    datasets, baseline = _copy_workspace(tmp_path)
+    data = json.loads(baseline.read_text(encoding="utf-8"))
+    path = datasets / "input_guardrail.json"
+    cases = json.loads(path.read_text(encoding="utf-8"))
+    case = next(case for case in cases if case["id"] in data["known_failures"])
+    case["layer"] = "classifier"
+    path.write_text(json.dumps(cases), encoding="utf-8")
+    assert main(["--datasets", str(datasets), "--baseline", str(baseline), "--update-baseline"]) == 0
+    updated = json.loads(baseline.read_text(encoding="utf-8"))
+    assert updated["known_failures"][case["id"]] == data["known_failures"][case["id"]]

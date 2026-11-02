@@ -74,7 +74,8 @@ def evaluate(suites: dict[str, list[dict]]) -> dict:
                 output = validate_output(case["response"])
                 cleaned = output.get("response", "")
                 # Confere redação completa e preservação dos números e pontuação legítimos.
-                passed = output["ok"] and cleaned == case["expected_response"]
+                passed = (output["ok"] and cleaned == case["expected_response"]
+                          and all(value not in cleaned for value in case["sensitive"]))
                 actual = "pass" if passed else "fail"
             results.append({"id": case["id"], "suite": name, "passed": passed,
                             "actual": actual, "expected": case.get("expected", "redact_or_preserve"),
@@ -94,13 +95,25 @@ def evaluate(suites: dict[str, list[dict]]) -> dict:
             "metrics": metrics, "results": results}
 
 
+def _known_failures(baseline: dict) -> dict[str, str]:
+    """Toda exceção aceita precisa ter uma justificativa legível e não vazia."""
+    known = baseline["known_failures"]
+    if not isinstance(known, dict) or any(
+        not isinstance(reason, str) or not reason.strip() for reason in known.values()
+    ):
+        raise ValueError("known_failures exige uma justificativa textual não vazia para cada caso.")
+    return known
+
+
 def check_gate(report: dict, baseline: dict) -> dict:
     """Falha com casos removidos, regressão ou baseline que não pertence ao conjunto."""
     rows = report["results"]
     current_ids = {row["id"] for row in rows}
     expected_ids = set(baseline["case_ids"])
-    known = baseline["known_failures"]
+    known = _known_failures(baseline)
     failed = {row["id"] for row in rows if row["passed"] is False}
+    passed = {row["id"] for row in rows if row["passed"] is True}
+    unevaluated = {row["id"] for row in rows if row["passed"] is None}
     regressions = sorted(failed - set(known))
     missing = sorted(expected_ids - current_ids)
     unreviewed = sorted(current_ids - expected_ids)
@@ -111,7 +124,8 @@ def check_gate(report: dict, baseline: dict) -> dict:
             "regressions": regressions, "missing_cases": missing, "changed_cases": changed,
             "unreviewed_cases": unreviewed, "invalid_known_failures": invalid_known,
             "known_failures_still_present": sorted(failed & set(known)),
-            "improved_cases": sorted(set(known) - failed)}
+            "known_failures_not_evaluated": sorted(set(known) & unevaluated),
+            "improved_cases": sorted(set(known) & passed)}
 
 
 def build_baseline(report: dict, baseline: dict) -> tuple[dict, list[str]]:
@@ -120,14 +134,19 @@ def build_baseline(report: dict, baseline: dict) -> tuple[dict, list[str]]:
     Não aceita em silêncio uma falha nova: devolve os ids sem motivo registrado, que a
     pessoa precisa adicionar a `known_failures` (com o motivo) antes de atualizar.
     """
-    known = baseline["known_failures"]
+    known = _known_failures(baseline)
+    current_ids = {row["id"] for row in report["results"]}
+    removed = sorted(set(baseline["case_ids"]) - current_ids)
+    if removed:
+        raise ValueError("Baseline não atualizado: casos removidos do dataset: " + ", ".join(removed))
+    passed = {row["id"] for row in report["results"] if row["passed"] is True}
     failed = [row["id"] for row in report["results"] if row["passed"] is False]
     undocumented = sorted(set(failed) - set(known))
     updated = {
         "scope": baseline.get("scope", ""),
         "case_ids": [row["id"] for row in report["results"]],
         "fingerprints": {row["id"]: row["fingerprint"] for row in report["results"]},
-        "known_failures": {case_id: known[case_id] for case_id in failed if case_id in known},
+        "known_failures": {case_id: reason for case_id, reason in known.items() if case_id not in passed},
     }
     return updated, undocumented
 
