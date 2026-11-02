@@ -372,9 +372,10 @@ tendência de consumo e avalia risco de ultrapassar a meta cadastrada.
   puro — o LLM nunca calcula. `check_can_estimate` (que reproduz
   `fn_user_can_estimate` do banco) é sempre checado antes de qualquer
   estimativa; se vier `False`, nenhum cálculo roda.
-- Estimativa da próxima conta: usa a última conta cadastrada quando não há
-  histórico Mongo suficiente (menos de 7 dias); usa projeção de consumo ×
-  tarifa vigente quando há.
+- Estimativa da próxima conta: qualquer histórico de consumo disponível tem
+  prioridade, inclusive curto ou com zero registrado. Usa projeção de consumo ×
+  tarifa vigente; sem tarifa, não estima reais. A última conta só serve como
+  referência quando não há nenhuma leitura no período consultado.
 - Usa `llm_especialista` com o provedor selecionado em `app/services/llms.py`.
 
 ## Agente de Consumo

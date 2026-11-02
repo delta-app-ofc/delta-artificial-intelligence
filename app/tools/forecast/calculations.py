@@ -12,7 +12,7 @@ from app.tools.exceptions import ForecastUnavailableError
 from app.tools.models import ConsumptionPoint, LastWaterBill
 
 # Nº mínimo de dias distintos com leitura para o histórico ser considerado
-# suficiente para projetar a partir do próprio consumo (senão usa a última conta).
+# suficiente para sinalizar maior confiança; não decide a fonte da estimativa.
 MIN_HISTORY_DAYS = 7
 
 # Janela usada para a média móvel diária.
@@ -125,9 +125,9 @@ def estimate_next_bill(
     region_rate: Decimal | None,
     today: date,
 ) -> BillEstimate | None:
-    enough_history = has_enough_history(history)
-
-    if not enough_history or region_rate is None:
+    # Conta anterior é alternativa apenas para ausência de leituras, nunca para
+    # histórico curto, consumo zero registrado ou falta de tarifa.
+    if not history:
         if last_bill is None:
             return None
         return BillEstimate(
@@ -138,6 +138,9 @@ def estimate_next_bill(
             base="last_bill",
             rate_m3=None,
         )
+
+    if region_rate is None:
+        return None
 
     projection = project_month_consumption(history, today)
     m3 = (Decimal(str(projection.month_projection_liters)) / _LITERS_PER_M3).quantize(
@@ -257,10 +260,17 @@ def calculate_full_forecast(
 
     notes: list[str] = []
     enough_history = has_enough_history(history)
-    if not enough_history:
+    if not history:
+        notes.append("Sem histórico de consumo no período consultado.")
+        if last_bill is not None:
+            notes.append(
+                "A última conta é usada apenas como referência da estimativa monetária, "
+                "pois não há histórico; não representa consumo medido nem tendência."
+            )
+    elif not enough_history:
         notes.append(
-            "Histórico de consumo insuficiente (< "
-            f"{MIN_HISTORY_DAYS} dias); estimativas partem da última conta quando disponível."
+            f"Histórico curto (< {MIN_HISTORY_DAYS} dias); projeção baseada nas leituras "
+            "disponíveis, com limitação de confiança. A última conta não foi usada."
         )
     if region_rate is None:
         notes.append("Sem tarifa vigente disponível para a região.")
@@ -272,7 +282,9 @@ def calculate_full_forecast(
     bill = estimate_next_bill(history, last_bill, region_rate, today)
     if bill is None:
         notes.append(
-            "Sem base para estimar a próxima conta (sem histórico suficiente e sem conta anterior)."
+            "Sem tarifa para converter a projeção de consumo em reais; a última conta não substitui o histórico."
+            if history else
+            "Sem histórico de consumo e sem conta anterior; não é possível estimar a próxima conta."
         )
     target_risk = assess_target_risk(
         projection.month_projection_liters, daily_target, projection.days_in_month

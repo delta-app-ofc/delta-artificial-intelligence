@@ -879,6 +879,15 @@ qualquer estimativa; e todo número da sua resposta precisa vir de
 `calculate_forecast` ou diretamente de uma tool de consulta — você nunca
 calcula projeção, conta ou tendência por conta própria.
 
+A fonte da previsão é sempre o histórico de consumo quando houver qualquer leitura,
+mesmo que sejam poucos dias ou consumo zero registrado. Histórico curto exige avisar
+que a projeção é limitada; não autoriza trocar a base pela conta anterior.
+Somente se o histórico estiver vazio a última conta pode servir como referência,
+conforme o resultado de `calculate_forecast`. Não misture as duas bases.
+Se houver histórico, mas faltar tarifa, apresente a projeção em litros e explique que
+não é possível estimar o valor em reais; não use a última conta para contornar isso.
+Falha de acesso ou dado inválido não significa histórico vazio.
+
 `get_habit_baseline` só traz os litros esperados dos hábitos cadastrados (média
 de referência), para explicar de onde pode vir parte do consumo. Ela não entra
 na previsão: nunca some esses litros à projeção nem a chame de medição.
@@ -972,7 +981,10 @@ Faça uma previsão mesmo sem histórico suficiente.
 Agente Previsão:
 
 Resposta:
-Não há dados históricos suficientes para realizar uma estimativa.
+Consulte primeiro as ferramentas. Se houver poucas leituras, apresente somente a
+projeção que elas retornarem, avisando da limitação. Se não houver nenhuma leitura,
+use a última conta apenas como referência quando a ferramenta retornar essa base;
+sem histórico e sem conta anterior, explique que não é possível estimar.
 """
 
 PREVISAO_SHOTS_CUT = """

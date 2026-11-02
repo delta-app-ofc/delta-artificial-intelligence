@@ -162,8 +162,10 @@ def build_tools(user_id: int, today: date, access_kind: str | None = None) -> li
         ou o equivalente organizacional (último período faturado nas unidades
         da organização, calculado a partir da telemetria real).
 
-        Use como base da estimativa quando ainda não há histórico de consumo
-        suficiente (primeiro uso).
+        Serve como referência somente quando não há nenhuma leitura de consumo.
+        Para estimar, use calculate_forecast: histórico curto ou ausência de tarifa
+        não autorizam trocar o histórico pela conta anterior. A consulta explícita
+        da última conta continua disponível, independentemente da previsão.
 
         Use property_name somente se o usuário mencionar uma unidade
         específica da organização pelo nome ou endereço (ex.: 'a filial da
@@ -276,7 +278,7 @@ def build_tools(user_id: int, today: date, access_kind: str | None = None) -> li
         Junta elegibilidade, histórico, meta, tarifa e a última conta (ou o
         equivalente organizacional de cada uma dessas), e devolve: projeção de
         consumo até o fim do mês, estimativa da próxima conta (última conta se
-        não houver histórico; projeção x tarifa se houver), tendência
+        não houver nenhuma leitura; projeção x tarifa se houver), tendência
         (alta/queda/estável) e risco de ultrapassar a meta.
 
         Se o usuário não estiver apto, retorna status "insufficient_data" e
@@ -313,7 +315,7 @@ def build_tools(user_id: int, today: date, access_kind: str | None = None) -> li
         history = _history(kind, ids, history_days)
 
         if kind == "residential":
-            last_bill = db_postgres.get_last_water_bill(user_id)
+            last_bill = db_postgres.get_last_water_bill(user_id) if not history else None
             region_id = db_postgres.get_user_region_id(user_id)
             classification_id = db_postgres.get_user_property_classification_id(user_id)
             region_rate: Decimal | None = None
@@ -323,7 +325,10 @@ def build_tools(user_id: int, today: date, access_kind: str | None = None) -> li
                 except RegionRateNotFound:
                     region_rate = None
         else:
-            last_bill = db_postgres.get_organization_last_billed_period(user_id, ids, today)
+            last_bill = (
+                db_postgres.get_organization_last_billed_period(user_id, ids, today)
+                if not history else None
+            )
             region_rate = db_postgres.get_organization_effective_rate(user_id, ids, today)
 
         result = calc.calculate_full_forecast(
