@@ -57,9 +57,6 @@ class ChatRequest(BaseModel):
 
 class ChatResponse(BaseModel):
     response: str = Field(..., description="Resposta do assistente.")
-    agents_used: list[str] = Field(
-        default_factory=list, description="Agentes especialistas que participaram da resposta."
-    )
     session_id: str = Field(
         ..., description="Id da sessão, criado pelo servidor; reenvie-o para continuar a conversa."
     )

@@ -80,6 +80,15 @@ def mongo_db(monkeypatch):
     client.close()
 
 
+def auth_settings(**overrides):
+    """Settings de autenticação para os testes: HS256 de teste, sem consultar o banco."""
+    base = dict(
+        jwt_secret=None, auth_public_key=None, auth_issuer="delta-api", auth_audience="delta-api",
+        auth_key_id="delta-1", auth_check_active=False, app_env="test",
+    )
+    return SimpleNamespace(**{**base, **overrides})
+
+
 def make_token(user_id, *, secret: str = JWT_SECRET, expires_in: int = 3600, **extra) -> str:
     claims = {
         "sub": str(user_id),

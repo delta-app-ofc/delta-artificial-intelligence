@@ -9,12 +9,12 @@ from fastapi import Depends, FastAPI
 from fastapi.testclient import TestClient
 
 from app.auth import get_current_user_id
-from tests.isolation.helpers import JWT_SECRET, auth_header, make_token
+from tests.isolation.helpers import JWT_SECRET, auth_header, auth_settings, make_token
 
 
 @pytest.fixture
 def client(monkeypatch):
-    monkeypatch.setattr("app.auth.get_settings", lambda: SimpleNamespace(jwt_secret=JWT_SECRET))
+    monkeypatch.setattr("app.auth.get_settings", lambda: auth_settings(jwt_secret=JWT_SECRET))
     app = FastAPI()
 
     @app.get("/quem")
@@ -80,7 +80,7 @@ def test_lixo_no_lugar_do_token_responde_401(client):
 
 @pytest.mark.parametrize("secret", [None, "", "curto"])
 def test_segredo_ausente_ou_fraco_bloqueia_tudo_com_503(client, monkeypatch, secret):
-    monkeypatch.setattr("app.auth.get_settings", lambda: SimpleNamespace(jwt_secret=secret))
+    monkeypatch.setattr("app.auth.get_settings", lambda: auth_settings(jwt_secret=secret))
     assert client.get("/quem", headers=auth_header(7)).status_code == 503
     assert client.get("/quem").status_code == 503
 
