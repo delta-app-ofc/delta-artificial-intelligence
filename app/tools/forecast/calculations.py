@@ -125,9 +125,8 @@ def estimate_next_bill(
     region_rate: Decimal | None,
     today: date,
 ) -> BillEstimate | None:
-    enough_history = has_enough_history(history)
-
-    if not enough_history or region_rate is None:
+    # Conta anterior só substitui ausência de medições; zero registrado continua sendo medição.
+    if not history:
         if last_bill is None:
             return None
         return BillEstimate(
@@ -138,6 +137,9 @@ def estimate_next_bill(
             base="last_bill",
             rate_m3=None,
         )
+
+    if region_rate is None:
+        return None
 
     projection = project_month_consumption(history, today)
     m3 = (Decimal(str(projection.month_projection_liters)) / _LITERS_PER_M3).quantize(
@@ -260,7 +262,7 @@ def calculate_full_forecast(
     if not enough_history:
         notes.append(
             "Histórico de consumo insuficiente (< "
-            f"{MIN_HISTORY_DAYS} dias); estimativas partem da última conta quando disponível."
+            f"{MIN_HISTORY_DAYS} dias); projeção limitada. Última conta só é referência na ausência de medições."
         )
     if region_rate is None:
         notes.append("Sem tarifa vigente disponível para a região.")
@@ -272,7 +274,7 @@ def calculate_full_forecast(
     bill = estimate_next_bill(history, last_bill, region_rate, today)
     if bill is None:
         notes.append(
-            "Sem base para estimar a próxima conta (sem histórico suficiente e sem conta anterior)."
+            "Sem base para estimar a próxima conta (sem medições e conta anterior, ou sem tarifa vigente)."
         )
     target_risk = assess_target_risk(
         projection.month_projection_liters, daily_target, projection.days_in_month

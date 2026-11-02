@@ -713,3 +713,10 @@ def get_organization_effective_rate(
     if row is None or row[0] is None:
         return None
     return Decimal(str(row[0])).quantize(Decimal("0.01"))
+
+
+def get_active_user_ids() -> list[int]:
+    """Escopo confiável do job, inclusive usuários sem preferências cadastradas."""
+    with _cursor() as cur:
+        cur.execute("SELECT id FROM tb_user WHERE is_active = TRUE ORDER BY id")
+        return [int(row[0]) for row in cur.fetchall()]

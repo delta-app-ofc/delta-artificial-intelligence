@@ -382,7 +382,7 @@ def build_tools(user_id: int, today: date, access_kind: str | None = None) -> li
         history = _history(kind, ids, history_days)
 
         if kind == "residential":
-            last_bill = db_postgres.get_last_water_bill(user_id)
+            last_bill = db_postgres.get_last_water_bill(user_id) if not history else None
             region_id = db_postgres.get_user_region_id(user_id)
             classification_id = db_postgres.get_user_property_classification_id(user_id)
             region_rate: Decimal | None = None
@@ -392,7 +392,7 @@ def build_tools(user_id: int, today: date, access_kind: str | None = None) -> li
                 except RegionRateNotFound:
                     region_rate = None
         else:
-            last_bill = db_postgres.get_organization_last_billed_period(user_id, ids, today)
+            last_bill = db_postgres.get_organization_last_billed_period(user_id, ids, today) if not history else None
             region_rate = db_postgres.get_organization_effective_rate(user_id, ids, today)
 
         result = calc.calculate_full_forecast(

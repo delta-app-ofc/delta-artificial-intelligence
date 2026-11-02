@@ -20,7 +20,7 @@ def _point(day, liters):
     )
 
 
-def test_insufficient_history_uses_last_bill_and_returns_none_without_one():
+def test_last_bill_is_used_only_without_measured_history():
     today = date(2026, 4, 10)
     history = [_point(date(2026, 4, 9), 100)]
     bill = LastWaterBill(
@@ -32,6 +32,8 @@ def test_insufficient_history_uses_last_bill_and_returns_none_without_one():
 
     estimate = estimate_next_bill(history, bill, Decimal("5.00"), today)
 
+    assert estimate.base == "history_projection"
+    estimate = estimate_next_bill([], bill, Decimal("5.00"), today)
     assert estimate.base == "last_bill"
     assert estimate.estimated_value == Decimal("20.31")
     assert estimate.estimated_m3 == Decimal("4.25")

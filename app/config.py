@@ -215,6 +215,9 @@ class Settings:
     db_pool_wait_seconds: int = 5
     langsmith_send_content: bool = False
     _parse_errors: tuple[tuple[str, str], ...] = field(default=(), repr=False)
+    alerts_api_url: str | None = None
+    alerts_service_key: str | None = field(default=None, repr=False)
+
 
 
 def load_settings(
@@ -390,6 +393,8 @@ def load_settings(
         playground_enabled=playground_enabled,
         jwt_secret=values.get("JWT_SECRET"),
         auth_public_key=values.get("AUTH_PUBLIC_KEY"),
+        alerts_api_url=values.get("ALERTS_API_URL"),
+        alerts_service_key=values.get("ALERTS_SERVICE_KEY"),
         auth_issuer=values.get("AUTH_ISSUER", Settings.auth_issuer) or "",
         auth_audience=values.get("AUTH_AUDIENCE", Settings.auth_audience) or "",
         auth_key_id=values.get("AUTH_KEY_ID", Settings.auth_key_id) or "",
