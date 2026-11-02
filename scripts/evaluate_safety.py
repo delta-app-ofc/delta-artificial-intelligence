@@ -13,6 +13,12 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 DATASETS = ROOT / "evals" / "datasets"
+LAYERS = ("rules", "classifier")
+
+
+def rate(passed: int, total: int) -> float | None:
+    """Taxa de acerto; None quando não há casos avaliados (evita divisão por zero)."""
+    return passed / total if total else None
 
 
 def load_cases(directory: Path) -> dict[str, list[dict]]:
@@ -39,6 +45,8 @@ def load_cases(directory: Path) -> dict[str, list[dict]]:
             else:
                 if case["expected"] not in ("block", "allow"):
                     raise ValueError(f"Resultado esperado inválido: {case_id}")
+                if name == "input_guardrail" and case.get("layer", "rules") not in LAYERS:
+                    raise ValueError(f"Camada inválida (use rules ou classifier): {case_id}")
                 text = case["text"] if name == "input_guardrail" else case["response"]
             if not isinstance(text, str) or not text.strip():
                 raise ValueError(f"Texto vazio ou inválido: {case_id}")
@@ -75,13 +83,13 @@ def evaluate(suites: dict[str, list[dict]]) -> dict:
     metrics = {}
     for name in suites:
         rows = [row for row in results if row["suite"] == name and row["passed"] is not None]
-        metrics[name] = {"total": len(rows), "passed": sum(row["passed"] for row in rows),
-                         "accuracy": sum(row["passed"] for row in rows) / len(rows),
+        passed = sum(row["passed"] for row in rows)
+        metrics[name] = {"total": len(rows), "passed": passed, "accuracy": rate(passed, len(rows)),
                          "not_evaluated": sum(row["suite"] == name and row["passed"] is None for row in results)}
     input_rows = [row for row in results if row["suite"] == "input_guardrail" and row["passed"] is not None]
     for expected, label in (("block", "attack_recall"), ("allow", "legitimate_acceptance")):
         rows = [row for row in input_rows if row["expected"] == expected]
-        metrics[label] = sum(row["passed"] for row in rows) / len(rows) if rows else None
+        metrics[label] = rate(sum(row["passed"] for row in rows), len(rows))
     return {"mode": "deterministic_offline", "scope": "guardrails_only",
             "metrics": metrics, "results": results}
 
@@ -106,15 +114,47 @@ def check_gate(report: dict, baseline: dict) -> dict:
             "improved_cases": sorted(set(known) - failed)}
 
 
+def build_baseline(report: dict, baseline: dict) -> tuple[dict, list[str]]:
+    """Gera o novo baseline: registra melhorias, casos novos que passam e hashes atuais.
+
+    Não aceita em silêncio uma falha nova: devolve os ids sem motivo registrado, que a
+    pessoa precisa adicionar a `known_failures` (com o motivo) antes de atualizar.
+    """
+    known = baseline["known_failures"]
+    failed = [row["id"] for row in report["results"] if row["passed"] is False]
+    undocumented = sorted(set(failed) - set(known))
+    updated = {
+        "scope": baseline.get("scope", ""),
+        "case_ids": [row["id"] for row in report["results"]],
+        "fingerprints": {row["id"]: row["fingerprint"] for row in report["results"]},
+        "known_failures": {case_id: known[case_id] for case_id in failed if case_id in known},
+    }
+    return updated, undocumented
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--output", type=Path, default=ROOT / "reports" / "safety-evaluation.json")
     parser.add_argument("--baseline", type=Path, default=ROOT / "evals" / "safety-baseline.json")
+    parser.add_argument("--datasets", type=Path, default=DATASETS, help="Pasta com os datasets JSON.")
     parser.add_argument("--strict", action="store_true", help="Reprova qualquer caso falho, inclusive lacunas conhecidas.")
+    parser.add_argument("--update-baseline", action="store_true",
+                        help="Regrava o baseline (melhorias, casos novos que passam e hashes). "
+                             "Recusa falhas novas sem motivo registrado.")
     args = parser.parse_args(argv)
     try:
-        report = evaluate(load_cases(DATASETS))
+        report = evaluate(load_cases(args.datasets))
         baseline = json.loads(args.baseline.read_text(encoding="utf-8"))
+        if args.update_baseline:
+            updated, undocumented = build_baseline(report, baseline)
+            if undocumented:
+                print("Baseline NÃO atualizado: falhas novas sem motivo em known_failures: "
+                      + ", ".join(undocumented))
+                return 1
+            args.baseline.write_text(json.dumps(updated, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+            improved = sorted(set(baseline["known_failures"]) - set(updated["known_failures"]))
+            print(f"Baseline atualizado: {len(updated['case_ids'])} casos; lacunas corrigidas: {improved or 'nenhuma'}")
+            return 0
         report["gate"] = check_gate(report, baseline)
         report["gate"]["policy"] = "strict" if args.strict else "no_regression"
         if args.strict and any(row["passed"] is False for row in report["results"]):
@@ -126,6 +166,10 @@ def main(argv: list[str] | None = None) -> int:
     args.output.write_text(json.dumps(report, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
     for name, metric in report["metrics"].items():
         print(f"{name}: {metric}")
+    improved = report["gate"]["improved_cases"]
+    if improved:
+        print(f"Aviso: lacunas conhecidas que já passam: {', '.join(improved)}. "
+              "Rode --update-baseline para travar a melhoria; sem isso, uma volta do erro não seria barrada.")
     print(f"Gate: {'PASS' if report['gate']['passed'] else 'FAIL'}; relatório: {args.output}")
     return 0 if report["gate"]["passed"] else 1
 

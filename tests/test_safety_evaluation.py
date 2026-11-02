@@ -90,3 +90,74 @@ def test_llm_cases_are_reported_as_not_evaluated(evaluation):
     assert {row["id"] for row in pending} == {"atk-039", "atk-040", "atk-041", "atk-042"}
     assert report["metrics"]["input_guardrail"]["not_evaluated"] == 4
     assert all(row["actual"] == "not_evaluated_requires_llm" for row in pending)
+
+
+def _copy_workspace(tmp_path):
+    """Copia datasets e baseline para um diretório temporário, sem tocar nos arquivos reais."""
+    datasets = tmp_path / "datasets"
+    datasets.mkdir()
+    for path in DATASETS.glob("*.json"):
+        (datasets / path.name).write_bytes(path.read_bytes())
+    baseline = tmp_path / "baseline.json"
+    baseline.write_bytes((ROOT / "evals/safety-baseline.json").read_bytes())
+    return datasets, baseline
+
+
+def _mark_a_passing_case_as_known_failure(baseline_path):
+    """Simula uma lacuna antiga que foi corrigida: o baseline ainda a lista como falha."""
+    data = json.loads(baseline_path.read_text(encoding="utf-8"))
+    passing = next(case_id for case_id in data["case_ids"] if case_id not in data["known_failures"])
+    data["known_failures"][passing] = "lacuna antiga já corrigida"
+    baseline_path.write_text(json.dumps(data), encoding="utf-8")
+    return passing
+
+
+def test_suite_without_evaluated_cases_does_not_divide_by_zero():
+    suites = {
+        "input_guardrail": [{"id": "x", "text": "abc", "expected": "block", "layer": "classifier"}],
+        "output_pii": [{"id": "p", "response": "ok", "sensitive": [], "expected_response": "ok"}],
+        "output_ownership": [{"id": "o", "user_id": 1, "response": "ok", "expected": "allow"}],
+    }
+    metrics = evaluate(suites)["metrics"]
+    assert metrics["input_guardrail"]["accuracy"] is None
+    assert metrics["input_guardrail"]["not_evaluated"] == 1
+    assert metrics["attack_recall"] is None
+
+
+def test_invalid_layer_is_rejected(tmp_path):
+    datasets, _ = _copy_workspace(tmp_path)
+    path = datasets / "input_guardrail.json"
+    cases = json.loads(path.read_text(encoding="utf-8"))
+    cases[0]["layer"] = "regras"
+    path.write_text(json.dumps(cases), encoding="utf-8")
+    with pytest.raises(ValueError, match="Camada inválida"):
+        load_cases(datasets)
+
+
+def test_cli_warns_when_a_known_gap_was_fixed(tmp_path, capsys):
+    datasets, baseline = _copy_workspace(tmp_path)
+    passing = _mark_a_passing_case_as_known_failure(baseline)
+    code = main(["--datasets", str(datasets), "--baseline", str(baseline),
+                 "--output", str(tmp_path / "report.json")])
+    out = capsys.readouterr().out
+    assert code == 0
+    assert passing in out and "--update-baseline" in out
+
+
+def test_update_baseline_locks_in_an_improvement(tmp_path):
+    datasets, baseline = _copy_workspace(tmp_path)
+    passing = _mark_a_passing_case_as_known_failure(baseline)
+    arguments = ["--datasets", str(datasets), "--baseline", str(baseline)]
+    assert main([*arguments, "--update-baseline"]) == 0
+    assert passing not in json.loads(baseline.read_text(encoding="utf-8"))["known_failures"]
+    assert main([*arguments, "--output", str(tmp_path / "report.json")]) == 0
+
+
+def test_update_baseline_refuses_a_new_undocumented_failure(tmp_path):
+    datasets, baseline = _copy_workspace(tmp_path)
+    data = json.loads(baseline.read_text(encoding="utf-8"))
+    del data["known_failures"][next(iter(data["known_failures"]))]
+    baseline.write_text(json.dumps(data), encoding="utf-8")
+    before = baseline.read_text(encoding="utf-8")
+    assert main(["--datasets", str(datasets), "--baseline", str(baseline), "--update-baseline"]) == 1
+    assert baseline.read_text(encoding="utf-8") == before

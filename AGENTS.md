@@ -263,3 +263,7 @@ As falhas conhecidas permanecem no relatório; `--strict` reprova qualquer falha
 as preexistentes. A avaliação cobre somente regras de entrada, PII de saída e isolamento
 por identificador, sem banco nem LLM. Não comprova roteamento, RAG ou qualidade do Juiz.
 O workflow `safety-evaluation.yml` publica o relatório nas PRs e em execução manual.
+Quando uma lacuna conhecida for corrigida, o comando avisa; rode
+`python -m scripts.evaluate_safety --update-baseline` para travar a melhoria e alterar
+datasets sem editar hashes à mão. O comando recusa falhas novas sem motivo registrado
+em `known_failures`, que precisam ser adicionadas manualmente com a justificativa.
