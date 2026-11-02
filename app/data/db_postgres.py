@@ -544,6 +544,40 @@ def create_habit(
     }
 
 
+def get_investment_scenarios(user_id: int) -> list[dict]:
+    """Cenários de investimento do catálogo (sem organização) e os das organizações do usuário.
+
+    Cada item tem: name, investment_value, reduction_pct, annual_savings_value, payback_months
+    (pode ser None) e description (pode ser None); valores numéricos como float.
+    """
+    with _cursor() as cur:
+        cur.execute(
+            """
+            SELECT s.name, s.investment_value, s.reduction_pct, s.annual_savings_value,
+                   s.payback_months, s.description
+              FROM tb_investment_scenario s
+             WHERE s.organization_id IS NULL
+                OR s.organization_id IN (
+                       SELECT organization_id FROM tb_user_organization WHERE user_id = %s
+                   )
+             ORDER BY s.payback_months NULLS LAST, s.name;
+            """,
+            (user_id,),
+        )
+        rows = cur.fetchall()
+    return [
+        {
+            "name": name,
+            "investment_value": float(value),
+            "reduction_pct": float(reduction),
+            "annual_savings_value": float(savings),
+            "payback_months": float(payback) if payback is not None else None,
+            "description": description,
+        }
+        for name, value, reduction, savings, payback, description in rows
+    ]
+
+
 def get_organization_effective_rate(
     user_id: int, property_ids: list[int], today: date, window_days: int = 30
 ) -> Decimal | None:
