@@ -5,7 +5,7 @@ from typing import Any
 
 from app.agents._runtime import AgentResult, run_agent
 from app.services.prompts import profile_block, full_forecast_prompt
-from app.tools.charts import build_forecast_chart
+from app.tools.charts import build_forecast_chart, build_simulation_chart
 from app.tools.forecast.tools import build_tools
 
 
@@ -45,5 +45,7 @@ class ForecastAgent:
             revision_feedback=revision_feedback,
             revision_context=revision_context,
         )
-        result.chart_data = build_forecast_chart(result.tool_calls)
+        result.chart_data = build_simulation_chart(result.tool_calls) or build_forecast_chart(
+            result.tool_calls
+        )
         return result
