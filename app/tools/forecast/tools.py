@@ -384,6 +384,84 @@ def build_tools(user_id: int, today: date, access_kind: str | None = None) -> li
             ],
         }
 
+    @tool
+    def simulate_target_change(new_daily_target: float, property_name: str | None = None) -> dict:
+        """Simula "e se eu mudasse minha meta diária para X litros": o risco de passar da meta.
+
+        new_daily_target: nova meta diária em litros (maior que zero).
+
+        Usa a mesma projeção do mês da previsão e compara o risco com a meta atual e com
+        a simulada. É uma simulação: não altera a meta cadastrada no app. Sem meta atual
+        cadastrada, só mostra o resultado da meta simulada. Sem histórico suficiente, não simula.
+
+        Use property_name somente se o usuário mencionar uma unidade específica da organização.
+        """
+        forecast_result = calculate_forecast.invoke({"property_name": property_name})
+        if forecast_result.get("status") != "ok":
+            return forecast_result
+        forecast = forecast_result["forecast"]
+        projection = (forecast.get("projection") or {}).get("month_projection_liters")
+        if not forecast.get("has_enough_history") or projection is None:
+            return {
+                "status": "insufficient_data",
+                "message": "Histórico de consumo insuficiente para simular a meta com segurança.",
+            }
+        current_target = (forecast.get("target_risk") or {}).get("monthly_target_liters")
+        days = calc._days_in_month(today)
+        try:
+            comparison = calc.compare_target_change(
+                float(projection), current_target / days if current_target else None,
+                new_daily_target, today,
+            )
+        except ValueError as exc:
+            return {"status": "error", "message": str(exc)}
+        return {
+            "status": "ok",
+            "comparison": _serialize(comparison),
+            "assumptions": [
+                "A projeção do mês é a mesma da previsão; só a meta muda.",
+                "Simulação: a meta cadastrada no app não foi alterada.",
+            ],
+        }
+
+    @tool
+    def get_investment_scenarios(property_name: str | None = None) -> dict:
+        """Cenários de investimento em economia de água (aeradores, reúso, captação de chuva...).
+
+        Traz, de cada cenário cadastrado, o valor do investimento, a redução esperada (%), a
+        economia anual em reais e o prazo de retorno em meses. Quando há média diária de consumo,
+        acrescenta a estimativa de litros economizados por ano com aquela redução. Os valores do
+        cadastro são de referência: não prometa economia garantida. Só para conta de organização.
+
+        Use property_name somente se o usuário mencionar uma unidade específica.
+        """
+        kind, ids, candidates = _resolve_scope(property_name)
+        if kind != "organizational":
+            if kind == "residential":
+                return {
+                    "status": "not_applicable",
+                    "message": "Cenários de investimento estão disponíveis para contas de organização.",
+                }
+            return _scope_error_response(kind, candidates)
+        scenarios = db_postgres.get_investment_scenarios(user_id)
+        if not scenarios:
+            return {"status": "insufficient_data", "message": "Nenhum cenário de investimento cadastrado."}
+        daily_average = None
+        forecast_result = calculate_forecast.invoke({"property_name": property_name})
+        if forecast_result.get("status") == "ok" and forecast_result["forecast"].get("has_enough_history"):
+            daily_average = (forecast_result["forecast"].get("projection") or {}).get("daily_average_liters")
+        for scenario in scenarios:
+            scenario["estimated_liters_saved_per_year"] = (
+                calc.estimate_investment_savings(float(daily_average), scenario["reduction_pct"])
+                if daily_average
+                else None
+            )
+        return {
+            "status": "ok",
+            "scenarios": scenarios,
+            "note": "Valores de referência do cadastro; a economia real depende da operação de cada unidade.",
+        }
+
     return [
         check_can_estimate,
         get_last_bill,
@@ -393,4 +471,6 @@ def build_tools(user_id: int, today: date, access_kind: str | None = None) -> li
         calculate_forecast,
         get_habit_baseline,
         simulate_consumption_change,
+        simulate_target_change,
+        get_investment_scenarios,
     ]
