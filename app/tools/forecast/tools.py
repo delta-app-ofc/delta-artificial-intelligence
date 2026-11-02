@@ -20,6 +20,8 @@ from app.config import ConfigurationError
 from app.data import db_mongo, db_postgres
 from app.tools.exceptions import DatabaseAccessError, DatabaseDataError, RegionRateNotFound
 from app.tools.forecast import calculations as calc
+from app.tools.habits.calculations import summarize_habit_baseline
+from app.tools.simulation.calculations import simulate_percentage_change
 from app.tools.validation import days_error, validate_user_id
 
 logger = logging.getLogger(__name__)
@@ -334,6 +336,155 @@ def build_tools(user_id: int, today: date, access_kind: str | None = None) -> li
         )
         return {"status": "ok", "forecast": _serialize(result)}
 
+    @tool
+    def get_habit_baseline() -> dict:
+        """Litros esperados por semana e por mês dos hábitos cadastrados do usuário.
+
+        Use para explicar de onde pode vir parte do consumo (ex.: lavar carro às
+        segundas) ou como base de uma simulação de mudança de hábito. Os valores são
+        médias de referência (ou o valor do cadastro), não medições do hidrômetro,
+        e não fazem parte do cálculo da previsão. Disponível só para conta
+        residencial; sem hábitos cadastrados, devolve insufficient_data.
+        """
+        kind = access_kind or db_postgres.get_user_access_kind(user_id)
+        if kind != "residential":
+            return {
+                "status": "not_applicable",
+                "message": "Hábitos estão disponíveis apenas para contas residenciais.",
+            }
+        habits = db_postgres.get_user_habits(user_id)
+        if not habits:
+            return {"status": "insufficient_data", "message": "Nenhum hábito cadastrado."}
+        return {
+            "status": "ok",
+            **summarize_habit_baseline(habits),
+            "note": "Estimativa por média de referência; não é medição nem parte da previsão.",
+        }
+
+    @tool
+    def simulate_consumption_change(
+        change_pct: float, days: int = 30, property_name: str | None = None
+    ) -> dict:
+        """Simula "e se o consumo diário mudasse X%" e compara com o cenário atual.
+
+        change_pct: variação percentual do consumo diário. Use número negativo para
+          redução (ex.: -10 para "cair 10%") e positivo para aumento.
+        days: período da comparação em dias (padrão 30).
+
+        A base é a média diária recente do próprio usuário (a mesma do cálculo de
+        previsão), buscada pela ferramenta. Retorna base e cenário por dia e no
+        período, a diferença em litros e as hipóteses usadas. É uma simulação, não
+        uma previsão nem uma medição. Sem histórico suficiente, devolve
+        insufficient_data e não calcula nada.
+
+        Use property_name somente se o usuário mencionar uma unidade específica da
+        organização pelo nome ou endereço; em branco, usa a organização toda.
+        """
+        if invalid := days_error(days, "days"):
+            return invalid
+        forecast_result = calculate_forecast.invoke({"property_name": property_name})
+        if forecast_result.get("status") != "ok":
+            return forecast_result
+        forecast = forecast_result["forecast"]
+        if not forecast.get("has_enough_history"):
+            return {
+                "status": "insufficient_data",
+                "message": "Histórico de consumo insuficiente para simular com segurança.",
+            }
+        baseline = (forecast.get("projection") or {}).get("daily_average_liters")
+        try:
+            scenario = simulate_percentage_change(float(baseline or 0), change_pct, days)
+        except ValueError as exc:
+            return {"status": "error", "message": str(exc)}
+        return {
+            "status": "ok",
+            "scenario": dataclasses.asdict(scenario),
+            "assumptions": [
+                "Base: média diária dos dias recentes com registro (a mesma usada na previsão).",
+                f"Variação aplicada de forma uniforme a todos os {days} dias.",
+                "Não considera sazonalidade, clima nem mudança de hábitos além da variação informada.",
+                "Simulação: não é previsão nem medição do hidrômetro.",
+            ],
+        }
+
+    @tool
+    def simulate_target_change(new_daily_target: float, property_name: str | None = None) -> dict:
+        """Simula "e se eu mudasse minha meta diária para X litros": o risco de passar da meta.
+
+        new_daily_target: nova meta diária em litros (maior que zero).
+
+        Usa a mesma projeção do mês da previsão e compara o risco com a meta atual e com
+        a simulada. É uma simulação: não altera a meta cadastrada no app. Sem meta atual
+        cadastrada, só mostra o resultado da meta simulada. Sem histórico suficiente, não simula.
+
+        Use property_name somente se o usuário mencionar uma unidade específica da organização.
+        """
+        forecast_result = calculate_forecast.invoke({"property_name": property_name})
+        if forecast_result.get("status") != "ok":
+            return forecast_result
+        forecast = forecast_result["forecast"]
+        projection = (forecast.get("projection") or {}).get("month_projection_liters")
+        if not forecast.get("has_enough_history") or projection is None:
+            return {
+                "status": "insufficient_data",
+                "message": "Histórico de consumo insuficiente para simular a meta com segurança.",
+            }
+        current_target = (forecast.get("target_risk") or {}).get("monthly_target_liters")
+        days = calc._days_in_month(today)
+        try:
+            comparison = calc.compare_target_change(
+                float(projection), current_target / days if current_target else None,
+                new_daily_target, today,
+            )
+        except ValueError as exc:
+            return {"status": "error", "message": str(exc)}
+        return {
+            "status": "ok",
+            "comparison": _serialize(comparison),
+            "assumptions": [
+                "A projeção do mês é a mesma da previsão; só a meta muda.",
+                "Simulação: a meta cadastrada no app não foi alterada.",
+            ],
+        }
+
+    @tool
+    def get_investment_scenarios(property_name: str | None = None) -> dict:
+        """Cenários de investimento em economia de água (aeradores, reúso, captação de chuva...).
+
+        Traz, de cada cenário cadastrado, o valor do investimento, a redução esperada (%), a
+        economia anual em reais e o prazo de retorno em meses. Quando há média diária de consumo,
+        acrescenta a estimativa de litros economizados por ano com aquela redução. Os valores do
+        cadastro são de referência: não prometa economia garantida. Só para conta de organização.
+
+        Use property_name somente se o usuário mencionar uma unidade específica.
+        """
+        kind, ids, candidates = _resolve_scope(property_name)
+        if kind != "organizational":
+            if kind == "residential":
+                return {
+                    "status": "not_applicable",
+                    "message": "Cenários de investimento estão disponíveis para contas de organização.",
+                }
+            return _scope_error_response(kind, candidates)
+        scenarios = db_postgres.get_investment_scenarios(user_id)
+        if not scenarios:
+            return {"status": "insufficient_data", "message": "Nenhum cenário de investimento cadastrado."}
+        daily_average = None
+        forecast_result = calculate_forecast.invoke({"property_name": property_name})
+        if forecast_result.get("status") == "ok" and forecast_result["forecast"].get("has_enough_history"):
+            daily_average = (forecast_result["forecast"].get("projection") or {}).get("daily_average_liters")
+        for scenario in scenarios:
+            scenario["estimated_liters_saved_per_year"] = (
+                calc.estimate_investment_savings(float(daily_average), scenario["reduction_pct"])
+                if daily_average
+                else None
+            )
+        return {
+            "status": "ok",
+            "scenarios": scenarios,
+            "note": "Valores de referência do cadastro; a economia real depende da operação de cada unidade.",
+        }
+
     return [
         check_can_estimate,
         get_last_bill,
@@ -341,4 +492,8 @@ def build_tools(user_id: int, today: date, access_kind: str | None = None) -> li
         get_daily_target,
         get_region_rate,
         calculate_forecast,
+        get_habit_baseline,
+        simulate_consumption_change,
+        simulate_target_change,
+        get_investment_scenarios,
     ]
