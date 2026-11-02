@@ -2,7 +2,6 @@
 import argparse,json,sys
 from pathlib import Path
 sys.path.insert(0,str(Path(__file__).resolve().parents[1]))
-from app.alerts.job import run
 
 def main():
     parser=argparse.ArgumentParser(description="Alertas determinísticos do Gluh, sem chamadas a LLM")
@@ -10,6 +9,7 @@ def main():
     parser.add_argument("--user-id",type=int,action="append")
     parser.add_argument("--workers",type=int,default=4)
     args=parser.parse_args()
+    from app.alerts.job import run
     report=run(args.user_id,args.execute,args.workers)
     print(json.dumps(report,ensure_ascii=False));return int(report["failed"]>0)
 if __name__=="__main__": raise SystemExit(main())
