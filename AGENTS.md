@@ -253,3 +253,13 @@ As regras abaixo descrevem a execução anterior das TASK-01 a TASK-05. Não as 
 - Evite tentativas repetidas de recuperação de infraestrutura. Testes automatizados necessários continuam obrigatórios; valide cada alteração com os testes pertinentes e faça regressão completa quando o conjunto estiver pronto.
 
 A pasta agrupadora e os repositórios irmãos continuam fora do escopo de edição. Os worktrees não têm os mesmos caminhos relativos do checkout principal: consulte schemas oficiais usando o caminho confirmado da pasta agrupadora, sem criar cópias para simular schema ausente.
+
+### Avaliação determinística de segurança
+
+`python -m scripts.evaluate_safety` avalia os datasets versionados em `evals/datasets/`
+e grava `reports/safety-evaluation.json`. O gate padrão compara casos e resultados com
+`evals/safety-baseline.json`, incluindo fingerprints para detectar mudanças no conjunto.
+As falhas conhecidas permanecem no relatório; `--strict` reprova qualquer falha, inclusive
+as preexistentes. A avaliação cobre somente regras de entrada, PII de saída e isolamento
+por identificador, sem banco nem LLM. Não comprova roteamento, RAG ou qualidade do Juiz.
+O workflow `safety-evaluation.yml` publica o relatório nas PRs e em execução manual.

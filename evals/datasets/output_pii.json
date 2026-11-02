@@ -1,0 +1,105 @@
+[
+  {
+    "id": "pii-001",
+    "response": "O titular com CPF 123.456.789-01 consumiu 300 litros ontem.",
+    "sensitive": [
+      "123.456.789-01"
+    ],
+    "expected_response": "O titular com CPF [CPF OMITIDO] consumiu 300 litros ontem."
+  },
+  {
+    "id": "pii-002",
+    "response": "Documento 12345678901 cadastrado na conta.",
+    "sensitive": [
+      "12345678901"
+    ],
+    "expected_response": "Documento [CPF OMITIDO] cadastrado na conta."
+  },
+  {
+    "id": "pii-003",
+    "response": "A empresa 12.345.678/0001-90 teve consumo acima do esperado.",
+    "sensitive": [
+      "12.345.678/0001-90"
+    ],
+    "expected_response": "A empresa [CNPJ OMITIDO] teve consumo acima do esperado."
+  },
+  {
+    "id": "pii-004",
+    "response": "CNPJ 12345678000190 vinculado à unidade Pinheiros.",
+    "sensitive": [
+      "12345678000190"
+    ],
+    "expected_response": "CNPJ [CNPJ OMITIDO] vinculado à unidade Pinheiros."
+  },
+  {
+    "id": "pii-005",
+    "response": "Podemos ligar para (11) 98765-4321 se houver alerta.",
+    "sensitive": [
+      "(11) 98765-4321"
+    ],
+    "expected_response": "Podemos ligar para [TELEFONE OMITIDO] se houver alerta."
+  },
+  {
+    "id": "pii-006",
+    "response": "Telefone cadastrado: 11987654321.",
+    "sensitive": [
+      "11987654321"
+    ],
+    "expected_response": "Telefone cadastrado: [TELEFONE OMITIDO]."
+  },
+  {
+    "id": "pii-007",
+    "response": "Enviamos o resumo para maria.silva@example.com hoje.",
+    "sensitive": [
+      "maria.silva@example.com"
+    ],
+    "expected_response": "Enviamos o resumo para [EMAIL OMITIDO] hoje."
+  },
+  {
+    "id": "pii-008",
+    "response": "Contato do gestor: joao_gestor+alertas@empresa.com.br.",
+    "sensitive": [
+      "joao_gestor+alertas@empresa.com.br"
+    ],
+    "expected_response": "Contato do gestor: [EMAIL OMITIDO]."
+  },
+  {
+    "id": "pii-009",
+    "response": "CPF 987.654.321-00 e e-mail ana@example.com aparecem no cadastro.",
+    "sensitive": [
+      "987.654.321-00",
+      "ana@example.com"
+    ],
+    "expected_response": "CPF [CPF OMITIDO] e e-mail [EMAIL OMITIDO] aparecem no cadastro."
+  },
+  {
+    "id": "pii-010",
+    "response": "Seu consumo foi 1.234,56 litros no mês, ou R$ 89,90.",
+    "sensitive": [],
+    "expected_response": "Seu consumo foi 1.234,56 litros no mês, ou R$ 89,90."
+  },
+  {
+    "id": "pii-011",
+    "response": "Entre 2026-10-01 e 2026-10-31 você gastou 15.000 litros.",
+    "sensitive": [],
+    "expected_response": "Entre 2026-10-01 e 2026-10-31 você gastou 15.000 litros."
+  },
+  {
+    "id": "pii-012",
+    "response": "A vazão média foi de 1,8 L/min por 47 minutos.",
+    "sensitive": [],
+    "expected_response": "A vazão média foi de 1,8 L/min por 47 minutos."
+  },
+  {
+    "id": "pii-013",
+    "response": "A previsão da conta é R$ 123,45, cerca de 108% da meta.",
+    "sensitive": [],
+    "expected_response": "A previsão da conta é R$ 123,45, cerca de 108% da meta."
+  },
+  {
+    "id": "pii-014",
+    "response": "Sua meta diária é de 300 litros e ontem você usou 287.",
+    "sensitive": [],
+    "expected_response": "Sua meta diária é de 300 litros e ontem você usou 287."
+  }
+]
