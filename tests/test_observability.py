@@ -315,6 +315,7 @@ def test_embedding_call_records_the_official_token_count(monkeypatch):
     with capture(trace):
         with diagnostics.embedding_call("gemini-embedding-2-preview", texts=["texto"]):
             pass
+    diagnostics.complete_embedding_counts(trace)
     assert trace.models[0]["input_tokens"] == 12 and trace.models[0]["kind"] == "embedding"
 
 
@@ -393,6 +394,64 @@ def test_langsmith_hides_prompts_and_answers_by_default(monkeypatch):
     _use_env(monkeypatch, LANGSMITH_TRACING="true", LANGSMITH_API_KEY="chave-de-teste", LANGSMITH_SEND_CONTENT="true")
     assert enable_langsmith() is True
     assert os.environ["LANGSMITH_HIDE_INPUTS"] == "false"
+
+
+@pytest.mark.parametrize("tokens", [1_000_000, None])
+def test_deferred_count_updates_same_request_without_changing_latency(monkeypatch, tokens):
+    from app.observability import diagnostics
+    jobs, saved, counted = [], [], []
+    class BackgroundThread:
+        def __init__(self, *, target, args, daemon):
+            jobs.append((target, args))
+        def start(self): pass  # executa a finalização somente depois das asserções da resposta
+    def counter(model, texts):
+        counted.append(texts)
+        return tokens
+    monkeypatch.setattr(metrics, "Thread", BackgroundThread)
+    monkeypatch.setattr(metrics, "_persist", lambda record: saved.append(dict(record)))
+    monkeypatch.setattr(diagnostics, "_count_embedding_tokens", counter)
+    trace = _trace()
+    with capture(trace):
+        with diagnostics.embedding_call("gemini-embedding-2-preview", texts=["TEXTO_NAO_PERSISTIR"]):
+            pass
+    metrics.record_request(trace, "success", 123.0)
+    assert not counted
+    pending = dict(metrics._recent[-1])
+    assert pending["embedding_pending"] == 1 and pending["embedding_uncounted"] == 1
+    target, args = jobs[0]
+    target(*args)
+    final = metrics._recent[-1]
+    assert len(metrics._recent) == 1
+    assert final["request_id"] == pending["request_id"] and final["created_at"] == pending["created_at"]
+    assert final["total_ms"] == 123.0 and final["input_tokens"] == 1100 and final["output_tokens"] == 300
+    assert final["embedding_pending"] == 0
+    assert final["embedding_uncounted"] == (1 if tokens is None else 0)
+    assert final["embedding_cost_usd"] == (0.0 if tokens is None else pytest.approx(0.20))
+    assert saved[0]["embedding_pending"] == 1 and saved[-1]["embedding_pending"] == 0
+    assert "TEXTO_NAO_PERSISTIR" not in str(saved)
+    assert not trace.embedding_counts
+
+
+def test_count_exception_preserves_the_metric_without_fabricated_usage(monkeypatch):
+    from app.observability import diagnostics
+    monkeypatch.setattr(diagnostics, "_count_embedding_tokens", lambda *a: (_ for _ in ()).throw(TimeoutError()))
+    trace = Trace(mode="chat")
+    with capture(trace):
+        with diagnostics.embedding_call("modelo", texts=["texto"]):
+            pass
+    diagnostics.complete_embedding_counts(trace)
+    assert trace.models[0]["count_status"] == "unavailable"
+    assert trace.models[0]["input_tokens"] is None
+
+
+def test_persist_updates_by_request_id_instead_of_duplicating(monkeypatch):
+    calls = []
+    collection = SimpleNamespace(replace_one=lambda *args, **kwargs: calls.append((args, kwargs)))
+    monkeypatch.setattr(metrics, "_db_retry_at", 0.0)
+    monkeypatch.setattr("app.data.db_mongo.get_app_client", lambda: {"db_delta_app": {metrics.COLLECTION: collection}})
+    record = metrics.build_record(_trace(), "success", 100.0)
+    metrics._persist(record)
+    assert calls == [(({"request_id": record["request_id"]}, record), {"upsert": True})]
 
 
 def test_default_latency_slo_is_15_seconds():
