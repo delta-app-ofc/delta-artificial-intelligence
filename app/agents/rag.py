@@ -1,6 +1,7 @@
 """Agente de consulta da documentação oficial, com tool de busca vetorial."""
 
 import json
+import re
 from typing import Any
 
 from langchain.agents import create_agent
@@ -105,6 +106,7 @@ class RagAgent:
 
         # A lista final é construída das evidências; o modelo não pode substituí-la.
         result.response = result.response.partition("Fontes consultadas:")[0].rstrip()
+        result.response = re.sub(r"(?m)^\s*Fontes?:[^\n]*", "", result.response).rstrip()
         result.response += "\n\nFontes consultadas:\n" + "\n".join(
             f"- {source}" for source in result.sources
         )

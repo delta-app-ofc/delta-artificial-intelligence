@@ -2,7 +2,8 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+import logging
+from dataclasses import dataclass, replace
 from datetime import datetime, time, timedelta, timezone
 from typing import Callable
 from zoneinfo import ZoneInfo
@@ -15,6 +16,9 @@ from app.data import db_mongo, db_postgres
 from app.tools.consumption import analysis
 from app.tools.exceptions import DatabaseAccessError, DatabaseDataError
 from app.tools.models import OrganizationProperty
+
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True)
@@ -68,89 +72,126 @@ def _read_period(
     period: analysis.ConsumptionPeriod,
     as_of: datetime,
 ) -> _ReadResult:
-    """Lê o consumo do período no escopo autorizado (Mongo para residencial, view SQL para
-    organizacional) e devolve agregado, fonte, granularidade e avisos.
+    """Lê o consumo do período no escopo autorizado: MongoDB primeiro e, se a telemetria
+    estiver indisponível, a view diária do PostgreSQL.
+    """
+    # A autorização vem do PostgreSQL: se ele falhar aqui, não é indisponibilidade do MongoDB e
+    # não pode virar leitura da view.
+    device_ids: list[str] = []
+    if scope.kind != "residential" and period.end > period.start:
+        device_ids = db_postgres.get_authorized_device_ids(user_id, list(scope.property_ids))
+    try:
+        return _read_period_mongo(
+            user_id=user_id, scope=scope, period=period, as_of=as_of, device_ids=device_ids
+        )
+    except DatabaseDataError:
+        raise  # documento inválido é problema do dado, não indisponibilidade: não troca de fonte
+    except (DatabaseAccessError, ConfigurationError) as exc:
+        logger.warning(
+            "Telemetria MongoDB indisponível (%s); usando dw.vw_ft_consumption_daily.",
+            type(exc).__name__,
+        )
+        return _read_period_sql(user_id=user_id, scope=scope, period=period, as_of=as_of, fallback=True)
+
+
+def _read_period_mongo(
+    *,
+    user_id: int,
+    scope: _Scope,
+    period: analysis.ConsumptionPeriod,
+    as_of: datetime,
+    device_ids: list[str],
+) -> _ReadResult:
+    """Lê as janelas de consumption_summary: pelo usuário (residencial) ou pelos dispositivos
+    das unidades autorizadas (organizacional, já resolvidos por quem chama).
     """
     notes = list(period.notes)
     local_today = as_of.astimezone(ZoneInfo(period.timezone_name)).date()
     includes_today = period.start.date() <= local_today <= period.last_included_date
+    as_of_utc = as_of.astimezone(timezone.utc)
     if period.end <= period.start:
         notes.append("O período não contém tempo ou datas para consulta; não há registros a resumir.")
-        if scope.kind == "residential":
-            aggregate = analysis.aggregate_windows(
-                [], period=period, user_id=user_id, as_of=as_of
-            )
-            return _ReadResult(
-                scope=scope,
-                period=period,
-                aggregate=aggregate,
-                source="MongoDB consumption_summary",
-                granularity="janelas armazenadas, agrupadas pelo dia local de início",
-                notes=tuple(notes),
-                partial_data=None,
-            )
-        aggregate = analysis.aggregate_daily_records([], period=period)
-        return _ReadResult(
-            scope=scope,
-            period=period,
-            aggregate=aggregate,
-            source="PostgreSQL dw.vw_ft_consumption_daily",
-            granularity="consolidado diário por unidade",
-            notes=tuple(notes),
-            partial_data=None,
-        )
-    if scope.kind == "residential":
+        points = []
+    else:
         if includes_today:
             notes.append(
                 "O dia de hoje está parcial até o instante da consulta; janelas ainda não finalizadas foram excluídas."
             )
         start_utc, end_utc = analysis.utc_bounds(period)
-        as_of_utc = as_of.astimezone(timezone.utc)
-        points = db_mongo.get_consumption_history_between(
-            user_id, start_utc, end_utc, as_of_utc
-        )
-        aggregate = analysis.aggregate_windows(
-            points, period=period, user_id=user_id, as_of=as_of_utc
-        )
-        if aggregate.windows_crossing_local_midnight:
-            notes.append(
-                "Janelas que cruzam a meia-noite foram atribuídas ao dia local do início; "
-                "o volume não foi rateado."
+        if scope.kind == "residential":
+            points = db_mongo.get_consumption_history_between(
+                user_id, start_utc, end_utc, as_of_utc
             )
-        if aggregate.windows_crossing_period_end:
-            notes.append(
-                "Há janelas iniciadas no recorte que terminaram depois do fim exclusivo; "
-                "o volume foi atribuído pelo horário de início."
-            )
-        if aggregate.has_gaps_between_recorded_days:
-            notes.append(
-                "Há datas sem registro entre os primeiros e últimos dias com medições; "
-                "elas não foram preenchidas com zero."
-            )
-        return _ReadResult(
-            scope=scope,
-            period=period,
-            aggregate=aggregate,
-            source="MongoDB consumption_summary",
-            granularity="janelas armazenadas, agrupadas pelo dia local de início",
-            notes=tuple(notes),
-            partial_data=(
-                True
-                if includes_today
-                or aggregate.windows_crossing_local_midnight
-                or aggregate.windows_crossing_period_end
-                else None
-            ),
+        else:
+            # A autorização já foi feita pelos dispositivos; o dono gravado no documento pode faltar.
+            points = [
+                replace(point, user_id=user_id)
+                for point in db_mongo.get_consumption_history_between_devices(
+                    device_ids, start_utc, end_utc, as_of_utc
+                )
+            ]
+            notes.append("Os registros foram lidos pelos dispositivos das unidades autorizadas.")
+    aggregate = analysis.aggregate_windows(
+        points, period=period, user_id=user_id, as_of=as_of_utc
+    )
+    if aggregate.windows_crossing_local_midnight:
+        notes.append(
+            "Janelas que cruzam a meia-noite foram atribuídas ao dia local do início; "
+            "o volume não foi rateado."
         )
+    if aggregate.windows_crossing_period_end:
+        notes.append(
+            "Há janelas iniciadas no recorte que terminaram depois do fim exclusivo; "
+            "o volume foi atribuído pelo horário de início."
+        )
+    if aggregate.has_gaps_between_recorded_days:
+        notes.append(
+            "Há datas sem registro entre os primeiros e últimos dias com medições; "
+            "elas não foram preenchidas com zero."
+        )
+    return _ReadResult(
+        scope=scope,
+        period=period,
+        aggregate=aggregate,
+        source="MongoDB consumption_summary",
+        granularity="janelas armazenadas, agrupadas pelo dia local de início",
+        notes=tuple(notes),
+        partial_data=(
+            True
+            if includes_today
+            or aggregate.windows_crossing_local_midnight
+            or aggregate.windows_crossing_period_end
+            else None
+        ),
+    )
 
+
+def _read_period_sql(
+    *,
+    user_id: int,
+    scope: _Scope,
+    period: analysis.ConsumptionPeriod,
+    as_of: datetime,
+    fallback: bool,
+) -> _ReadResult:
+    """Lê o consolidado diário de dw.vw_ft_consumption_daily no escopo autorizado."""
+    notes = list(period.notes)
+    local_today = as_of.astimezone(ZoneInfo(period.timezone_name)).date()
+    includes_today = period.start.date() <= local_today <= period.last_included_date
+    if fallback:
+        notes.append(
+            "A telemetria MongoDB estava indisponível; os valores vêm do consolidado diário do "
+            "PostgreSQL, que pode estar desatualizado."
+        )
     bounds = analysis.daily_date_bounds(period)
-    records = (
-        db_postgres.get_organization_consumption_daily(
+    if bounds is None:
+        records = []
+    elif scope.kind == "residential":
+        records = db_postgres.get_residential_consumption_daily(user_id, bounds[0], bounds[1])
+    else:
+        records = db_postgres.get_organization_consumption_daily(
             user_id, list(scope.property_ids), bounds[0], bounds[1]
         )
-        if bounds is not None
-        else []
-    )
     aggregate = analysis.aggregate_daily_records(records, period=period)
     has_partial_day = period.start.time() != time.min or period.end.time() != time.min
 
