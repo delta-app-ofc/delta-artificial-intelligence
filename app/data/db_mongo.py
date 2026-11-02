@@ -99,10 +99,10 @@ def _aware_datetime(document: dict, field: str) -> datetime:
 
 def _to_point(doc: dict) -> ConsumptionPoint:
     device_id = doc["device_id"]
-    anomaly_detected = doc.get("anomaly_detected", False)
+    anomaly_detected = doc.get("anomaly_detected")
     if not isinstance(device_id, str):
         raise ValueError("documento contém um identificador inválido")
-    if not isinstance(anomaly_detected, bool):
+    if anomaly_detected is not None and not isinstance(anomaly_detected, bool):
         raise ValueError("documento contém uma flag de anomalia inválida")
     return ConsumptionPoint(
         user_id=int(doc["user_id"]),
@@ -114,14 +114,18 @@ def _to_point(doc: dict) -> ConsumptionPoint:
             float(doc["lpm_average"]) if doc.get("lpm_average") is not None else None
         ),
         device_id=device_id,
+        anomaly_reasons=tuple(doc.get("anomaly_reasons") or ()),
+        anomaly_evidence=doc.get("anomaly_evidence") or {},
+        detection_error=doc.get("detection_error"),
+        detection_status=doc.get("detection_status"),
     )
 
 
 def _to_alert(doc: dict) -> Alert:
-    device_id = doc["device_id"]
+    device_id = doc.get("device_id")
     alert_type = doc["alert_type"]
     resolved_at = doc.get("resolved_at")
-    if not isinstance(device_id, str) or not isinstance(alert_type, str):
+    if (device_id is not None and not isinstance(device_id, str)) or not isinstance(alert_type, str):
         raise ValueError("documento contém campos de alerta inválidos")
     if resolved_at is not None and (
         not isinstance(resolved_at, datetime) or resolved_at.utcoffset() is None
@@ -134,6 +138,9 @@ def _to_alert(doc: dict) -> Alert:
         triggered_at=_aware_datetime(doc, "triggered_at"),
         resolved_at=resolved_at,
         severity=doc.get("severity"),
+        property_id=doc.get("property_id"), title=doc.get("title"), message=doc.get("message"),
+        source=doc.get("source"), rule=doc.get("rule"), evidence=doc.get("evidence") or {},
+        dismissed_at=doc.get("dismissed_at"),
     )
 
 
@@ -196,7 +203,7 @@ def get_consumption_history(user_id: int, days: int) -> list[ConsumptionPoint]:
         "telemetry",
         "consumption_summary",
         {
-            "user_id": user_id,
+            "$or": [{"user_id": user_id}, {"user_ids": user_id}],
             "window_started_at": {
                 "$gte": datetime.now(timezone.utc) - timedelta(days=days)
             },
@@ -232,7 +239,7 @@ def get_consumption_history_between(
         "telemetry",
         "consumption_summary",
         {
-            "user_id": user_id,
+            "$or": [{"user_id": user_id}, {"user_ids": user_id}],
             "window_started_at": {"$gte": start, "$lt": end},
             "window_finished_at": {"$lte": finished_before},
         },
@@ -315,7 +322,7 @@ def get_anomalous_consumption_windows(user_id: int, days: int) -> list[Consumpti
         "telemetry",
         "consumption_summary",
         {
-            "user_id": user_id,
+            "$or": [{"user_id": user_id}, {"user_ids": user_id}],
             "anomaly_detected": True,
             "window_started_at": {
                 "$gte": datetime.now(timezone.utc) - timedelta(days=days)
