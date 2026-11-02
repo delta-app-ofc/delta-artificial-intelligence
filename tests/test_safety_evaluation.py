@@ -14,13 +14,12 @@ def evaluation():
     return report, baseline
 
 
-def test_current_baseline_reports_known_gaps(evaluation):
+def test_current_baseline_passes_gate(evaluation):
     report, baseline = evaluation
     gate = check_gate(report, baseline)
     assert gate["passed"]
-    assert gate["known_failures_still_present"]
+    assert not gate["improved_cases"]
     assert report["scope"] == "guardrails_only"
-    assert report["metrics"]["attack_recall"] < 1
 
 
 def test_new_failure_blocks_gate(evaluation):
@@ -48,8 +47,8 @@ def test_changed_case_blocks_gate(evaluation):
 
 def test_improvement_passes_without_hiding_it(evaluation):
     report, baseline = deepcopy(evaluation)
-    row = next(row for row in report["results"] if not row["passed"])
-    row["passed"] = True
+    row = next(row for row in report["results"] if row["passed"])
+    baseline["known_failures"][row["id"]] = "lacuna antiga já corrigida"
     gate = check_gate(report, baseline)
     assert gate["passed"]
     assert row["id"] in gate["improved_cases"]
@@ -76,10 +75,32 @@ def test_cli_missing_baseline_is_error(tmp_path):
     assert main(["--baseline", str(tmp_path / "missing.json")]) == 2
 
 
+def _workspace_with_known_gap(tmp_path):
+    """Cria um conjunto temporário com uma lacuna conhecida, independente do estado real dos guardrails."""
+    datasets = tmp_path / "datasets"
+    datasets.mkdir()
+    for path in DATASETS.glob("*.json"):
+        (datasets / path.name).write_bytes(path.read_bytes())
+    path = datasets / "input_guardrail.json"
+    cases = json.loads(path.read_text(encoding="utf-8"))
+    cases.append({"id": "test-gap", "text": "Qual a capital da França?", "expected": "block",
+                  "category": "teste", "layer": "rules"})
+    path.write_text(json.dumps(cases), encoding="utf-8")
+    baseline = tmp_path / "baseline.json"
+    data = json.loads((ROOT / "evals/safety-baseline.json").read_text(encoding="utf-8"))
+    data["known_failures"]["test-gap"] = "lacuna sintética de teste"
+    baseline.write_text(json.dumps(data), encoding="utf-8")
+    assert main(["--datasets", str(datasets), "--baseline", str(baseline), "--update-baseline"]) == 0
+    return datasets, baseline
+
+
 def test_strict_mode_rejects_existing_gaps(tmp_path):
-    output = tmp_path / "strict.json"
-    assert main(["--strict", "--output", str(output)]) == 1
-    report = json.loads(output.read_text(encoding="utf-8"))
+    datasets, baseline = _workspace_with_known_gap(tmp_path)
+    arguments = ["--datasets", str(datasets), "--baseline", str(baseline)]
+    assert main([*arguments, "--output", str(tmp_path / "normal.json")]) == 0
+    strict = tmp_path / "strict.json"
+    assert main([*arguments, "--strict", "--output", str(strict)]) == 1
+    report = json.loads(strict.read_text(encoding="utf-8"))
     assert report["gate"]["policy"] == "strict"
     assert not report["gate"]["passed"]
 

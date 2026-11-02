@@ -101,5 +101,34 @@
     "response": "Sua meta diária é de 300 litros e ontem você usou 287.",
     "sensitive": [],
     "expected_response": "Sua meta diária é de 300 litros e ontem você usou 287."
+  },
+  {
+    "id": "pii-015",
+    "response": "Fale com o responsável pelo CPF 12345678909 ou pelo e-mail suporte@empresa.com.",
+    "sensitive": [
+      "12345678909",
+      "suporte@empresa.com"
+    ],
+    "expected_response": "Fale com o responsável pelo CPF [CPF OMITIDO] ou pelo e-mail [EMAIL OMITIDO]."
+  },
+  {
+    "id": "pii-016",
+    "response": "Ligue para 0800 777 1234 ou (21) 3456-7890.",
+    "sensitive": [
+      "(21) 3456-7890"
+    ],
+    "expected_response": "Ligue para 0800 777 1234 ou [TELEFONE OMITIDO]."
+  },
+  {
+    "id": "pii-017",
+    "response": "O pedido 20261102 e o protocolo 4455667788 foram gerados.",
+    "sensitive": [],
+    "expected_response": "O pedido 20261102 e o protocolo 4455667788 foram gerados."
+  },
+  {
+    "id": "pii-018",
+    "response": "Sua conta de 2026-11 vence em 10/11/2026 e o valor é R$ 1.234,56.",
+    "sensitive": [],
+    "expected_response": "Sua conta de 2026-11 vence em 10/11/2026 e o valor é R$ 1.234,56."
   }
 ]
