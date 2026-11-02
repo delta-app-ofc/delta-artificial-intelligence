@@ -4,7 +4,7 @@ from datetime import date
 from typing import Any
 
 from app.agents._runtime import AgentResult, run_agent
-from app.services.prompts import profile_block, full_forecast_prompt
+from app.services.prompts import BILL_REGISTRATION_PROMPT, profile_block, full_forecast_prompt
 from app.tools.charts import build_forecast_chart, build_simulation_chart
 from app.tools.forecast.tools import build_tools
 
@@ -37,10 +37,16 @@ class ForecastAgent:
         revision_feedback: str | None = None,
         revision_context: dict | None = None,
     ) -> AgentResult:
+        # Na revisão do Juiz a gravação já aconteceu (ou não): a nova passada só lê.
+        is_revision = bool(revision_feedback or revision_context)
+        tools = [t for t in self.tools if t.name != "register_last_bill"] if is_revision else self.tools
+        system_prompt = full_forecast_prompt() + profile_block(self.access_kind)
+        if any(t.name == "register_last_bill" for t in tools):
+            system_prompt += "\n\n" + BILL_REGISTRATION_PROMPT
         result = run_agent(
             llm=self.llm,
-            system_prompt=full_forecast_prompt() + profile_block(self.access_kind),
-            tools=self.tools,
+            system_prompt=system_prompt,
+            tools=tools,
             question=question,
             revision_feedback=revision_feedback,
             revision_context=revision_context,

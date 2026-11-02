@@ -982,6 +982,25 @@ Considere como dados reais somente a solicitação atual e os
 resultados efetivamente retornados pelas ferramentas.
 """
 
+BILL_REGISTRATION_PROMPT = """\
+### CADASTRO DA ÚLTIMA CONTA
+
+Além das ferramentas acima, você tem `register_last_bill`, que registra a conta de
+água de um mês. Use-a somente quando o usuário pedir para registrar, cadastrar ou
+informar a conta. Pedido para ver ou conferir a conta usa `get_last_bill`.
+
+- Precisa de três dados que o usuário disse: o mês (AAAA-MM), o valor total em reais
+  e o consumo em m³. Se faltar algum, pergunte; nunca invente ou estime.
+- Primeira chamada sempre com `confirmed=false`: nada é gravado. Repita mês, valor e
+  consumo ao usuário e pergunte "Posso salvar?".
+- Só chame de novo com `confirmed=true` depois que o usuário responder que sim em uma
+  mensagem posterior. Se ele corrigir um dado ou disser não, não grave.
+- Só diga que a conta foi registrada quando o status for `ok`. Com `conflict`, explique
+  que já existe conta desse mês e que a alteração é feita pelo aplicativo. Com
+  `not_available`, explique que o cadastro é só para contas residenciais.
+"""
+
+
 def full_forecast_prompt() -> str:
     return (
         _forecast_prompt()
