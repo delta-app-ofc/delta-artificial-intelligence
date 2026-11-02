@@ -499,9 +499,11 @@ configuração de perfil. O usuário precisa existir e ter os vínculos/dados
 necessários nos bancos configurados.
 
 A preparação manual do usuário de teste e a migração dos registros do ID anterior
-estão no [guia do usuário do playground](docs/playground-test-user.md), com um
-script PostgreSQL e dois scripts mongosh para as conexões de app e telemetria.
-Eles não são executados automaticamente pela API.
+estão em [scripts/playground_user.sql](scripts/playground_user.sql) e nos dois
+scripts mongosh [playground_user_app.js](scripts/playground_user_app.js) e
+[playground_user_telemetry.js](scripts/playground_user_telemetry.js), para as conexões
+de app e telemetria. O cabeçalho do SQL traz a ordem de execução. Eles não são
+executados automaticamente pela API.
 
 Na branch do MCP, a aba **RAG** também resolve o perfil desse usuário no backend
 antes de construir o especialista. Para testar as fontes externas, habilite

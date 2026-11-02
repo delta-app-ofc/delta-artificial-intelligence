@@ -3,6 +3,13 @@
 #   docker compose -f docker-compose.dev.yml up -d
 #   python -m pytest -q
 #   docker compose -f docker-compose.dev.yml down
+#
+# Postgres: db/postgres-init/ roda em ordem alfabética só na primeira inicialização.
+#   Os arquivos 01, 02, 03, 05 e 06 são cópias do delta-sql-database (fonte de verdade
+#   do schema); não edite à mão, re-sincronize se o schema mudar. O 04-local-roles.sql
+#   existe só aqui: cria as roles sys_* que o datamart cita nos GRANTs.
+# Mongo: sobe vazio. Para popular, use o delta-hardware-data-simulator
+#   (python -m dataload.cli <coleção> <quantidade>). Os testes não dependem disso.
 
 services:
   postgres:

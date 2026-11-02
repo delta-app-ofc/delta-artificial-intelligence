@@ -136,8 +136,7 @@ delta-artificial-intelligence/
 │   └── main.py              # FastAPI app com CORS e routers registrados
 ├── frontend/                # Console de testes com abas por agente e roteador
 ├── db/
-│   ├── postgres-init/       # Cópias locais de bootstrap PostgreSQL, arquivos 01 a 09
-│   └── README.md
+│   └── postgres-init/       # Cópias locais de bootstrap PostgreSQL, arquivos 01 a 06
 ├── tests/                   # Testes com provedores, bancos e ferramentas substituídos
 ├── scripts/                 # Diagnóstico do MCP e da fonte pública
 ├── .env.example
@@ -151,7 +150,7 @@ delta-artificial-intelligence/
 └── README.md
 ```
 
-`db/postgres-init/` contém cópias para o ambiente local; o repositório `delta-sql-database` é a fonte de verdade do schema. O `db/README.md` ainda lista os arquivos 01 a 06, enquanto a árvore atual contém também 07 a 09. Confira o conteúdo e a origem desses scripts antes de sincronizar ou alterar qualquer cópia. O MongoDB local inicia vazio; o README aponta o simulador de hardware como fonte para carga de dados.
+`db/postgres-init/` contém cópias para o ambiente local; o repositório `delta-sql-database` é a fonte de verdade do schema. São os arquivos 01 a 06; o `04-local-roles.sql` existe só localmente. Confira o conteúdo e a origem desses scripts antes de sincronizar ou alterar qualquer cópia. O MongoDB local inicia vazio; o `docker-compose.dev.yml` indica o simulador de hardware como fonte para carga de dados.
 
 ## 3. Leitura obrigatória do `TASK.md`
 

@@ -4,6 +4,13 @@
 -- O hash abaixo vem de uma senha aleatória descartada: não há senha de login
 -- fornecida por este script. O playground usa o ID fixo e não exige login.
 -- Não altera IDs de usuários antigos, tarifas ou schemas.
+-- Ordem: 1) este arquivo; 2) playground_user_app.js; 3) playground_user_telemetry.js.
+-- Os dois arquivos MongoDB usam conexões diferentes (app e telemetria): rode cada um
+-- na sua, na raiz do repositório, com as variáveis já exportadas no terminal:
+--   mongosh "$env:MONGODB_APP_URI" --file scripts/playground_user_app.js
+--   mongosh "$env:MONGODB_TELEMETRY_URI" --file scripts/playground_user_telemetry.js
+-- Cada arquivo pode ser repetido sem duplicar a migração. PostgreSQL e as duas conexões
+-- MongoDB não compartilham transação: se uma etapa falhar, corrija e repita só ela.
 
 BEGIN;
 
