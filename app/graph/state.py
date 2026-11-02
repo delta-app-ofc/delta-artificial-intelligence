@@ -48,3 +48,4 @@ class GraphState(MessagesState, total=False):
     chart_data: dict | None
     pii_map: dict
     _blocked: bool
+    pending_write: dict | None

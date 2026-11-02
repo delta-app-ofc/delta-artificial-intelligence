@@ -6,6 +6,10 @@ class HabitConflictError(ValueError):
     """O usuário já tem esse hábito no mesmo dia e horário (recusado pelo banco)."""
 
 
+class LastWaterBillConflictError(ValueError):
+    """Já existe uma conta registrada para esse usuário nesse mês (não é sobrescrita)."""
+
+
 class ForecastUnavailableError(RuntimeError):
     """O usuário não está apto a receber estimativas (fn_user_can_estimate = false)."""
 

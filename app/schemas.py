@@ -55,6 +55,12 @@ class ChatRequest(BaseModel):
     )
 
 
+class PendingConfirmation(BaseModel):
+    kind: str = Field(..., description="Tipo da ação que espera confirmação (register_last_bill ou create_habit).")
+    summary: str = Field(..., description="Pergunta de confirmação mostrada ao usuário.")
+    expires_at: str = Field(..., description="Prazo para responder, em ISO 8601 UTC.")
+
+
 class ChatResponse(BaseModel):
     response: str = Field(..., description="Resposta do assistente.")
     session_id: str = Field(
@@ -66,6 +72,13 @@ class ChatResponse(BaseModel):
     suggestions: list[str] = Field(
         default_factory=list,
         description="Até 3 perguntas sugeridas para continuar a conversa.",
+    )
+    pending_confirmation: PendingConfirmation | None = Field(
+        default=None,
+        description=(
+            "Preenchido quando a IA espera um sim ou não antes de gravar algo. Responda enviando "
+            "a mensagem 'sim' ou 'não' na mesma sessão; qualquer outra mensagem cancela a pendência."
+        ),
     )
 
 
