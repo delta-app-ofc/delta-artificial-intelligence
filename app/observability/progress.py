@@ -48,7 +48,7 @@ _TOOL_LABELS = {
     "summarize_anomalous_windows": "Resumindo os sinais de vazamento",
     "list_habits": "Lendo os seus hábitos",
     "get_habits_by_day": "Lendo os hábitos do dia",
-    "create_habit": "Cadastrando o hábito",
+    "create_habit": "Preparando o cadastro do hábito para validação",
     "estimate_habit_water_impact": "Estimando o impacto do hábito",
     "estimate_habit_water_cost": "Estimando o custo do hábito",
     "get_weather_history": "Consultando o clima",

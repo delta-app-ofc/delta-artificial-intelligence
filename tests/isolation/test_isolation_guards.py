@@ -274,12 +274,68 @@ def test_ponto_do_qdrant_depende_do_usuario_e_da_sessao(monkeypatch):
     )
     mensagens = [{"role": "human", "content": "oi"}]
 
-    long_term.save_summary(7, "mesma-sessao", mensagens)
-    long_term.save_summary(8, "mesma-sessao", mensagens)
+    from app.agents.judge import JudgeResult
+    judged = []
+
+    def approve_summary(self, judge_input, **kwargs):
+        judged.append(judge_input.model_dump())
+        return JudgeResult(
+            decision="approve", status="evaluated", justification="ok",
+            reason_codes=[], confidence=1.0, severity="no_error",
+        )
+
+    with monkeypatch.context() as patch_context:
+        patch_context.setattr("app.agents.judge.JudgeAgent.run", approve_summary)
+        long_term.save_summary(7, "mesma-sessao", mensagens)
+        long_term.save_summary(8, "mesma-sessao", mensagens)
 
     ids = [p.id for p in falso.pontos]
     assert len(ids) == 2 and ids[0] != ids[1]
     assert [p.payload["user_id"] for p in falso.pontos] == [7, 8]
+    assert [p.payload["summary"] for p in falso.pontos] == [j["candidate"] for j in judged]
+
+
+def test_resumo_reprovado_nao_e_indexado(monkeypatch):
+    falso = FakeQdrant()
+    monkeypatch.setattr(long_term, "_qdrant", lambda: falso)
+    monkeypatch.setattr(long_term, "_ensure_collection", lambda: None)
+    monkeypatch.setattr(long_term, "_embed_model", lambda: SimpleNamespace(
+        embed_query=lambda texto: pytest.fail("resumo reprovado não deve ser embeddado")
+    ))
+    monkeypatch.setattr(
+        "app.services.llms.llm_rapido",
+        SimpleNamespace(invoke=lambda msgs: SimpleNamespace(content="resumo infiel")),
+        raising=False,
+    )
+    monkeypatch.setattr(
+        "app.agents.judge.JudgeAgent.run",
+        lambda self, judge_input, **kwargs: SimpleNamespace(decision="reject", status="evaluated"),
+    )
+
+    long_term.save_summary(7, "sessao-rejeitada", [{"role": "human", "content": "oi"}])
+
+    assert falso.pontos == []
+
+
+@pytest.mark.parametrize("status, decision", [("unavailable", "reject"), ("evaluated", "correct")])
+def test_resumo_indisponivel_ou_sem_aprovacao_nao_e_indexado(monkeypatch, status, decision):
+    falso = FakeQdrant()
+    monkeypatch.setattr(long_term, "_qdrant", lambda: falso)
+    monkeypatch.setattr(long_term, "_ensure_collection", lambda: None)
+    monkeypatch.setattr(long_term, "_embed_model", lambda: pytest.fail("não deve gerar embedding"))
+    monkeypatch.setattr(
+        "app.services.llms.llm_rapido",
+        SimpleNamespace(invoke=lambda msgs: SimpleNamespace(content="resumo")),
+        raising=False,
+    )
+    monkeypatch.setattr(
+        "app.agents.judge.JudgeAgent.run",
+        lambda self, judge_input, **kwargs: SimpleNamespace(decision=decision, status=status),
+    )
+
+    long_term.save_summary(7, "sessao-bloqueada", [{"role": "human", "content": "oi"}])
+
+    assert falso.pontos == []
 
 
 # --- CORS e /health -----------------------------------------------------------------------------

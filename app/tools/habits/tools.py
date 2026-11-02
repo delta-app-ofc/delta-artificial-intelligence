@@ -7,7 +7,7 @@ from datetime import date
 from langchain_core.tools import BaseTool, tool
 
 from app.data import db_mongo, db_postgres
-from app.tools.exceptions import DatabaseAccessError, HabitConflictError, RegionRateNotFound
+from app.tools.exceptions import DatabaseAccessError, RegionRateNotFound
 from app.tools.habits.calculations import LITERS_PER_SESSION, WEEKS_PER_MONTH, estimate_habit_cost
 from app.tools.habits.names import CATALOG_NAMES, resolve_habit_name
 from app.tools.validation import validate_user_id
@@ -199,7 +199,8 @@ def build_tools(user_id: int, access_kind: str | None = None) -> list[BaseTool]:
           Cadastrar o mesmo hábito no mesmo dia e horário é recusado (conflict);
           sem horário, dois cadastros no mesmo dia colidem.
 
-        Só confirme o cadastro quando o status for ok (gravado no banco).
+        Esta ferramenta apenas prepara um cadastro pendente para o Juiz; ela
+        nunca grava no banco. Só o fluxo principal executa uma ação aprovada.
 
         Disponível apenas para usuários residenciais.
         """
@@ -254,20 +255,18 @@ def build_tools(user_id: int, access_kind: str | None = None) -> list[BaseTool]:
             if end <= start:
                 return {"status": "error", "message": "O horário de fim deve ser depois do início."}
 
-        try:
-            result = db_postgres.create_habit(
-                user_id, canonical_name, frequency, canonical_days, start, end
-            )
-        except HabitConflictError as exc:
-            return {"status": "conflict", "message": str(exc)}
-        except ValueError as exc:
-            return {"status": "error", "message": str(exc)}
-        except DatabaseAccessError:
-            return {
-                "status": "error",
-                "message": "Não foi possível gravar agora. Nada foi cadastrado; tente novamente.",
-            }
-        return {"status": "ok", **result}
+        return {
+            "status": "pending_approval",
+            "message": "Cadastro preparado para avaliação; ainda não foi gravado.",
+            "action": {
+                "type": "create_habit",
+                "name": canonical_name,
+                "frequency": frequency,
+                "days": canonical_days,
+                "start_time": start,
+                "end_time": end,
+            },
+        }
 
     @tool
     def estimate_habit_water_impact(habit_name: str, frequency: int) -> dict:

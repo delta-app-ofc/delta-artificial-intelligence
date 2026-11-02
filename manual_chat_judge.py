@@ -90,6 +90,7 @@ def _run_question(user_id: int, session_id: str, question: str, no_history: bool
     print(f"Revisões: {state.get('revision_count', 0)}")
 
     output = validate_output(state.get("response", ""), guard.get("pii_map", {}))
+    approved = approved and state.get("output_approved", True)
     fallback = state.get("composition_status") in {"no_agents", "no_success"} and not history
     if not output["ok"]:
         print("Guardrail de saída bloqueou o texto.")
