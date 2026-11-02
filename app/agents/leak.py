@@ -20,7 +20,7 @@ class LeakAgent:
 
             llm = llm_especialista
         self.llm = llm
-        self.tools = build_tools(self.user_id)
+        self.tools = build_tools(self.user_id, access_kind)
 
     def run(
         self,

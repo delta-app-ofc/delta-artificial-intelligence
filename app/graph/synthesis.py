@@ -18,7 +18,9 @@ def synthesize(question: str, answers: list[dict], access_kind: str | None = Non
     if llm is None:
         return None
 
-    answers_text = "\n\n".join(f"[{a['agent'].upper()}]\n{a['answer']}" for a in answers)
+    answers_text = "\n\n".join(
+        f"[Informação {number}]\n{a['answer']}" for number, a in enumerate(answers, 1)
+    )
     prompt = SYNTHESIS_PROMPT.format(n=len(answers), question=question, respostas=answers_text)
     prompt += profile_block(access_kind)
 

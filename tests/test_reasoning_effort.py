@@ -117,3 +117,26 @@ def test_modelos_openai_sao_distintos_por_nivel(monkeypatch):
     llms._get_llm_openai(config, reasoning_effort="high")  # reaproveitado
 
     assert criados == ["high", "medium"]
+
+
+def test_effort_appears_in_the_model_row_of_the_trace():
+    from app.observability.diagnostics import ModelDiagnostics, Trace, capture
+
+    trace = Trace(mode="chat")
+    with capture(trace):
+        handler = ModelDiagnostics("openai", "gpt-6-luna", "high")
+        handler.on_chat_model_start({}, [[]], run_id="r1")
+        handler._finish("r1", "success")
+    row = trace.models[-1]
+    assert row["model"] == "gpt-6-luna" and row["reasoning_effort"] == "high"
+    ended = [e for e in trace.events if e["event"] == "model.end"][-1]
+    assert ended["metadata"]["reasoning_effort"] == "high"
+
+
+def test_model_row_without_effort_stays_as_before():
+    from app.observability.diagnostics import ModelDiagnostics, Trace, capture
+
+    trace = Trace(mode="chat")
+    with capture(trace):
+        ModelDiagnostics("groq", "llama").on_chat_model_start({}, [[]], run_id="r2")
+    assert "reasoning_effort" not in trace.models[-1]

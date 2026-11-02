@@ -80,7 +80,7 @@ def test_etapas_vem_antes_do_resultado_e_a_resposta_so_no_fim(client, monkeypatc
     assert RESPOSTA not in resposta.text.split("event: result")[0]
     resultado = eventos[-1][1]
     assert resultado["response"] == RESPOSTA
-    assert resultado["agents_used"] == ["consumption"]
+    assert "agents_used" not in resultado
     assert resultado["chart_data"] is None
     assert memory.session_belongs_to_user(7, resultado["session_id"])
 

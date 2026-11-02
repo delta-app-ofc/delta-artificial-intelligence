@@ -203,6 +203,43 @@ def assess_target_risk(
     )
 
 
+@dataclass(frozen=True)
+class TargetComparison:
+    """Meta atual contra a meta simulada, usando a mesma projeção do mês."""
+
+    month_projection_liters: float
+    current: TargetRisk
+    simulated: TargetRisk
+    monthly_target_difference_liters: float | None
+
+
+def compare_target_change(
+    month_projection_liters: float,
+    current_daily_target: float | None,
+    new_daily_target: float,
+    today: date,
+) -> TargetComparison:
+    """Compara o risco de passar da meta atual com o da meta simulada. A projeção não muda."""
+    if new_daily_target <= 0:
+        raise ValueError("A meta diária simulada deve ser maior que zero.")
+    days = _days_in_month(today)
+    current = assess_target_risk(month_projection_liters, current_daily_target, days)
+    simulated = assess_target_risk(month_projection_liters, new_daily_target, days)
+    difference = (
+        round(simulated.monthly_target_liters - current.monthly_target_liters, 2)
+        if current.monthly_target_liters is not None
+        else None
+    )
+    return TargetComparison(month_projection_liters, current, simulated, difference)
+
+
+def estimate_investment_savings(
+    daily_average_liters: float, reduction_pct: float, days: int = 365
+) -> float:
+    """Litros economizados no período se o consumo diário médio cair `reduction_pct`%."""
+    return round(daily_average_liters * days * reduction_pct / 100, 1)
+
+
 def calculate_full_forecast(
     *,
     can_estimate: bool,

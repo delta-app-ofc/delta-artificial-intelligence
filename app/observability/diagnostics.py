@@ -29,6 +29,7 @@ _ALLOWED_EVENT_METADATA = {
     "status_code",
     "provider",
     "model",
+    "reasoning_effort",
     "error_id",
     "cause_type",
     "error_type",
@@ -598,9 +599,10 @@ class ModelDiagnostics(BaseCallbackHandler):
     """Registra provedor, modelo, resultado e falha segura das chamadas LangChain."""
     run_inline = True
 
-    def __init__(self, provider: str, model: str):
+    def __init__(self, provider: str, model: str, reasoning_effort: str | None = None):
         self.provider = provider
         self.model = model
+        self.reasoning_effort = reasoning_effort
         self.runs = {}
         self.lock = Lock()
 
@@ -618,6 +620,8 @@ class ModelDiagnostics(BaseCallbackHandler):
                 "fallback": fallback,
                 "duration_ms": 0,
             }
+            if self.reasoning_effort:
+                row["reasoning_effort"] = self.reasoning_effort
             with trace.lock:
                 trace.models.append(row)
             with self.lock:
@@ -630,6 +634,7 @@ class ModelDiagnostics(BaseCallbackHandler):
                 metadata={
                     "provider": self.provider,
                     "model": self.model,
+                    **({"reasoning_effort": self.reasoning_effort} if self.reasoning_effort else {}),
                     "fallback": fallback,
                 },
             )
@@ -670,6 +675,7 @@ class ModelDiagnostics(BaseCallbackHandler):
             metadata={
                 "provider": row["provider"],
                 "model": row["model"],
+                **({"reasoning_effort": row["reasoning_effort"]} if row.get("reasoning_effort") else {}),
                 "fallback": row["fallback"],
                 "outcome": status,
                 **({"error_id": row["error_id"]} if row.get("error_id") else {}),

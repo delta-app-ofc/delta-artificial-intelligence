@@ -49,6 +49,61 @@ def build_habits_chart(tool_calls: list[ToolCall]) -> dict | None:
     return fig.to_dict()
 
 
+def build_simulation_chart(tool_calls: list[ToolCall]) -> dict | None:
+    """Barras do consumo no período: cenário atual contra o simulado."""
+    scenario: dict | None = None
+    for tc in tool_calls:
+        if tc.name == "simulate_consumption_change" and isinstance(tc.output, dict):
+            if tc.output.get("status") == "ok":
+                scenario = tc.output.get("scenario")
+    if not scenario:
+        return None
+
+    import plotly.graph_objects as go
+
+    change = scenario["change_pct"]
+    labels = ["Cenário atual", f"Simulado ({change:+g}%)"]
+    values = [scenario["base_period_liters"], scenario["scenario_period_liters"]]
+    fig = go.Figure(
+        go.Bar(x=labels, y=values, marker_color=["#2196F3", "#4CAF50" if change < 0 else "#F44336"],
+               text=[f"{v:.0f} L" for v in values], textposition="outside")
+    )
+    fig.update_layout(
+        title=f"Consumo em {scenario['days']} dias: atual x simulado",
+        yaxis_title="Litros",
+        **_LAYOUT,
+    )
+    return fig.to_dict()
+
+
+def _month_summary_chart(forecast: dict) -> dict | None:
+    """Barras do mês (consumido, projeção e meta) quando não há série diária para a linha."""
+    projection = forecast.get("projection") or {}
+    risk = forecast.get("target_risk") or {}
+    bars = [
+        ("Consumido até hoje", projection.get("month_consumption_so_far_liters"), "#2196F3"),
+        ("Projeção do mês", projection.get("month_projection_liters"), "#FF9800"),
+        ("Meta do mês", risk.get("monthly_target_liters"), "#4CAF50"),
+    ]
+    bars = [(label, value, color) for label, value, color in bars if value is not None]
+    if not bars:
+        return None
+
+    import plotly.graph_objects as go
+
+    fig = go.Figure(
+        go.Bar(
+            x=[label for label, _, _ in bars],
+            y=[value for _, value, _ in bars],
+            marker_color=[color for _, _, color in bars],
+            text=[f"{value:.0f} L" for _, value, _ in bars],
+            textposition="outside",
+        )
+    )
+    fig.update_layout(title="Consumo do mês: atual, projeção e meta", yaxis_title="Litros", **_LAYOUT)
+    return fig.to_dict()
+
+
 def build_forecast_chart(tool_calls: list[ToolCall]) -> dict | None:
     points: list[dict] = []
     forecast: dict | None = None
@@ -63,6 +118,9 @@ def build_forecast_chart(tool_calls: list[ToolCall]) -> dict | None:
         return None
 
     import plotly.graph_objects as go
+
+    if not points:
+        return _month_summary_chart(forecast)
 
     fig = go.Figure()
 
