@@ -376,7 +376,7 @@ def _confirm_node(state: GraphState) -> dict:
     elif decision.get("approved"):
         text = confirmations.execute_pending(pending, state["user_id"], date.today())
     else:
-        text = confirmations.DECLINED_TEXT
+        text = confirmations.declined(pending)
     return {"response": text, "chart_data": None, "composition_status": "bypass",
             "pending_write": None, "question": decision.get("answer") or state["question"]}
 

@@ -1540,3 +1540,13 @@ _PROFILES = {
 def profile_block(access_kind: str | None) -> str:
     """Trecho de prompt do perfil do usuário; vazio quando o perfil não foi informado."""
     return _PROFILES.get(access_kind, "") if access_kind else ""
+
+
+HABIT_REGISTRATION_INTERRUPT_PROMPT = """\
+### CONFIRMAÇÃO DO CADASTRO DE HÁBITO
+Quando o usuário pedir um cadastro, colete os dados essenciais e chame create_habit.
+Com pending_confirmation, a ferramenta NÃO gravou: o sistema pausará o fluxo e
+mostrará a proposta para confirmação. Não diga que cadastrou nem faça outra gravação.
+Se faltar frequência ou houver ambiguidade, pergunte o que falta e não invente dias
+ou horários. Pedidos de consulta e simulação continuam usando apenas leitura e estimativa.
+"""

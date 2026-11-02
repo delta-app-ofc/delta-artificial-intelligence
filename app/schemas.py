@@ -56,7 +56,7 @@ class ChatRequest(BaseModel):
 
 
 class PendingConfirmation(BaseModel):
-    kind: str = Field(..., description="Tipo da ação que espera confirmação (ex.: register_last_bill).")
+    kind: str = Field(..., description="Tipo da ação que espera confirmação (register_last_bill ou create_habit).")
     summary: str = Field(..., description="Pergunta de confirmação mostrada ao usuário.")
     expires_at: str = Field(..., description="Prazo para responder, em ISO 8601 UTC.")
 
