@@ -74,8 +74,9 @@ def test_top_k_relevance_and_source_filters(rag_backend, monkeypatch, question, 
     chunk = output["chunks"][0]
     assert expected in chunk["text"]
     assert chunk["origin"] == "external" and chunk["source"] == f"mcp:{SOURCE_ID}"
-    assert all(str(chunk[key]) in chunk["citation"] for key in ("url", "title", "revision", "collected_at"))
-    assert "texto extraído" in chunk["citation"]
+    assert all(str(chunk[key]) in chunk["citation"] for key in ("url", "title"))
+    assert chunk["revision"] not in chunk["citation"]
+    assert chunk["revision"] and chunk["collected_at"] and chunk["start_line"]
 
 
 def test_unknown_metadata_does_not_fetch_or_fallback(rag_backend, monkeypatch):
@@ -260,7 +261,7 @@ def test_partial_failure_keeps_successful_sources_and_reports_missing_one(rag_ba
     assert output["unavailable_sources"] == ["epa-residential-saving"]
     assert {chunk["source_id"] for chunk in output["chunks"]} == {"midr-water-conservation"}
     assert "MENSAGEM PRIVADA" not in json.dumps(output)
-    assert "publicação: não informada" in output["chunks"][0]["citation"]
+    assert output["chunks"][0]["published_at"] is None
 
 
 def test_agent_binds_backend_profile_and_contains_watersense_restriction(rag_backend, monkeypatch):
@@ -277,3 +278,22 @@ def test_agent_binds_backend_profile_and_contains_watersense_restriction(rag_bac
     assert fetched == ["midr-water-conservation", "epa-commercial-facilities"]
     assert "Não indique, recomende ou promova WaterSense" in options["system_prompt"]
     assert "URL original" in options["system_prompt"]
+
+
+
+def test_same_question_embedding_is_reused_across_authorized_sources(rag_backend, monkeypatch):
+    client, embeddings, _ = rag_backend
+    monkeypatch.setattr(external_tool, "fetch_source", lambda source_id: make_snapshot(source_id=source_id))
+    queries, filters = [], []
+    original_embed, original_query = embeddings.embed_query, client.query_points
+    def embed(question, **kwargs):
+        queries.append(question)
+        return original_embed(question, **kwargs)
+    def query(*args, **kwargs):
+        filters.append(kwargs["query_filter"])
+        return original_query(*args, **kwargs)
+    monkeypatch.setattr(embeddings, "embed_query", embed)
+    monkeypatch.setattr(client, "query_points", query)
+    output = external_tool.build_external_knowledge_tool("residential").invoke({"question": "banho"})
+    assert output["status"] == "ok" and queries == ["banho"] and len(filters) == 2
+    assert all("origin" not in f.model_dump_json() for f in filters)

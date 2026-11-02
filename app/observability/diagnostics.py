@@ -78,7 +78,11 @@ def _redact_text(value: str) -> str:
                 return value
         except ValueError:
             pass
-    value = _URI.sub("[URI omitida]", value)
+    from app.integrations.mcp.sources import SOURCES
+    public_urls = {source.url for source in SOURCES.values()}
+    # Só URLs exatas do catálogo fechado podem aparecer nas citações públicas.
+    value = _URI.sub(lambda match: match[0] if match[0].rstrip(").,;]") in public_urls
+                     else "[URI omitida]", value)
     value = _BEARER_TOKEN.sub("Bearer [omitido]", value)
     value = _SECRET_ASSIGNMENT.sub(r"\1\2[omitido]", value)
     # Importação local evita o ciclo com o guardrail de entrada, que usa diagnósticos.
@@ -310,6 +314,7 @@ class Trace:
     request_id: str = field(default_factory=lambda: uuid4().hex)
     started: float = field(default_factory=perf_counter)
     models: list = field(default_factory=list)
+    embedding_counts: list = field(default_factory=list, repr=False)
     tools: list = field(default_factory=list)
     errors: list = field(default_factory=list)
     warnings: list = field(default_factory=list)
@@ -704,11 +709,10 @@ def _count_embedding_tokens(model: str, texts) -> int | None:
         return None
     try:
         from google import genai
-
         from app.config import get_settings
-
-        client = genai.Client(api_key=get_settings().gemini_api_key)
-        return int(client.models.count_tokens(model=model, contents=list(texts)).total_tokens)
+        with genai.Client(api_key=get_settings().gemini_api_key, vertexai=False,
+                          http_options={"timeout": 5000, "retry_options": {"attempts": 1}}) as client:
+            return int(client.models.count_tokens(model=model, contents=list(texts)).total_tokens)
     except Exception:
         return None
 
@@ -743,7 +747,10 @@ def embedding_call(model: str, texts=None):
         yield
         ended = perf_counter()
         row["status"] = "success"
-        row["input_tokens"] = _count_embedding_tokens(model, texts)
+        if trace and texts:
+            row["count_status"] = "pending"
+            with trace.lock:
+                trace.embedding_counts.append((row, tuple(texts)))
     except Exception as error:
         row["status"] = "error"
         if trace:
@@ -777,3 +784,20 @@ def embedding_call(model: str, texts=None):
                     **({"cause_type": row["cause_type"]} if row.get("cause_type") else {}),
                 },
             )
+
+
+def complete_embedding_counts(trace: Trace) -> None:
+    """Conta após a resposta, na thread de métricas; textos nunca são persistidos."""
+    with trace.lock:
+        pending = list(trace.embedding_counts)
+        trace.embedding_counts.clear()
+    for row, texts in pending:
+        started = perf_counter()
+        try:
+            tokens = _count_embedding_tokens(row["model"], texts)
+        except Exception:
+            tokens = None
+        with trace.lock:
+            row.update(input_tokens=tokens,
+                       count_status="success" if tokens is not None else "unavailable",
+                       count_duration_ms=round((perf_counter() - started) * 1000, 1))

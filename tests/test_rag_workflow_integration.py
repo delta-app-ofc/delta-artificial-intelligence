@@ -144,3 +144,14 @@ def test_personal_data_is_anonymized_before_model_and_does_not_enter_mcp(pipelin
     assert "pessoa@example.com" not in str(pipeline.classifier_inputs)
     assert "pessoa@example.com" not in state["response"]
     assert source_ids == ["midr-water-conservation", "epa-residential-saving"]
+
+
+@pytest.mark.parametrize("mode", ["chat", "judge"])
+def test_playground_classifies_input_only_once_in_the_graph(pipeline, monkeypatch, mode):
+    from app.routes import playground
+    monkeypatch.setattr(playground, "validate_input", lambda *a: pytest.fail("Classificação duplicada"))
+    monkeypatch.setattr(playground, "append_turn", lambda *a: None)
+    monkeypatch.setattr(playground, "create_session", lambda *a: "abcdefabcdefabcdefabcdef")
+    result = playground.run_test(playground.PlaygroundRequest(message="Como economizar água no banho?"), mode)
+    assert result["status"] == "success"
+    assert len(pipeline.classifier_inputs) == 1 and pipeline.judge_inputs

@@ -459,6 +459,52 @@ h1 {
   color:#e2e7ec;
 }
 
+.message-body.markdown {
+  white-space:normal;
+}
+
+.message-body.typing::after {
+  content:'▍';
+  margin-left:2px;
+  opacity:.7;
+  animation:blink 1s steps(2, start) infinite;
+}
+
+@keyframes blink {
+  to { visibility:hidden; }
+}
+
+.message-body.markdown p {
+  margin:0 0 10px;
+}
+
+.message-body.markdown p:last-child,
+.message-body.markdown ul:last-child,
+.message-body.markdown ol:last-child {
+  margin-bottom:0;
+}
+
+.message-body.markdown ul,
+.message-body.markdown ol {
+  margin:0 0 10px;
+  padding-left:22px;
+}
+
+.message-body.markdown h3,
+.message-body.markdown h4,
+.message-body.markdown h5,
+.message-body.markdown h6 {
+  margin:12px 0 6px;
+  font-size:14px;
+}
+
+.message-body.markdown code {
+  padding:1px 5px;
+  border-radius:4px;
+  background:rgba(255,255,255,.08);
+  font-size:12px;
+}
+
 .message.system .message-body {
   font-size:11px;
   color:var(--muted);

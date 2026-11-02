@@ -29,9 +29,10 @@ def eventos_sse(texto: str) -> list[tuple[str, dict]]:
 def client(monkeypatch):
     monkeypatch.setattr(playground, "get_settings", lambda: SimpleNamespace(playground_enabled=True))
     monkeypatch.setattr(
-        playground, "validate_input", lambda user_id, message: {"ok": True, "message": message, "pii_map": {}}
+        playground, "validate_input_rules", lambda user_id, message: {"ok": True, "message": message, "pii_map": {}}
     )
     monkeypatch.setattr(playground, "append_turn", lambda *args, **kwargs: None)
+    monkeypatch.setattr(playground, "create_session", lambda user_id: "abcdefabcdefabcdefabcdef")
     app = FastAPI()
     app.include_router(playground.router)
     return TestClient(app)
@@ -128,7 +129,7 @@ def test_excecao_inesperada_vira_erro_500(client, monkeypatch):
 
 def test_mensagem_bloqueada_pela_guarda_vira_resultado_com_erro(client, monkeypatch):
     monkeypatch.setattr(
-        playground, "validate_input",
+        playground, "validate_input_rules",
         lambda user_id, message: {"ok": False, "reason": "Mensagem bloqueada."},
     )
     chamadas = usa_eventos(monkeypatch, ETAPAS)
@@ -194,6 +195,30 @@ def test_chat_sem_stream_tambem_devolve_o_id_sem_redacao(client, monkeypatch):
     monkeypatch.setattr(playground, "run_workflow", lambda *a, **k: {**ESTADO_FINAL})
     monkeypatch.setattr(playground.uuid, "uuid4", lambda: UUID_QUE_PARECE_TELEFONE)
 
+    mongo_id = "abcdef123456789012abcdef"
+    monkeypatch.setattr(playground, "create_session", lambda *a: mongo_id)
     resposta = client.post("/playground/chat", json={"message": "oi"})
 
-    assert resposta.json()["session_id"] == UUID_QUE_PARECE_TELEFONE
+    assert resposta.json()["session_id"] == mongo_id
+
+
+@pytest.mark.parametrize("legacy_id", [None, "minha-sessao", "bdf41203-aeee-4111-b111-aef123456789"])
+def test_console_creates_mongo_session_for_new_or_legacy_id(client, monkeypatch, legacy_id):
+    usa_eventos(monkeypatch, ETAPAS)
+    created, saved = [], []
+    def create(user_id):
+        created.append(user_id)
+        return "abcdefabcdefabcdefabcdef"
+    monkeypatch.setattr(playground, "create_session", create)
+    monkeypatch.setattr(playground, "append_turn", lambda *args: saved.append(args))
+    result = eventos_sse(post(client, session_id=legacy_id).text)[-1][1]
+    assert created == [playground.USER_ID]
+    assert result["session_id"] == "abcdefabcdefabcdefabcdef"
+    assert len(saved) == 2 and all(row[0] == result["session_id"] for row in saved)
+
+
+def test_console_reuses_mongo_session_without_creating_another(client, monkeypatch):
+    usa_eventos(monkeypatch, ETAPAS)
+    monkeypatch.setattr(playground, "create_session", lambda *a: pytest.fail("Sessão já existente"))
+    result = eventos_sse(post(client, session_id="abcdefabcdefabcdefabcdef").text)[-1][1]
+    assert result["status"] == "success"

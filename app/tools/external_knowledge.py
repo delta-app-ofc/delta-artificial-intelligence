@@ -10,7 +10,7 @@ from app.integrations.mcp.client import fetch_source
 from app.integrations.mcp.sources import SOURCES
 from app.observability.diagnostics import current_trace
 from app.services.rag import (
-    create_embeddings, create_qdrant, ensure_document_indexed, external_document, search_document,
+    create_embeddings, create_qdrant, ensure_document_indexed, external_document, search_document, embed_question,
 )
 from app.tools.rag import _run_phase
 
@@ -55,6 +55,7 @@ def build_external_knowledge_tool(access_kind: str | None):
             client = _run_phase("external_client", create_qdrant)
             embeddings = _run_phase("external_embeddings", create_embeddings)
             results = []
+            question_vector = None
             failures = []
             for source in selected:
                 try:
@@ -65,18 +66,16 @@ def build_external_knowledge_tool(access_kind: str | None):
                     _run_phase("external_index", lambda: ensure_document_indexed(
                         document, client=client, embeddings=embeddings,
                     ))
+                    if question_vector is None:
+                        question_vector = _run_phase("query_embedding", lambda: embed_question(question, embeddings=embeddings))
                     results.extend(_run_phase("external_search", lambda: search_document(
-                        document, question, client=client, embeddings=embeddings, top_k=top_k,
+                        document, question, client=client, embeddings=embeddings, top_k=top_k, query_vector=question_vector,
                     )))
                 except Exception:
                     failures.append(source.id)
             chunks = []
             for result in sorted(results, key=lambda item: item["score"], reverse=True)[:top_k]:
-                citation = (
-                    f"[{result['title']}]({result['url']}) — publicação: {result['published_at'] or 'não informada'}; "
-                    f"coletado em {result['collected_at']}; revisão {result['revision']}; "
-                    f"linhas {result['start_line']}-{result['end_line']} do texto extraído"
-                )
+                citation = f"[{result['title']}]({result['url']})"
                 chunks.append({**result, "citation": citation})
             return {"status": "ok" if chunks else "unavailable" if failures else "insufficient_data",
                     "chunks": chunks, "unavailable_sources": failures}

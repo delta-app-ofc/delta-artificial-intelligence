@@ -299,7 +299,8 @@ def ensure_document_indexed(document: RagDocument, *, client, embeddings) -> Non
 
 
 def search_document(document: RagDocument, question: str, *, client, embeddings,
-                    top_k: int = 3, score_threshold: float | None = None) -> list[dict]:
+                    top_k: int = 3, score_threshold: float | None = None,
+                    query_vector: list[float] | None = None) -> list[dict]:
     """Converte a pergunta em vetor e retorna trechos e scores, sem validar relevância."""
 
     if not question.strip() or not 1 <= top_k <= 20:
@@ -313,11 +314,16 @@ def search_document(document: RagDocument, question: str, *, client, embeddings,
     if not _revision_is_complete(document, client=client):
         raise ValueError("Revisão ausente ou incompleta. Indexe o documento atual antes de consultar.")
 
-    with embedding_call(embedding_model_name(), texts=[question]):
-        vector = embeddings.embed_query(question, task_type="RETRIEVAL_QUERY")
+    vector = query_vector if query_vector is not None else embed_question(question, embeddings=embeddings)
     response = client.query_points(
         COLLECTION, query=vector, query_filter=_revision_filter(document), limit=top_k,
         score_threshold=score_threshold, with_payload=True,
     )
 
     return [{"id": str(point.id), "score": point.score, **(point.payload or {})} for point in response.points]
+
+
+def embed_question(question: str, *, embeddings) -> list[float]:
+    """Gera uma vez o vetor que pode ser reutilizado na busca de várias fontes."""
+    with embedding_call(embedding_model_name(), texts=[question]):
+        return embeddings.embed_query(question, task_type="RETRIEVAL_QUERY")

@@ -4,7 +4,7 @@ from datetime import date, datetime, timezone
 
 import pytest
 
-from app.data import db_postgres
+from app.data import db_mongo, db_postgres
 from app.tools.consumption import tools as consumption_tools
 from app.tools.exceptions import DatabaseConnectionError
 from app.tools.forecast import tools as forecast_tools
@@ -25,12 +25,13 @@ def chamadas(monkeypatch):
         registro["unidades"] += 1
         return list(UNIDADES)
 
-    def diario(user_id, property_ids, inicio, fim):
-        registro["diario"].append((user_id, tuple(property_ids), inicio, fim))
-        return [(inicio, 100)]
+    def dispositivos(user_id, property_ids):
+        registro["diario"].append((user_id, tuple(property_ids), None, None))
+        return ["DISP-1"]
 
     monkeypatch.setattr(db_postgres, "get_user_organization_properties", unidades)
-    monkeypatch.setattr(db_postgres, "get_organization_consumption_daily", diario)
+    monkeypatch.setattr(db_postgres, "get_authorized_device_ids", dispositivos)
+    monkeypatch.setattr(db_mongo, "get_consumption_history_between_devices", lambda *args: [])
     return registro
 
 

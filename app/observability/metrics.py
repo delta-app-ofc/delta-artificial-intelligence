@@ -109,8 +109,9 @@ def model_cost(model: str, input_tokens: int, output_tokens: int) -> float:
 
 def build_record(trace, outcome: str, total_ms: float) -> dict:
     """Resume o Trace sem guardar prompt, resposta nem dados pessoais."""
-    events = list(trace.events)
-    models = list(trace.models)
+    with trace.lock:
+        events = list(trace.events)
+        models = [dict(row) for row in trace.models]
     stages: dict[str, float] = {}
     for item in trace.stages:
         stages[item["stage"]] = stages.get(item["stage"], 0.0) + float(item.get("duration_ms") or 0)
@@ -137,7 +138,7 @@ def build_record(trace, outcome: str, total_ms: float) -> dict:
         agent["model_ms"] += float(call.get("duration_ms") or 0)
         agent["cost_usd"] += model_cost(call.get("model") or "", tokens_in, tokens_out)
 
-    embedding_tokens, embedding_cost, embedding_ms, embedding_uncounted = 0, 0.0, 0.0, 0
+    embedding_tokens, embedding_cost, embedding_uncounted = 0, 0.0, 0
     jev_tokens, jev_cost = 0, 0.0
     for call in models:
         kind = call.get("kind")
@@ -154,7 +155,8 @@ def build_record(trace, outcome: str, total_ms: float) -> dict:
         else:
             embedding_tokens += int(tokens)
             embedding_cost += model_cost(call.get("model") or "", int(tokens), 0)
-            embedding_ms += float(call.get("duration_ms") or 0)
+
+    embedding_ms = sum(float(c.get("duration_ms") or 0) for c in models if c.get("kind") == "embedding")
 
     llm_cost = sum(item["cost_usd"] for item in by_agent.values())
     blocked = any(e.get("component") == "block" and e.get("event") == "graph.node.end" for e in events)
@@ -168,6 +170,7 @@ def build_record(trace, outcome: str, total_ms: float) -> dict:
         "total_ms": round(total_ms, 1),
         "nodes_ms": {k: round(v, 1) for k, v in nodes.items()},
         "agents_ms": {k: round(v, 1) for k, v in stages.items() if k in AGENT_NAMES},
+        "rag_phases_ms": {k.removeprefix("rag_"): round(v, 1) for k, v in stages.items() if k.startswith("rag_")},
         "overhead_ms": round(max(0.0, total_ms - sum(nodes.values())), 1),
         "client": getattr(trace, "client", "unknown"),
         **({"user_hash": digest} if (digest := user_hash(trace.user_id)) else {}),
@@ -176,6 +179,8 @@ def build_record(trace, outcome: str, total_ms: float) -> dict:
         "output_tokens": sum(item["output_tokens"] for item in by_agent.values()),
         "embedding_tokens": embedding_tokens,
         "embedding_uncounted": embedding_uncounted,
+        "embedding_pending": sum(c.get("count_status") == "pending" for c in models),
+        "embedding_count_ms": round(sum(float(c.get("count_duration_ms") or 0) for c in models), 1),
         "jev_tokens": jev_tokens,
         "model_calls": sum(item["calls"] for item in by_agent.values()),
         "fallback_calls": sum(1 for c in models if c.get("fallback")),
@@ -183,7 +188,7 @@ def build_record(trace, outcome: str, total_ms: float) -> dict:
             **{k: {**v, "cost_usd": round(v["cost_usd"], 8), "model_ms": round(v["model_ms"], 1)} for k, v in by_agent.items()},
             **({"embeddings": {"calls": sum(1 for c in models if c.get("kind") == "embedding"), "input_tokens": embedding_tokens,
                                "output_tokens": 0, "model_ms": round(embedding_ms, 1), "cost_usd": round(embedding_cost, 8)}}
-               if embedding_tokens else {}),
+               if any(c.get("kind") == "embedding" for c in models) else {}),
         },
         "llm_cost_usd": round(llm_cost, 8),
         "embedding_cost_usd": round(embedding_cost, 8),
@@ -195,16 +200,32 @@ def build_record(trace, outcome: str, total_ms: float) -> dict:
 
 def record_request(trace, outcome: str, total_ms: float) -> None:
     """Guarda em memória e, se possível, no MongoDB; nunca altera a resposta."""
-    if trace.mode not in RECORDED_MODES:
+    recorded = trace.mode in RECORDED_MODES
+    if not recorded and not trace.embedding_counts:
         return
     try:
-        record = build_record(trace, outcome, total_ms)
-        with _lock:
-            _recent.append(record)
-        # A gravação é síncrona e pode demorar; sai do event loop numa thread.
-        Thread(target=_persist, args=(dict(record),), daemon=True).start()
+        record = build_record(trace, outcome, total_ms) if recorded else None
+        if record is not None:
+            with _lock:
+                _recent.append(record)
+        # A mesma thread já usada na persistência também finaliza a contagem.
+        Thread(target=_finalize_record, args=(trace, outcome, total_ms, record), daemon=True).start()
     except Exception:
         pass
+
+
+def _finalize_record(trace, outcome, total_ms, record):
+    """Finaliza o custo sem alterar a latência medida nem duplicar a requisição."""
+    from app.observability.diagnostics import complete_embedding_counts
+    if record is not None and trace.embedding_counts:
+        _persist(dict(record))  # registra a requisição mesmo se o processo parar durante a contagem
+    complete_embedding_counts(trace)
+    if record is not None:
+        final = build_record(trace, outcome, total_ms)
+        final["created_at"] = record["created_at"]
+        with _lock:
+            record.update(final)
+        _persist(dict(record))
 
 
 def _db_available() -> bool:
@@ -221,7 +242,9 @@ def _persist(record: dict) -> None:
         return
     try:
         from app.data.db_mongo import get_app_client
-        get_app_client()[get_settings().mongo_db_app][COLLECTION].insert_one(record)
+        get_app_client()[get_settings().mongo_db_app][COLLECTION].replace_one(
+            {"request_id": record["request_id"]}, record, upsert=True,
+        )
     except Exception:
         # O registro continua em memória; a falha não pode afetar a aplicação.
         _mark_db_failed()
@@ -240,9 +263,8 @@ def load_records(limit: int = 1000) -> list[dict]:
             _mark_db_failed()
     with _lock:
         pending = list(_recent)
-    saved = {item["request_id"] for item in found}
-    # Registros recentes que ainda não chegaram ao banco (ou cuja gravação falhou).
-    merged = found + [item for item in pending if item["request_id"] not in saved]
+    # O registro em memória pode ter a contagem final ainda não atualizada no banco.
+    merged = list({item["request_id"]: item for item in found + pending}.values())
     merged.sort(key=lambda item: item["created_at"])
     return merged[-limit:]
 
@@ -323,6 +345,7 @@ def summarize(records: list[dict]) -> dict:
         "embedding_cost_usd": round(sum(r.get("embedding_cost_usd", 0.0) for r in records), 6),
         "jev_cost_usd": round(sum(r.get("jev_cost_usd", 0.0) for r in records), 6),
         "embedding_uncounted": sum(r.get("embedding_uncounted", 0) for r in records),
+        "embedding_pending": sum(r.get("embedding_pending", 0) for r in records),
         "outcomes": {"success": total - errors - rejected - partial, "partial": partial,
                      "error": errors, "rejected": rejected},
         "error_rate": round(error_rate, 4),
