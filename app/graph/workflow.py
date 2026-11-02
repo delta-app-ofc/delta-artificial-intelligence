@@ -7,13 +7,17 @@ import queue
 import threading
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import asdict
+from datetime import date
 from time import perf_counter
 from typing import Iterator
 
 from langgraph.checkpoint.memory import MemorySaver
 from langgraph.graph import END, StateGraph
+from langgraph.types import Command, interrupt
 
 from app.agents.judge import JudgeAgent, JudgeInput, JudgeResult, SAFE_RESPONSE
+from app.config import get_settings
+from app.graph import confirmations
 from app.graph.context import build_context
 from app.graph.router import AGENT_REGISTRY, AgentNotImplemented, classify, load_agent
 from app.graph.state import AgentOutput, GraphState
@@ -336,7 +340,45 @@ def _execute_node(state: GraphState) -> dict:
             output["chart_data"] = prior_result.get("chart_data")
         results.append(output)
         warnings.extend(output.get("warnings", []))
-    return {"agent_results": results, "warnings": warnings}
+    return {"agent_results": results, "warnings": warnings, "pending_write": _find_pending_write(results)}
+
+
+def _find_pending_write(results: list[dict]) -> dict | None:
+    """Primeira proposta de gravação devolvida por uma ferramenta (só existe com a pausa ligada)."""
+    for result in results:
+        for call in result.get("tool_calls", []):
+            output = call.get("output") if isinstance(call, dict) else None
+            pending = output.get("pending_write") if isinstance(output, dict) else None
+            if isinstance(pending, dict) and pending.get("kind") and isinstance(pending.get("params"), dict):
+                return pending
+    return None
+
+
+def _after_execute(state: GraphState) -> str:
+    return "confirm" if state.get("pending_write") else "synthesize"
+
+
+def _confirm_node(state: GraphState) -> dict:
+    """Pausa o grafo e só grava depois da resposta do usuário; quem decide é o código, nunca o modelo.
+
+    Este nó não usa `_tracked_node`: a pausa é uma exceção esperada do LangGraph e não é erro.
+    Na retomada o nó roda de novo desde o início, por isso antes do interrupt() só há código simples.
+    """
+    pending = state["pending_write"]
+    decision = interrupt({
+        "kind": pending["kind"],
+        "params": pending["params"],
+        "summary": confirmations.describe(pending),
+        "expires_at": confirmations.new_expiry(),
+    })
+    if decision.get("expired"):
+        text = confirmations.EXPIRED_TEXT
+    elif decision.get("approved"):
+        text = confirmations.execute_pending(pending, state["user_id"], date.today())
+    else:
+        text = confirmations.DECLINED_TEXT
+    return {"response": text, "chart_data": None, "composition_status": "bypass",
+            "pending_write": None, "question": decision.get("answer") or state["question"]}
 
 
 def _synthesize_node(state: GraphState) -> dict:
@@ -663,12 +705,15 @@ _graph.add_node("judge", _tracked_node("judge", _judge_node))
 _graph.add_node("revise", _tracked_node("revise", _prepare_revision_node))
 _graph.add_node("publish", _tracked_node("publish", _publish_node))
 _graph.add_node("block", _tracked_node("block", _block_node))
+_graph.add_node("confirm", _confirm_node)
 _graph.add_node("output_guard", _tracked_node("output_guard", _guardrail_output_node))
 _graph.set_entry_point("guardrail_input")
 _graph.add_conditional_edges("guardrail_input", _after_guardrail_input,
                              {END: END, "prepare": "prepare"})
 _graph.add_conditional_edges("prepare", _after_prepare, {END: END, "execute": "execute"})
-_graph.add_edge("execute", "synthesize")
+_graph.add_conditional_edges("execute", _after_execute,
+                             {"synthesize": "synthesize", "confirm": "confirm"})
+_graph.add_edge("confirm", "output_guard")
 _graph.add_edge("synthesize", "respond")
 _graph.add_edge("respond", "compose")
 _graph.add_conditional_edges("compose", _after_compose,
@@ -697,6 +742,116 @@ def _history_from_mongo(user_id: int, session_id: str) -> list[dict]:
     return to_chat_messages(history[-RECENT_TURNS:]) if history else []
 
 
+def _thread_config(user_id: int, session_id: str) -> dict:
+    """Configuração do grafo; o thread_id junta o usuário e a sessão, então ninguém retoma a pausa de outro."""
+    # O session_id nos metadados agrupa os runs filhos do LangSmith por conversa.
+    return {"configurable": {"thread_id": f"{user_id}:{session_id}"},
+            "metadata": {"session_id": session_id,
+                         "client": getattr(current_trace(), "client", "unknown")}}
+
+
+# Pausas esperando resposta (thread_id -> expires_at). Só serve para limpar as que venceram sem resposta.
+_PENDING_LOCK = threading.Lock()
+_PENDING: dict[str, str] = {}
+
+
+def _confirmation_enabled() -> bool:
+    return get_settings().confirmation_interrupt_enabled
+
+
+def _remember_pending(thread_id: str, expires_at: str) -> None:
+    with _PENDING_LOCK:
+        _PENDING[thread_id] = expires_at
+
+
+def _drop_pending(thread_id: str) -> None:
+    with _PENDING_LOCK:
+        _PENDING.pop(thread_id, None)
+
+
+def _purge_expired_pending(keep: str | None = None) -> None:
+    """Apaga da memória as pausas vencidas que ninguém respondeu.
+
+    `keep` poupa o thread de quem está respondendo agora: um "sim" tardio precisa
+    receber o aviso de que a confirmação expirou, em vez de virar pergunta nova.
+    """
+    with _PENDING_LOCK:
+        expired = [thread for thread, expires in _PENDING.items()
+                   if thread != keep and confirmations.is_expired(expires)]
+        for thread in expired:
+            del _PENDING[thread]
+    for thread in expired:
+        _forget_thread(thread)
+
+
+def _pending_payload(config: dict) -> dict | None:
+    """Dados da confirmação que está pausando este thread, ou None se não há pausa."""
+    try:
+        snapshot = workflow.get_state(config)
+    except Exception:
+        return None
+    for task in snapshot.tasks:
+        for item in task.interrupts:
+            if isinstance(item.value, dict) and item.value.get("kind"):
+                return item.value
+    return None
+
+
+def _save_turn(user_id: int, session_id: str, question: str, answer: str) -> None:
+    """Grava no histórico o turno que terminou em pausa (o do nó output_guard não chega a rodar)."""
+    try:
+        with component("session_save"):
+            append_turn(session_id, user_id, "human", question)
+            append_turn(session_id, user_id, "assistant", answer)
+    except Exception:
+        return
+    threading.Thread(
+        target=refresh_session_meta, args=(user_id, session_id, question, answer), daemon=True
+    ).start()
+
+
+def _paused_result(
+    state: dict, payload: dict, user_id: int, session_id: str, question: str, persist_session: bool
+) -> dict:
+    """Resultado de uma execução que pausou: a pergunta de confirmação, montada pelo código."""
+    text = payload["summary"]
+    if persist_session:
+        _save_turn(user_id, session_id, question, text)
+    _remember_pending(f"{user_id}:{session_id}", payload["expires_at"])
+    return {
+        "response": text, "chart_data": None, "session_id": session_id,
+        "access_kind": state.get("access_kind"), "selected_agents": state.get("selected_agents", []),
+        "pending_confirmation": {
+            "kind": payload["kind"], "summary": text, "expires_at": payload["expires_at"],
+        },
+    }
+
+
+def _answer_pending(
+    user_id: int, session_id: str, message: str, config: dict, payload: dict, persist_session: bool
+) -> dict | None:
+    """Trata a mensagem como resposta à confirmação pendente.
+
+    Devolve o estado final quando a mensagem é um "sim" ou "não" claro (ou um "sim" tardio, já
+    vencido). Qualquer outra coisa descarta a pendência sem gravar e devolve None: a mensagem
+    segue o fluxo normal, como uma pergunta nova.
+    """
+    thread_id = config["configurable"]["thread_id"]
+    answer = confirmations.parse_answer(message)
+    expired = confirmations.is_expired(payload.get("expires_at"))
+    if answer is None or (expired and answer is not True):
+        _forget_thread(thread_id)
+        _drop_pending(thread_id)
+        return None
+    decision = {"approved": bool(answer) and not expired, "expired": expired, "answer": message}
+    try:
+        return workflow.invoke(Command(resume=decision), config=config)
+    finally:
+        _drop_pending(thread_id)
+        if persist_session:
+            _forget_thread(thread_id)
+
+
 def _start_run(
     user_id: int,
     session_id: str,
@@ -705,10 +860,7 @@ def _start_run(
     persist_session: bool,
 ) -> tuple[GraphState, dict]:
     """Monta o estado inicial e a configuração de uma execução do grafo."""
-    # O session_id nos metadados agrupa os runs filhos do LangSmith por conversa.
-    config = {"configurable": {"thread_id": f"{user_id}:{session_id}"},
-              "metadata": {"session_id": session_id,
-                           "client": getattr(current_trace(), "client", "unknown")}}
+    config = _thread_config(user_id, session_id)
     initial: GraphState = {
         "user_id": user_id, "session_id": session_id, "question": question,
         "response": "", "agent_used": "", "chart_data": None,
@@ -728,19 +880,44 @@ def _start_run(
     return initial, config
 
 
-def _invoke_workflow(
+def _invoke_workflow_unlocked(
     user_id: int,
     session_id: str,
     question: str,
     *,
     persist_session: bool,
 ) -> GraphState:
+    if _confirmation_enabled():
+        _purge_expired_pending(keep=f"{user_id}:{session_id}")
+        pending = _pending_payload(_thread_config(user_id, session_id))
+        if pending:
+            answered = _answer_pending(
+                user_id, session_id, question, _thread_config(user_id, session_id), pending, persist_session
+            )
+            if answered is not None:
+                return answered
     initial, config = _start_run(user_id, session_id, question, persist_session=persist_session)
+    paused = False
     try:
-        return workflow.invoke(initial, config=config)
+        state = workflow.invoke(initial, config=config)
+        payload = _pending_payload(config) if _confirmation_enabled() else None
+        if payload:
+            result = _paused_result(state, payload, user_id, session_id, question, persist_session)
+            paused = True
+            return result
+        return state
     finally:
-        if persist_session:
+        if persist_session and not paused:
             _forget_thread(config["configurable"]["thread_id"])
+
+
+def _invoke_workflow(
+    user_id: int, session_id: str, question: str, *, persist_session: bool
+) -> GraphState:
+    if _confirmation_enabled():
+        with confirmations.session_lock(user_id, session_id):
+            return _invoke_workflow_unlocked(user_id, session_id, question, persist_session=persist_session)
+    return _invoke_workflow_unlocked(user_id, session_id, question, persist_session=persist_session)
 
 
 def _forget_thread(thread_id: str) -> None:
@@ -812,10 +989,23 @@ def run_workflow_events(
     events: queue.Queue = queue.Queue()
     context = contextvars.copy_context()
 
+    paused = [False]
+
     def worker() -> None:
         thread_id = f"{user_id}:{session_id}"
         try:
             def run() -> None:
+                if _confirmation_enabled():
+                    _purge_expired_pending(keep=thread_id)
+                    pending_config = _thread_config(user_id, session_id)
+                    pending = _pending_payload(pending_config)
+                    if pending:
+                        answered = _answer_pending(
+                            user_id, session_id, question, pending_config, pending, persist_session
+                        )
+                        if answered is not None:
+                            events.put({"type": "final", "state": answered})
+                            return
                 initial, config = _start_run(
                     user_id, session_id, question, persist_session=persist_session
                 )
@@ -852,20 +1042,39 @@ def run_workflow_events(
                                 emit(*stage)
                 finally:
                     reset_progress_sink(token)
+                if _confirmation_enabled():
+                    payload = _pending_payload(config)
+                    if payload:
+                        final_state = _paused_result(
+                            final_state, payload, user_id, session_id, question, persist_session
+                        )
+                        paused[0] = True
                 events.put({"type": "final", "state": final_state})
 
+            def run_and_cleanup() -> None:
+                try:
+                    run()
+                finally:
+                    if persist_session and not paused[0]:
+                        _forget_thread(thread_id)
+
+            def run_serialized() -> None:
+                if _confirmation_enabled():
+                    with confirmations.session_lock(user_id, session_id):
+                        run_and_cleanup()
+                else:
+                    run_and_cleanup()
+
             if current_trace() is not None:
-                run()
+                run_serialized()
             else:
                 with capture(Trace("chat", user_id=user_id)):
-                    run()
+                    run_serialized()
         except Exception as error:
             if trace := current_trace():
                 trace.error("stream", error)
             events.put({"type": "failed"})
         finally:
-            if persist_session:
-                _forget_thread(thread_id)
             events.put({"type": "end"})
 
     threading.Thread(target=context.run, args=(worker,), daemon=True).start()

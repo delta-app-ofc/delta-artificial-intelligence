@@ -1001,6 +1001,31 @@ informar a conta. Pedido para ver ou conferir a conta usa `get_last_bill`.
 """
 
 
+BILL_ROUTING_HINT = """
+Cadastro da conta de água: pedidos para registrar, cadastrar ou informar a conta de
+água de um mês (valor e consumo em m³) vão para `forecast`, com intent
+`bill_registration`. Só esse agente consegue registrar a conta; `rag` e `consumption`
+não. Se a conversa recente é sobre registrar uma conta e o usuário responde sim ou
+não, ou corrige um dado, mantenha `forecast`.
+"""
+
+BILL_REGISTRATION_INTERRUPT_PROMPT = """\
+### CADASTRO DA ÚLTIMA CONTA
+
+Além das ferramentas acima, você tem `register_last_bill`, que prepara o registro da
+conta de água de um mês. Use-a somente quando o usuário pedir para registrar,
+cadastrar ou informar a conta. Pedido para ver ou conferir a conta usa `get_last_bill`.
+
+- Precisa de três dados que o usuário disse: o mês (AAAA-MM), o valor total em reais
+  e o consumo em m³. Se faltar algum, pergunte; nunca invente ou estime.
+- Chame `register_last_bill` com os três dados. Ela nunca grava: devolve
+  `pending_confirmation` e o SISTEMA pergunta ao usuário se pode salvar. Não escreva
+  pergunta de confirmação nem diga que a conta foi registrada.
+- Com `error`, explique o problema em linguagem simples e peça o dado corrigido. Com
+  `not_available`, explique que o cadastro é só para contas residenciais.
+"""
+
+
 def full_forecast_prompt() -> str:
     return (
         _forecast_prompt()

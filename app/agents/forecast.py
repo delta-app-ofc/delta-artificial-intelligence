@@ -4,7 +4,13 @@ from datetime import date
 from typing import Any
 
 from app.agents._runtime import AgentResult, run_agent
-from app.services.prompts import BILL_REGISTRATION_PROMPT, profile_block, full_forecast_prompt
+from app.config import get_settings
+from app.services.prompts import (
+    BILL_REGISTRATION_INTERRUPT_PROMPT,
+    BILL_REGISTRATION_PROMPT,
+    profile_block,
+    full_forecast_prompt,
+)
 from app.tools.charts import build_forecast_chart, build_simulation_chart
 from app.tools.forecast.tools import build_tools
 
@@ -42,7 +48,11 @@ class ForecastAgent:
         tools = [t for t in self.tools if t.name != "register_last_bill"] if is_revision else self.tools
         system_prompt = full_forecast_prompt() + profile_block(self.access_kind)
         if any(t.name == "register_last_bill" for t in tools):
-            system_prompt += "\n\n" + BILL_REGISTRATION_PROMPT
+            system_prompt += "\n\n" + (
+                BILL_REGISTRATION_INTERRUPT_PROMPT
+                if get_settings().confirmation_interrupt_enabled
+                else BILL_REGISTRATION_PROMPT
+            )
         result = run_agent(
             llm=self.llm,
             system_prompt=system_prompt,

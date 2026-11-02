@@ -52,6 +52,45 @@ def _parse_bill_month(text: str) -> date | None:
         return None
 
 
+def validate_last_bill(
+    month: str, total_value: Any, m3_value: Any, today: date
+) -> tuple[dict | None, tuple[date, Decimal, Decimal] | None]:
+    """Valida os dados da conta; devolve (erro, None) ou (None, (mês, total, m³))."""
+    bill_month = _parse_bill_month(month)
+    if bill_month is None:
+        return {"status": "error", "message": "Mês inválido. Use o formato AAAA-MM, por exemplo 2026-10."}, None
+    if bill_month > today.replace(day=1):
+        return {"status": "error", "message": "O mês da conta não pode ser futuro."}, None
+    total, m3 = _bill_amount(total_value), _bill_amount(m3_value)
+    if total is None or m3 is None:
+        return {"status": "error", "message": "Os valores da conta devem ser números maiores ou iguais a zero."}, None
+    if total > MAX_BILL_TOTAL or m3 > MAX_BILL_M3:
+        return {
+            "status": "error",
+            "message": "Os valores parecem fora do normal para uma conta residencial. Peça ao usuário para conferir.",
+        }, None
+    return None, (bill_month, total, m3)
+
+
+def write_last_bill(user_id: int, bill_month: date, total: Decimal, m3: Decimal) -> dict:
+    """Grava a conta e traduz o resultado em um status seguro (ok, conflict ou error)."""
+    try:
+        saved = db_postgres.register_last_water_bill(user_id, bill_month, total, m3)
+    except LastWaterBillConflictError:
+        return {
+            "status": "conflict",
+            "message": "Já existe uma conta registrada para esse mês. Alterações de uma conta já registrada são feitas pelo aplicativo.",
+        }
+    except ValueError as exc:
+        return {"status": "error", "message": str(exc)}
+    except DatabaseAccessError:
+        return {
+            "status": "error",
+            "message": "Não foi possível gravar agora. Nada foi registrado; tente novamente.",
+        }
+    return {"status": "ok", "saved": _serialize(saved)}
+
+
 def _bill_amount(value: Any) -> Decimal | None:
     """Valor com 2 casas; None se não for número finito maior ou igual a zero."""
     if isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(value):
@@ -543,41 +582,25 @@ def build_tools(user_id: int, today: date, access_kind: str | None = None) -> li
                 "status": "not_available",
                 "message": "O cadastro da conta só está disponível para contas residenciais.",
             }
-        bill_month = _parse_bill_month(month)
-        if bill_month is None:
-            return {"status": "error", "message": "Mês inválido. Use o formato AAAA-MM, por exemplo 2026-10."}
-        if bill_month > today.replace(day=1):
-            return {"status": "error", "message": "O mês da conta não pode ser futuro."}
-        total, m3 = _bill_amount(total_value), _bill_amount(m3_value)
-        if total is None or m3 is None:
-            return {"status": "error", "message": "Os valores da conta devem ser números maiores ou iguais a zero."}
-        if total > MAX_BILL_TOTAL or m3 > MAX_BILL_M3:
-            return {
-                "status": "error",
-                "message": "Os valores parecem fora do normal para uma conta residencial. Peça ao usuário para conferir.",
-            }
+        error, parsed = validate_last_bill(month, total_value, m3_value, today)
+        if error is not None:
+            return error
+        bill_month, total, m3 = parsed
         proposal = {"month": bill_month.isoformat(), "total_value": float(total), "m3_value": float(m3)}
+        if get_settings().confirmation_interrupt_enabled:
+            # Com a pausa do grafo ligada, quem grava é o código depois do "sim"; a ferramenta só propõe.
+            return {
+                "status": "pending_confirmation",
+                "pending_write": {"kind": "register_last_bill", "params": proposal},
+                "message": "Nada foi gravado. O sistema vai pedir a confirmação ao usuário; não faça a pergunta.",
+            }
         if not confirmed:
             return {
                 "status": "needs_confirmation",
                 "proposal": proposal,
                 "message": "Nada foi gravado. Repita os dados ao usuário e peça uma confirmação explícita (sim ou não).",
             }
-        try:
-            saved = db_postgres.register_last_water_bill(user_id, bill_month, total, m3)
-        except LastWaterBillConflictError:
-            return {
-                "status": "conflict",
-                "message": "Já existe uma conta registrada para esse mês. Alterações de uma conta já registrada são feitas pelo aplicativo.",
-            }
-        except ValueError as exc:
-            return {"status": "error", "message": str(exc)}
-        except DatabaseAccessError:
-            return {
-                "status": "error",
-                "message": "Não foi possível gravar agora. Nada foi registrado; tente novamente.",
-            }
-        return {"status": "ok", "saved": _serialize(saved)}
+        return write_last_bill(user_id, bill_month, total, m3)
 
     tools = [
         check_can_estimate,

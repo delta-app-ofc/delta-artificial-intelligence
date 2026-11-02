@@ -195,6 +195,7 @@ class Settings:
     llm_provider: str = "openai"
     mcp_external_enabled: bool = False
     bill_registration_enabled: bool = False
+    confirmation_interrupt_enabled: bool = False
     mcp_timeout_seconds: float = 45.0
     mcp_cache_ttl_seconds: int = 3600
     obs_support_cost_usd: float = 8.01  # Gartner, 2019: contato atendido por pessoa (telefone, chat, e-mail)
@@ -400,6 +401,7 @@ def load_settings(
         llm_provider=(values.get("LLM_PROVIDER", Settings.llm_provider) or "").casefold(),
         mcp_external_enabled=(values.get("MCP_EXTERNAL_ENABLED") or "false").casefold() == "true",
         bill_registration_enabled=(values.get("BILL_REGISTRATION_ENABLED") or "false").casefold() == "true",
+        confirmation_interrupt_enabled=(values.get("CONFIRMATION_INTERRUPT_ENABLED") or "false").casefold() == "true",
         mcp_timeout_seconds=parsed_numbers["MCP_TIMEOUT_SECONDS"],
         mcp_cache_ttl_seconds=parsed_numbers["MCP_CACHE_TTL_SECONDS"],
         openai_fast_reasoning_effort=(
@@ -442,6 +444,11 @@ def load_settings(
             (("BILL_REGISTRATION_ENABLED", "use true ou false"),)
             if "BILL_REGISTRATION_ENABLED" in values
             and (values["BILL_REGISTRATION_ENABLED"] or "").casefold() not in {"true", "false"}
+            else ()
+        ) + (
+            (("CONFIRMATION_INTERRUPT_ENABLED", "use true ou false"),)
+            if "CONFIRMATION_INTERRUPT_ENABLED" in values
+            and (values["CONFIRMATION_INTERRUPT_ENABLED"] or "").casefold() not in {"true", "false"}
             else ()
         ),
         obs_support_cost_usd=parsed_numbers["OBS_SUPPORT_COST_USD"],

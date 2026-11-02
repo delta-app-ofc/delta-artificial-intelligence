@@ -7,8 +7,10 @@ from decimal import Decimal
 from unittest.mock import MagicMock, patch
 
 import psycopg2.errors
+from langchain_core.messages import AIMessage
 
 from app.agents.forecast import ForecastAgent
+from app.graph import router
 from app.config import get_settings
 from app.data import db_postgres
 from app.tools.exceptions import DatabaseConnectionError, LastWaterBillConflictError
@@ -196,6 +198,37 @@ class AgentWiringTest(unittest.TestCase):
         names, prompt = self._run(enabled=False)
         self.assertNotIn("register_last_bill", names)
         self.assertNotIn("CADASTRO DA ÚLTIMA CONTA", prompt)
+
+
+class RouterHintTest(unittest.TestCase):
+    def _classify(self, enabled, access_kind="residential"):
+        seen = []
+
+        class FakeLLM:
+            def invoke(self, messages):
+                seen.append(messages)
+                return AIMessage(content='{"intent": "bill_registration", "complexity": "simple", "agents": ["forecast"]}')
+
+        with (
+            patch("app.graph.router.get_settings") as settings,
+            patch("app.services.llms.llm_rapido", FakeLLM()),
+        ):
+            settings.return_value.bill_registration_enabled = enabled
+            decision = router.classify("registre minha conta", {"access_kind": access_kind, "recent_messages": []})
+        return seen[0][0].content, decision
+
+    def test_hint_routes_registration_to_forecast_only_when_enabled(self):
+        prompt, decision = self._classify(enabled=True)
+        self.assertIn("Cadastro da conta de água", prompt)
+        self.assertEqual(decision.agents, ["forecast"])
+
+    def test_disabled_flag_leaves_the_router_prompt_unchanged(self):
+        prompt, _ = self._classify(enabled=False)
+        self.assertNotIn("Cadastro da conta de água", prompt)
+
+    def test_organization_accounts_do_not_get_the_hint(self):
+        prompt, _ = self._classify(enabled=True, access_kind="organizational")
+        self.assertNotIn("Cadastro da conta de água", prompt)
 
 
 if __name__ == "__main__":
