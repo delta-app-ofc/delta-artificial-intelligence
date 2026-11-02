@@ -21,7 +21,7 @@ class ConsumptionAgentSmokeTest(unittest.TestCase):
                 side_effect=[initial_tools, run_tools],
             ) as build_tools,
             patch(
-                "app.agents.consumption.consumo_prompt_completo",
+                "app.agents.consumption.full_consumption_prompt",
                 return_value="prompt de consumo",
             ) as build_prompt,
             patch("app.agents.consumption.run_agent", return_value=expected) as run_agent,

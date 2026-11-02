@@ -5,7 +5,7 @@ from decimal import Decimal
 from unittest.mock import MagicMock, patch
 
 from app.graph import synthesis
-from app.services.prompts import ROUTER_PROMPT, SYNTHESIS_PROMPT, habitos_prompt_completo
+from app.services.prompts import ROUTER_PROMPT, SYNTHESIS_PROMPT, full_habits_prompt
 from app.tools.exceptions import RegionRateNotFound
 from app.tools.habits import tools as habit_tools
 from app.tools.habits.tools import parse_frequency
@@ -88,7 +88,7 @@ class HypotheticalSimulationTest(unittest.TestCase):
 
 class PromptContractTest(unittest.TestCase):
     def test_habits_prompt_allows_simulation_without_registration(self):
-        prompt = habitos_prompt_completo()
+        prompt = full_habits_prompt()
         self.assertIn("estimate_habit_water_cost", prompt)
         self.assertIn("Simulação não é cadastro", prompt)
         self.assertIn("simular NUNCA chama `create_habit`", prompt)

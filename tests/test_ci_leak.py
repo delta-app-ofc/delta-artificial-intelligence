@@ -19,7 +19,7 @@ class LeakAgentSmokeTest(unittest.TestCase):
         with (
             patch("app.agents.leak.build_tools", return_value=tools),
             patch(
-                "app.agents.leak.vazamento_prompt_completo",
+                "app.agents.leak.full_leak_prompt",
                 return_value="prompt de vazamento",
             ),
             patch("app.agents.leak.run_agent", return_value=expected) as run_agent,

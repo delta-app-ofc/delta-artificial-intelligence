@@ -69,7 +69,7 @@ OFENSIVO  - xingamentos, assédio ou discurso de ódio
 PERIGOSO  - instruções que causam dano físico, psicológico ou coletivo
 ILICITO   - pedido de auxílio para atividades ilegais ou fraudulentas
 
-Mensagem: {mensagem}
+Mensagem: {message}
 """
 
 _BLOCK_RESPONSES: dict[str, tuple[str, str]] = {
@@ -134,7 +134,7 @@ def classify_input(anonymized: str) -> dict | None:
         if llm_rapido is None:
             raise ConfigurationError("Configure o provedor de linguagem selecionado para o guardrail de entrada.")
         raw = _message_text(llm_rapido.invoke(
-            [HumanMessage(content=_PROMPT_CLASSIFIER.format(mensagem=anonymized))]
+            [HumanMessage(content=_PROMPT_CLASSIFIER.format(message=anonymized))]
         ))
         category = "APROVADO"
         for line in raw.splitlines():

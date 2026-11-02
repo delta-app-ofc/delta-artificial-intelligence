@@ -19,7 +19,7 @@ class HabitsAgentSmokeTest(unittest.TestCase):
         with (
             patch("app.agents.habits.build_tools", return_value=tools) as build_tools,
             patch(
-                "app.agents.habits.habitos_prompt_completo",
+                "app.agents.habits.full_habits_prompt",
                 return_value="prompt de hábitos",
             ),
             patch("app.agents.habits.run_agent", return_value=expected) as run_agent,

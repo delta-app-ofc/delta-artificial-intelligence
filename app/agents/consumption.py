@@ -6,7 +6,7 @@ from datetime import datetime, timezone
 from typing import Any, Callable
 
 from app.agents._runtime import AgentResult, run_agent
-from app.services.prompts import consumo_prompt_completo, profile_block
+from app.services.prompts import full_consumption_prompt, profile_block
 from app.tools.consumption.analysis import DEFAULT_TIMEZONE
 from app.tools.consumption.tools import build_tools
 
@@ -65,7 +65,7 @@ class ConsumptionAgent:
         )
         return run_agent(
             llm=self.llm,
-            system_prompt=consumo_prompt_completo(
+            system_prompt=full_consumption_prompt(
                 now=run_now,
                 timezone_name=self.timezone_name,
             ) + profile_block(self.access_kind),
