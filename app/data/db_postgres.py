@@ -257,6 +257,23 @@ def get_last_water_bill(user_id: int) -> LastWaterBill | None:
     )
 
 
+def is_user_active(user_id: int) -> bool:
+    """True só se o usuário existe e está ativo (tb_user.is_active), a mesma regra do back-end.
+
+    Uma consulta indexada pela chave primária, na conexão que já está no pool.
+    """
+    try:
+        with _cursor() as cur:
+            cur.execute("SELECT fn_user_is_active(%s);", (user_id,))
+            row = cur.fetchone()
+    except DatabaseQueryError as exc:
+        # fn_user_is_active levanta uma exceção (P0001) quando o usuário não existe.
+        if exc.code == "P0001":
+            return False
+        raise
+    return bool(row and row[0])
+
+
 def get_user_access_kind(user_id: int) -> Literal["residential", "organizational", "none"]:
     """Resolve como o usuário se relaciona com propriedades.
 
@@ -525,6 +542,40 @@ def create_habit(
         "start_time": start_time,
         "end_time": end_time,
     }
+
+
+def get_investment_scenarios(user_id: int) -> list[dict]:
+    """Cenários de investimento do catálogo (sem organização) e os das organizações do usuário.
+
+    Cada item tem: name, investment_value, reduction_pct, annual_savings_value, payback_months
+    (pode ser None) e description (pode ser None); valores numéricos como float.
+    """
+    with _cursor() as cur:
+        cur.execute(
+            """
+            SELECT s.name, s.investment_value, s.reduction_pct, s.annual_savings_value,
+                   s.payback_months, s.description
+              FROM tb_investment_scenario s
+             WHERE s.organization_id IS NULL
+                OR s.organization_id IN (
+                       SELECT organization_id FROM tb_user_organization WHERE user_id = %s
+                   )
+             ORDER BY s.payback_months NULLS LAST, s.name;
+            """,
+            (user_id,),
+        )
+        rows = cur.fetchall()
+    return [
+        {
+            "name": name,
+            "investment_value": float(value),
+            "reduction_pct": float(reduction),
+            "annual_savings_value": float(savings),
+            "payback_months": float(payback) if payback is not None else None,
+            "description": description,
+        }
+        for name, value, reduction, savings, payback, description in rows
+    ]
 
 
 def get_organization_effective_rate(
