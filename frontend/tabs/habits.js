@@ -15,7 +15,7 @@ export default {
   ],
   mode: 'agent',
   notes: [
-    'Esta prévia consulta o usuário fixo 12345679 e usa o rótulo de teste teste_agentes_25_10; os resultados dependem dos dados disponíveis para essa conta.',
+    'Esta prévia consulta o usuário fixo 123456789 e usa o rótulo de teste teste_agentes_25_10; os resultados dependem dos dados disponíveis para essa conta.',
     'A consulta de hábitos está disponível para contas residenciais. A frequência e os dias cadastrados descrevem a rotina informada, não comprovam quando a atividade ocorreu.',
     'As estimativas usam médias de referência para os hábitos do catálogo. Não são medições do hidrômetro nem consumo observado da conta.',
     'O catálogo inclui banho longo, lavar quintal, lavar roupa, regar plantas, lavar carro e lavar louça.',

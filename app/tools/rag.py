@@ -2,9 +2,10 @@
 
 import logging
 from time import perf_counter
-from typing import Callable, TypeVar
+from typing import Annotated, Callable, TypeVar
 
 from langchain_core.tools import tool
+from pydantic import Field
 
 from app.config import get_settings
 from app.observability.diagnostics import component, current_trace, public_data
@@ -77,7 +78,10 @@ def _run_phase(phase: str, action: Callable[[], _T]) -> _T:
 
 
 @tool
-def search_knowledge_base(question: str) -> dict:
+def search_knowledge_base(
+    question: Annotated[str, Field(min_length=1, max_length=2000)],
+    top_k: Annotated[int, Field(ge=1, le=20)] = 3,
+) -> dict:
     """Busca explicações sobre o produto Delta na documentação oficial.
 
     Use para dúvidas de cadastro, vínculo de equipamento, indicadores, metas,
@@ -127,7 +131,7 @@ def search_knowledge_base(question: str) -> dict:
         results = _run_phase(
             "search",
             lambda: search_document(
-                document, question, client=client, embeddings=embeddings,
+                document, question, client=client, embeddings=embeddings, top_k=top_k,
             ),
         )
         phase = "format_results"
@@ -136,7 +140,10 @@ def search_knowledge_base(question: str) -> dict:
             chunks = []
             for result in results:
                 location = " > ".join(result["headings"])
-                citation = f"{location} (linhas {result['start_line']}-{result['end_line']})"
+                citation = (
+                    f"{result['source']} > {location} "
+                    f"(revisão {result['revision']}; linhas {result['start_line']}-{result['end_line']})"
+                )
                 chunks.append({**result, "citation": citation})
             return chunks
 

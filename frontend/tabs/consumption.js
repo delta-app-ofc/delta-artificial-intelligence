@@ -15,7 +15,7 @@ export default {
   ],
   mode: 'agent',
   notes: [
-    'As consultas usam o usuário de teste 12345679 e a etiqueta de teste teste_agentes_25_10; os resultados dependem dos registros disponíveis nas fontes configuradas.',
+    'As consultas usam o usuário de teste 123456789 e a etiqueta de teste teste_agentes_25_10; os resultados dependem dos registros disponíveis nas fontes configuradas.',
     'Na residência, as janelas armazenadas são agrupadas pelo dia local em que começaram. Para organizações, a fonte oferece consolidados diários por unidade autorizada.',
     'A cobertura não é garantida: dias sem registro ficam sem preenchimento e a média considera apenas dias com registros. O dia atual e as bordas do período podem estar parciais.',
     'Picos são diários; a fonte organizacional não fornece picos por hora nem o horário da última atualização.',

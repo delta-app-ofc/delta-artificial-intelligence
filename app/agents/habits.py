@@ -29,10 +29,13 @@ class HabitsAgent:
         revision_feedback: str | None = None,
         revision_context: dict | None = None,
     ) -> AgentResult:
+        # Na revisão do Juiz a gravação já aconteceu (ou não): a nova passada só lê.
+        is_revision = bool(revision_feedback or revision_context)
+        tools = [t for t in self.tools if t.name != "create_habit"] if is_revision else self.tools
         result = run_agent(
             llm=self.llm,
             system_prompt=habitos_prompt_completo() + profile_block(self.access_kind),
-            tools=self.tools,
+            tools=tools,
             question=question,
             revision_feedback=revision_feedback,
             revision_context=revision_context,

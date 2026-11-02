@@ -123,6 +123,59 @@ no Qdrant. A busca usa `GEMINI_EMBEDDING_MODEL`, vetores de 3072 dimensões
 e filtros de fonte, revisão do documento e modelo. O agente recebe trechos
 com capítulos, subtópicos e linhas para citar nas respostas.
 
+### Conhecimento externo via MCP
+
+O `RagAgent` também oferece `search_external_knowledge` para orientações gerais
+sobre conservação e uso consciente da água. O cliente inicia um servidor MCP
+local via stdio, que lê somente artigos públicos cadastrados em
+`app/integrations/mcp/sources.py`. Não há porta HTTP nem URL livre escolhida pelo
+modelo. Perguntas, histórico, dados da conta e chaves do backend não são enviados
+à fonte pública. A dependência `mcp>=2.2,<3` fornece o protocolo.
+
+Habilite `MCP_EXTERNAL_ENABLED=true`; timeout total e cache dos textos usam
+`MCP_TIMEOUT_SECONDS=45` e `MCP_CACHE_TTL_SECONDS=3600`. O cache é por processo,
+limitado ao catálogo, e não serve conteúdo vencido quando a fonte falha.
+Para testar apenas MCP e a página pública, sem embeddings ou banco:
+
+```powershell
+python -m scripts.check_mcp --all
+```
+
+Esse diagnóstico acessa a internet e pode ser executado mesmo com a consulta
+externa desabilitada no chatbot. A busca vetorial exige a mesma configuração
+Gemini/Qdrant da base local. As fontes externas são indexadas separadamente por
+fonte, revisão e modelo, sem alterar a coleção de memória. O resultado oferece
+top-k de 1 a 20, filtros exatos `topic`/`source_id`, URL, título, publicação,
+coleta e linhas do texto extraído normalizado. Artigos públicos não comprovam
+dados da conta nem definem funcionalidades do Delta.
+
+O agente preserva os trechos nas evidências do Juiz e monta a lista final de
+fontes a partir das ferramentas. Falhas retornam `unavailable`; filtros sem
+correspondência retornam `insufficient_data`. O catálogo segue as fontes
+propostas no handbook: MIDR/gov.br sobre uso consciente, EPA Start Saving para
+residências e EPA Types of Facilities para instalações comerciais. A fonte geral
+atende os dois perfis; a ferramenta é vinculada ao perfil confiável do backend
+(`residential` ou `organizational`), que o LLM não pode mudar. Chamadas sem perfil
+usam somente a fonte geral. O artigo do Senado foi retirado do catálogo ativo.
+
+O prompt proíbe recomendações ou promoção de programas, selos, produtos e
+campanhas WaterSense, mantendo a citação da URL original da EPA. As orientações
+devem ser adequadas ao perfil e à instalação, com resposta em português. As
+páginas educativas não comprovam tarifas vigentes, normas brasileiras ou dados
+da conta; a ausência de fonte tarifária deve ser declarada. A publicação da
+página MIDR fica sem data quando não confirmada, sem inventar uma data.
+
+```powershell
+$env:APP_ENV = 'test'
+python -m pytest tests/test_mcp_sources.py tests/test_external_rag.py tests/test_rag_workflow_integration.py -q
+```
+
+Os testes usam protocolo MCP e Qdrant em memória, HTTP e modelos controlados.
+Não medem a qualidade semântica do Gemini nem validam o Qdrant remoto.
+A2A está fora do escopo por decisão de negócio em 01/11/2026.
+Contrato, operação e critérios de aceite estão no
+[guia MCP/RAG do handbook](https://github.com/delta-app-ofc/delta-handbook/blob/docs/mcp-fontes-externas-rag/IA/mcp-fontes-externas-rag.md).
+
 ### Indexação automática antes da consulta
 
 A coleção `rag_documents` precisa existir no Qdrant, com vetores de 3072 dimensões.
@@ -426,10 +479,29 @@ python -m uvicorn app.main:app --host 127.0.0.1 --port 8000
 ~~~
 
 Acesse **http://127.0.0.1:8000/playground/**. O console usa o
-**user_id 12345679** e o nome de teste **teste_agentes_25_10**, definidos no
+**user_id 123456789** e o nome de teste **teste_agentes_25_10**, definidos no
 servidor. Ele não cadastra esse usuário ou dados de exemplo e não oferece
 configuração de perfil. O usuário precisa existir e ter os vínculos/dados
 necessários nos bancos configurados.
+
+A preparação manual do usuário de teste e a migração dos registros do ID anterior
+estão no [guia do usuário do playground](docs/playground-test-user.md), com um
+script PostgreSQL e dois scripts mongosh para as conexões de app e telemetria.
+Eles não são executados automaticamente pela API.
+
+Na branch do MCP, a aba **RAG** também resolve o perfil desse usuário no backend
+antes de construir o especialista. Para testar as fontes externas, habilite
+`MCP_EXTERNAL_ENABLED=true` no processo que executa o playground, além das
+configurações de geração, Gemini embeddings e Qdrant. A seleção entre EPA
+residencial e comercial usa esse perfil real; escrever outro perfil na pergunta
+não o substitui. Perfil desconhecido não libera uma fonte específica.
+
+Exemplos para a aba RAG: “Quais práticas de uso consciente são recomendadas pelas
+fontes públicas para o perfil da minha conta?” e “Essas fontes informam uma
+tarifa vigente para calcular minha conta?”. Confira `search_external_knowledge`
+no painel de ferramentas e as URLs dos trechos. Para testar a revisão pelo Juiz,
+use **Chat completo** ou **Juiz**; a aba RAG isolada executa o especialista e
+os guardrails.
 
 - **Chat completo:** guardrails, contexto, roteador e especialistas reais,
   com persistência da conversa no MongoDB. Falha de persistência preserva a
@@ -590,11 +662,27 @@ uvicorn app.main:app --reload
 | GET | `/sessions/{session_id}/messages` | Histórico de uma sessão do usuário |
 | POST | `/sessions/{session_id}/close` | Encerra uma sessão do usuário |
 
-Todas as rotas, exceto `/health` e `/playground`, exigem `Authorization: Bearer <token>`. O token é um JWT
-assinado com HS256 e o segredo `JWT_SECRET` (32 caracteres ou mais), com dois campos: `sub` (o id do usuário,
-inteiro positivo) e `exp` (até quando o token vale). O `user_id` vem só do token; o cliente não o envia. Sem
-`JWT_SECRET` configurado, as rotas respondem 503, e token ausente, inválido ou expirado responde 401. O
-back-end ainda precisa emitir esse token.
+Todas as rotas, exceto `/health` e `/playground`, exigem `Authorization: Bearer <token>`. **Quem emite o token é o
+back-end** (`delta-api-postgres`, `POST /delta/auth/login`); a IA só o confere, sem emitir nada.
+
+- **O token do back-end:** JWT assinado com **RS256** (chave privada dele), válido por 15 minutos. O cabeçalho traz
+  `kid`; os campos são `sub` (o id do usuário em `tb_user`, inteiro positivo), `iss`, `aud` e `exp`.
+- **O que a IA confere** com a **chave pública** do back-end (`AUTH_PUBLIC_KEY`, caminho do PEM com ou sem
+  `file:`, ou o próprio texto PEM; RSA de 2048 bits ou mais): assinatura, `exp`, `iss` (`AUTH_ISSUER`), `aud`
+  (`AUTH_AUDIENCE`), `kid` (`AUTH_KEY_ID`) e `sub`. Os padrões (`delta-api`, `delta-api`, `delta-1`) são os do back-end.
+- **Usuário ativo:** com `AUTH_CHECK_ACTIVE=true` (padrão), cada requisição confere em `tb_user` se o usuário existe e
+  está ativo (`fn_user_is_active`), como o back-end faz. É uma consulta pela chave primária na conexão do pool, cerca
+  de 5 ms contra os 8 a 12 s de uma resposta do chat. Inativo ou inexistente responde o mesmo 401; se o banco não
+  responder, a requisição é bloqueada com 503, sem detalhes.
+- **Respostas:** token ausente, inválido, vencido, de outro emissor ou de outro destinatário, ou `sub` fora do padrão, é
+  **401** (a mesma mensagem para todos os casos). Sem chave pública configurada, é **503**.
+- **Só desenvolvimento e teste:** sem `AUTH_PUBLIC_KEY`, o `JWT_SECRET` (32 caracteres ou mais) habilita um token
+  HS256 com `sub` e `exp`. **Nunca valem os dois ao mesmo tempo** (com a chave pública definida o segredo é ignorado)
+  e o HS256 é recusado em `staging` e `production`. O algoritmo é escolhido pela configuração, nunca pelo token, o
+  que bloqueia o ataque de "confusão de algoritmo".
+
+O `user_id` vem só do token; o cliente não o envia. O app faz o login no back-end, guarda o `accessToken` e o envia
+em cada chamada à IA; quando ele vence, renova no back-end (`/delta/auth/refresh`) e tenta de novo.
 
 `POST /chat` aceita `{"message": "Quanto consumi?"}` (e `session_id` para continuar uma conversa existente;
 ids que o servidor não devolveu retornam 404) e devolve
