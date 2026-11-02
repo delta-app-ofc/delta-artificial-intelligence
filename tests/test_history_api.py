@@ -13,12 +13,12 @@ from app.memory import session as memory
 from app.routes import chat as chat_route
 from app.routes import sessions as sessions_route
 from app.services import session_meta
-from tests.conftest import JWT_SECRET, auth_header, make_token
+from tests.conftest import JWT_SECRET, auth_header, auth_settings, make_token
 
 
 @pytest.fixture
 def client(mongo_db, monkeypatch):
-    monkeypatch.setattr("app.auth.get_settings", lambda: SimpleNamespace(jwt_secret=JWT_SECRET))
+    monkeypatch.setattr("app.auth.get_settings", lambda: auth_settings(jwt_secret=JWT_SECRET))
 
     def fake_workflow(user_id, session_id, question):
         memory.append_turn(session_id, user_id, "human", question)
@@ -84,10 +84,10 @@ def test_rejects_invalid_tokens(client):
 
 
 def test_secret_not_configured_blocks_every_request(client, monkeypatch):
-    monkeypatch.setattr("app.auth.get_settings", lambda: SimpleNamespace(jwt_secret=None))
+    monkeypatch.setattr("app.auth.get_settings", lambda: auth_settings(jwt_secret=None))
     assert client.get("/sessions", headers=auth_header(7)).status_code == 503
 
-    monkeypatch.setattr("app.auth.get_settings", lambda: SimpleNamespace(jwt_secret="curto"))
+    monkeypatch.setattr("app.auth.get_settings", lambda: auth_settings(jwt_secret="curto"))
     assert client.get("/sessions", headers=auth_header(7)).status_code == 503
 
 

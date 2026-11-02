@@ -14,7 +14,7 @@ export default {
   ],
   mode: 'agent',
   notes: [
-    'Esta prévia usa os dados reais do usuário fixo 12345679; as respostas dependem do cadastro e dos dados disponíveis para ele.',
+    'Esta prévia usa os dados reais do usuário fixo 123456789; as respostas dependem do cadastro e dos dados disponíveis para ele.',
     'Projeções e valores de conta são estimativas calculadas pelo backend; dados insuficientes podem limitar ou impedir o cálculo.',
     'O risco em relação à meta só pode ser avaliado se houver uma meta diária cadastrada. Identifique a validação manual com o rótulo teste_agentes_25_10.',
   ],

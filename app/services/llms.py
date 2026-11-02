@@ -296,7 +296,7 @@ def _get_llm_openai(
                 timeout=current.llm_timeout_seconds,
                 max_retries=current.llm_max_retries,
                 max_tokens=current.llm_max_output_tokens,
-                callbacks=[ModelDiagnostics("openai", current.openai_model)],
+                callbacks=[ModelDiagnostics("openai", current.openai_model, effort)],
             )
         return _OPENAI_MODELS[key]
 

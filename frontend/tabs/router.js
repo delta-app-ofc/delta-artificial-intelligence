@@ -17,7 +17,7 @@ export default {
   notes: [
     'Esta aba envia a pergunta a /playground/router. O backend valida a entrada, prepara o contexto disponível e usa o modelo real do roteador para classificar a pergunta.',
     'Os agentes listados como selecionados representam a classificação; nenhum especialista é executado nesta aba. Use Chat completo para acompanhar a execução dos agentes e ferramentas.',
-    'A execução usa o usuário fixo 12345679 e a etiqueta teste_agentes_25_10. As respostas dependem das integrações reais configuradas; esta prévia não usa mocks.',
+    'A execução usa o usuário fixo 123456789 e a etiqueta teste_agentes_25_10. As respostas dependem das integrações reais configuradas; esta prévia não usa mocks.',
     'O roteador atende perguntas sobre o Delta e monitoramento de água. Perguntas fora desse escopo devem ficar sem agentes; esta aba não oferece aconselhamento financeiro.',
   ],
 };

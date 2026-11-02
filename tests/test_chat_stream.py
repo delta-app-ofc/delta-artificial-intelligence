@@ -11,7 +11,7 @@ from fastapi.testclient import TestClient
 from app.graph import workflow
 from app.memory import session as memory
 from app.routes import chat as chat_route
-from tests.conftest import JWT_SECRET, auth_header
+from tests.conftest import JWT_SECRET, auth_header, auth_settings
 
 RESPOSTA = "Você consumiu 120 litros."
 
@@ -32,7 +32,7 @@ def eventos_sse(texto: str) -> list[tuple[str, dict]]:
 
 @pytest.fixture
 def client(mongo_db, monkeypatch):
-    monkeypatch.setattr("app.auth.get_settings", lambda: SimpleNamespace(jwt_secret=JWT_SECRET))
+    monkeypatch.setattr("app.auth.get_settings", lambda: auth_settings(jwt_secret=JWT_SECRET))
     app = FastAPI()
     app.include_router(chat_route.router)
     return TestClient(app)
@@ -80,7 +80,7 @@ def test_etapas_vem_antes_do_resultado_e_a_resposta_so_no_fim(client, monkeypatc
     assert RESPOSTA not in resposta.text.split("event: result")[0]
     resultado = eventos[-1][1]
     assert resultado["response"] == RESPOSTA
-    assert resultado["agents_used"] == ["consumption"]
+    assert "agents_used" not in resultado
     assert resultado["chart_data"] is None
     assert memory.session_belongs_to_user(7, resultado["session_id"])
 
