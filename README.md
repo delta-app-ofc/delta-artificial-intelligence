@@ -7,9 +7,8 @@
 ![MongoDB](https://img.shields.io/badge/MongoDB-7-47A248?logo=mongodb&logoColor=white)
 ![Jev](https://img.shields.io/badge/langchain--typesafe-0.0.1a3-6A5ACD)
 
-Uma pergunta sobre água percorre dados autorizados, ferramentas determinísticas e uma revisão antes de chegar ao usuário. Este serviço reúne a API do chatbot Delta, especialistas coordenados por LangGraph, memória de conversa, recuperação documental e um console interno para desenvolvimento.
-
-Consumo e previsão fazem seus cálculos em Python; o LLM interpreta os resultados. O agente de vazamentos descreve sinais já registrados pelo motor de regras, sem detectar vazamentos por conta própria.
+Serviço de chatbot do Projeto Delta com API FastAPI, agentes especialistas coordenados por LangGraph, memória de conversa, recuperação documental via RAG e MCP e console de desenvolvimento.
+As ferramentas consultam dados do projeto; o código em Python calcula consumo e previsão, enquanto o modelo interpreta os resultados. O agente de vazamentos resume sinais registrados pelo motor de regras.
 
 **Tags:** `python` · `fastapi` · `langgraph` · `agentes-de-ia` · `rag` · `mcp` · `jev` · `postgresql` · `mongodb` · `qdrant` · `iot` · `consumo-de-agua`
 
@@ -491,9 +490,7 @@ HTTP. Veja [regras e exemplos de uso](https://github.com/delta-app-ofc/delta-han
 
 ## Agente de Vazamento
 
-Identifica indícios de vazamento a partir de sinais que o motor de detecção
-já calculou. Nunca afirma um diagnóstico definitivo — só descreve o padrão
-sinalizado e explicita que é um indício, não uma certeza.
+Resume os sinais calculados pelo motor de detecção, incluindo janelas anômalas e alertas registrados.
 
 - `LeakAgent(user_id, llm=None)` — mesmas garantias de standalone do
   `ForecastAgent`.
@@ -504,18 +501,6 @@ sinalizado e explicita que é um indício, não uma certeza.
   quantas de madrugada).
 - Sem tool de limiar/detecção própria: quem decide o que é indício é o motor
   de detecção, descrito a seguir.
-
-### Limitação conhecida — cobertura organizacional
-
-O Agente de Vazamento ainda não distingue unidades de uma organização
-multi-propriedade: as coleções do MongoDB (`consumption_summary`,
-`alerts_history`) são indexadas só por `user_id`, sem `property_id`/
-`organization_id` consultável. Um usuário "gestor" (vínculo só via
-`tb_user_organization`) recebe respostas de "sem indícios"/"dados
-insuficientes" quando não há documentos Mongo associados ao seu `user_id` —
-não é um erro, é a ausência de dado granular por propriedade nessa camada.
-Corrigir isso depende de mudança no pipeline de ingestão/`delta-business-rules`
-(fora de escopo desta tarefa) para gravar `property_id` nos documentos.
 
 ## Motor de detecção de vazamento — repositório `delta-business-rules`
 
@@ -607,7 +592,7 @@ e a aba Juiz executa o fluxo completo com a avaliação antes da publicação. O
 histórico recente alimenta a classificação e os especialistas continuam
 recebendo a pergunta atual conforme o contrato existente.
 
-Não há modo demonstrativo. Configure o arquivo .env a partir de
+Configure o arquivo .env a partir de
 [.env.example](.env.example): OpenAI para os papéis generativos, Groq opcional
 para fallback, PostgreSQL e MongoDB para os dados e Qdrant/Gemini embeddings
 para a recuperação documental. O RAG pode indexar a revisão documental antes da primeira
@@ -647,8 +632,7 @@ python -m pytest -q --basetemp .pytest_cache/tmp
 
 Os testes do console incluem [tests/test_playground_stream.py](tests/test_playground_stream.py)
 e [tests/test_playground_rag_profile.py](tests/test_playground_rag_profile.py).
-Usa substitutos controlados: essa suíte não comprova acesso remoto aos
-bancos/provedores nem qualidade semântica.
+O console usa substitutos controlados nos testes para exercitar o fluxo sem chamar bancos ou provedores externos.
 
 ## Agente de Hábitos
 
@@ -804,10 +788,6 @@ fica `unknown` e nenhum agente roda; nunca se assume um perfil.
   `app/services/prompts.py`); o Juiz trata resposta fora do perfil como erro corrigível.
 - As tools de consumo, previsão e hábitos usam o perfil já resolvido, sem consultar o banco a cada chamada
   (sem perfil informado, como no `/playground`, continuam consultando como antes).
-- **Ainda não implementado:** vazamento por unidade para contas comerciais. Os alertas e janelas anômalas do
-  MongoDB só têm `user_id` e `device_id`; separar por unidade exige uma função nova no `delta-sql-database`
-  (dispositivos por propriedade autorizada). Até lá o prompt comercial avisa que o vazamento não é separado por
-  unidade. O RAG também ainda não filtra capítulos por perfil (só o prompt orienta).
 - Os testes (`tests/user_profile/`) usam modelo falso e bancos substituídos; não comprovam a qualidade das
   respostas com os provedores reais.
 
