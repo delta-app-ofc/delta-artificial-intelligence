@@ -49,6 +49,7 @@ _TOOL_LABELS = {
     "list_habits": "Lendo os seus hábitos",
     "get_habits_by_day": "Lendo os hábitos do dia",
     "create_habit": "Preparando o cadastro do hábito para validação",
+    "register_last_bill": "Registrando a conta de água",
     "estimate_habit_water_impact": "Estimando o impacto do hábito",
     "estimate_habit_water_cost": "Estimando o custo do hábito",
     "get_weather_history": "Consultando o clima",

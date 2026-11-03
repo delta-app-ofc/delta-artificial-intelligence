@@ -3,7 +3,8 @@ from __future__ import annotations
 from typing import Any
 
 from app.agents._runtime import AgentResult, run_agent
-from app.services.prompts import full_habits_prompt, profile_block
+from app.config import get_settings
+from app.services.prompts import HABIT_REGISTRATION_INTERRUPT_PROMPT, full_habits_prompt, profile_block
 from app.tools.charts import build_habits_chart
 from app.tools.habits.tools import build_tools
 
@@ -29,11 +30,17 @@ class HabitsAgent:
         revision_feedback: str | None = None,
         revision_context: dict | None = None,
     ) -> AgentResult:
+        is_revision = bool(revision_feedback or revision_context)
+        interrupt = get_settings().confirmation_interrupt_enabled
+        # Com a pausa ligada a gravação já ocorreu; sem ela, create_habit só prepara a ação.
+        tools = [t for t in self.tools if t.name != "create_habit"] if is_revision and interrupt else self.tools
+        prompt = full_habits_prompt() + profile_block(self.access_kind)
+        if not is_revision and interrupt:
+            prompt += "\n\n" + HABIT_REGISTRATION_INTERRUPT_PROMPT
         result = run_agent(
             llm=self.llm,
-            system_prompt=full_habits_prompt() + profile_block(self.access_kind),
-            # create_habit apenas prepara a ação; o grafo grava depois da aprovação.
-            tools=self.tools,
+            system_prompt=prompt,
+            tools=tools,
             question=question,
             revision_feedback=revision_feedback,
             revision_context=revision_context,

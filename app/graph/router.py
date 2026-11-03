@@ -5,11 +5,11 @@ from typing import Literal
 
 from pydantic import BaseModel
 
-from app.config import ConfigurationError
+from app.config import ConfigurationError, get_settings
 from app.agents._runtime import _message_text
 from app.observability.diagnostics import current_trace
 from app.graph.profile import allowed_agents
-from app.services.prompts import ROUTER_PROMPT, profile_block
+from app.services.prompts import BILL_ROUTING_HINT, ROUTER_PROMPT, profile_block
 
 AGENT_REGISTRY: dict[str, str] = {
     "consumption": "app.agents.consumption.ConsumptionAgent",
@@ -57,6 +57,8 @@ def classify(question: str, context: dict) -> RoutingDecision:
             raise ConfigurationError("Configure o provedor de linguagem selecionado para o roteador.")
         access_kind = context.get("access_kind")
         system_prompt = ROUTER_PROMPT + profile_block(access_kind)
+        if get_settings().bill_registration_enabled and access_kind != "organizational":
+            system_prompt += BILL_ROUTING_HINT
         allowed = allowed_agents(access_kind)
         if allowed is not None:
             system_prompt += (

@@ -6,8 +6,9 @@ from datetime import date
 
 from langchain_core.tools import BaseTool, tool
 
+from app.config import get_settings
 from app.data import db_mongo, db_postgres
-from app.tools.exceptions import DatabaseAccessError, RegionRateNotFound
+from app.tools.exceptions import DatabaseAccessError, HabitConflictError, RegionRateNotFound
 from app.tools.habits.calculations import LITERS_PER_SESSION, WEEKS_PER_MONTH, estimate_habit_cost
 from app.tools.habits.names import CATALOG_NAMES, resolve_habit_name
 from app.tools.validation import validate_user_id
@@ -115,6 +116,95 @@ _NOT_RESIDENTIAL = {
 }
 
 
+def prepare_habit(
+    name: str,
+    frequency: int | None = None,
+    days: list[str] | None = None,
+    start_time: str | None = None,
+    end_time: str | None = None,
+) -> dict:
+    """Valida e normaliza o cadastro sem gravar; também é usada ao confirmar a proposta."""
+    if (not isinstance(name, str)
+        or (frequency is not None and (type(frequency) is not int))
+        or (days is not None and (not isinstance(days, list) or not all(isinstance(day, str) for day in days)))
+        or (start_time is not None and not isinstance(start_time, str))
+        or (end_time is not None and not isinstance(end_time, str))):
+        return {"status": "error", "message": "Os dados do hábito são inválidos. Confira o nome, frequência, dias e horários."}
+    canonical_name, options = resolve_habit_name(name)
+    if canonical_name is None:
+        return _habit_name_problem(name, options)
+
+    canonical_days: list[str] = []
+    for d in days or []:
+        cd = normalize_day(d)
+        if cd is None:
+            return {
+                "status": "error",
+                "message": (
+                    f"Dia '{d}' não reconhecido. "
+                    "Use: segunda, terça, quarta, quinta, sexta, sábado ou domingo."
+                ),
+            }
+        if cd not in canonical_days:
+            canonical_days.append(cd)
+
+    if frequency is None:
+        if not canonical_days:
+            return {
+                "status": "needs_frequency",
+                "message": "Informe quantas vezes por semana (ou em quais dias) o hábito acontece.",
+            }
+        frequency = len(canonical_days)
+    if frequency < 1:
+        return {
+            "status": "error",
+            "message": "A frequência deve ser pelo menos 1 vez por semana.",
+        }
+    if len(canonical_days) > frequency:
+        return {
+            "status": "needs_clarification",
+            "message": (
+                f"Foram informados {len(canonical_days)} dias para {frequency} vez(es) por "
+                "semana. Qual é a frequência correta?"
+            ),
+        }
+
+    start = end = None
+    if bool(start_time) != bool(end_time):
+        return {"status": "error", "message": "Informe o horário de início e o de fim, ou nenhum dos dois."}
+    if start_time and end_time:
+        start, end = _parse_time(start_time), _parse_time(end_time)
+        if start is None or end is None:
+            return {"status": "error", "message": "Horário inválido. Use o formato HH:MM, por exemplo 18:30."}
+        if end <= start:
+            return {"status": "error", "message": "O horário de fim deve ser depois do início."}
+
+    return {"status": "ready", "params": {
+        "name": canonical_name, "frequency": frequency, "days": canonical_days,
+        "start_time": start, "end_time": end,
+    }}
+
+
+def write_habit(user_id: int, params: dict) -> dict:
+    """Executa o cadastro já validado e mantém as mensagens públicas de erro existentes."""
+    canonical_name, frequency, canonical_days = params["name"], params["frequency"], params["days"]
+    start, end = params["start_time"], params["end_time"]
+    try:
+        result = db_postgres.create_habit(
+            user_id, canonical_name, frequency, canonical_days, start, end
+        )
+    except HabitConflictError as exc:
+        return {"status": "conflict", "message": str(exc)}
+    except ValueError as exc:
+        return {"status": "error", "message": str(exc)}
+    except DatabaseAccessError:
+        return {
+            "status": "error",
+            "message": "Não foi possível gravar agora. Nada foi cadastrado; tente novamente.",
+        }
+    return {"status": "ok", **result}
+
+
 def build_tools(user_id: int, access_kind: str | None = None) -> list[BaseTool]:
     """Monta as ferramentas de hábitos presas a `user_id` (o modelo nunca o informa); só funcionam
     para conta residencial.
@@ -206,66 +296,19 @@ def build_tools(user_id: int, access_kind: str | None = None) -> list[BaseTool]:
         """
         if not _is_residential():
             return _NOT_RESIDENTIAL
-        canonical_name, options = resolve_habit_name(name)
-        if canonical_name is None:
-            return _habit_name_problem(name, options)
-
-        canonical_days: list[str] = []
-        for d in days or []:
-            cd = normalize_day(d)
-            if cd is None:
-                return {
-                    "status": "error",
-                    "message": (
-                        f"Dia '{d}' não reconhecido. "
-                        "Use: segunda, terça, quarta, quinta, sexta, sábado ou domingo."
-                    ),
-                }
-            if cd not in canonical_days:
-                canonical_days.append(cd)
-
-        if frequency is None:
-            if not canonical_days:
-                return {
-                    "status": "needs_frequency",
-                    "message": "Informe quantas vezes por semana (ou em quais dias) o hábito acontece.",
-                }
-            frequency = len(canonical_days)
-        if frequency < 1:
+        proposal = prepare_habit(name, frequency, days, start_time, end_time)
+        if proposal["status"] != "ready":
+            return proposal
+        if get_settings().confirmation_interrupt_enabled:
             return {
-                "status": "error",
-                "message": "A frequência deve ser pelo menos 1 vez por semana.",
+                "status": "pending_confirmation",
+                "pending_write": {"kind": "create_habit", "params": proposal["params"]},
+                "message": "Nada foi cadastrado. O sistema vai pedir a confirmação; não confirme o cadastro.",
             }
-        if len(canonical_days) > frequency:
-            return {
-                "status": "needs_clarification",
-                "message": (
-                    f"Foram informados {len(canonical_days)} dias para {frequency} vez(es) por "
-                    "semana. Qual é a frequência correta?"
-                ),
-            }
-
-        start = end = None
-        if bool(start_time) != bool(end_time):
-            return {"status": "error", "message": "Informe o horário de início e o de fim, ou nenhum dos dois."}
-        if start_time and end_time:
-            start, end = _parse_time(start_time), _parse_time(end_time)
-            if start is None or end is None:
-                return {"status": "error", "message": "Horário inválido. Use o formato HH:MM, por exemplo 18:30."}
-            if end <= start:
-                return {"status": "error", "message": "O horário de fim deve ser depois do início."}
-
         return {
             "status": "pending_approval",
             "message": "Cadastro preparado para avaliação; ainda não foi gravado.",
-            "action": {
-                "type": "create_habit",
-                "name": canonical_name,
-                "frequency": frequency,
-                "days": canonical_days,
-                "start_time": start,
-                "end_time": end,
-            },
+            "action": {"type": "create_habit", **proposal["params"]},
         }
 
     @tool

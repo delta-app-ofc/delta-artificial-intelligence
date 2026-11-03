@@ -984,6 +984,50 @@ Considere como dados reais somente a solicitação atual e os
 resultados efetivamente retornados pelas ferramentas.
 """
 
+BILL_REGISTRATION_PROMPT = """\
+### CADASTRO DA ÚLTIMA CONTA
+
+Além das ferramentas acima, você tem `register_last_bill`, que registra a conta de
+água de um mês. Use-a somente quando o usuário pedir para registrar, cadastrar ou
+informar a conta. Pedido para ver ou conferir a conta usa `get_last_bill`.
+
+- Precisa de três dados que o usuário disse: o mês (AAAA-MM), o valor total em reais
+  e o consumo em m³. Se faltar algum, pergunte; nunca invente ou estime.
+- Primeira chamada sempre com `confirmed=false`: nada é gravado. Repita mês, valor e
+  consumo ao usuário e pergunte "Posso salvar?".
+- Só chame de novo com `confirmed=true` depois que o usuário responder que sim em uma
+  mensagem posterior. Se ele corrigir um dado ou disser não, não grave.
+- Só diga que a conta foi registrada quando o status for `ok`. Com `conflict`, explique
+  que já existe conta desse mês e que a alteração é feita pelo aplicativo. Com
+  `not_available`, explique que o cadastro é só para contas residenciais.
+"""
+
+
+BILL_ROUTING_HINT = """
+Cadastro da conta de água: pedidos para registrar, cadastrar ou informar a conta de
+água de um mês (valor e consumo em m³) vão para `forecast`, com intent
+`bill_registration`. Só esse agente consegue registrar a conta; `rag` e `consumption`
+não. Se a conversa recente é sobre registrar uma conta e o usuário responde sim ou
+não, ou corrige um dado, mantenha `forecast`.
+"""
+
+BILL_REGISTRATION_INTERRUPT_PROMPT = """\
+### CADASTRO DA ÚLTIMA CONTA
+
+Além das ferramentas acima, você tem `register_last_bill`, que prepara o registro da
+conta de água de um mês. Use-a somente quando o usuário pedir para registrar,
+cadastrar ou informar a conta. Pedido para ver ou conferir a conta usa `get_last_bill`.
+
+- Precisa de três dados que o usuário disse: o mês (AAAA-MM), o valor total em reais
+  e o consumo em m³. Se faltar algum, pergunte; nunca invente ou estime.
+- Chame `register_last_bill` com os três dados. Ela nunca grava: devolve
+  `pending_confirmation` e o SISTEMA pergunta ao usuário se pode salvar. Não escreva
+  pergunta de confirmação nem diga que a conta foi registrada.
+- Com `error`, explique o problema em linguagem simples e peça o dado corrigido. Com
+  `not_available`, explique que o cadastro é só para contas residenciais.
+"""
+
+
 def full_forecast_prompt() -> str:
     return (
         _forecast_prompt()
@@ -1498,3 +1542,13 @@ _PROFILES = {
 def profile_block(access_kind: str | None) -> str:
     """Trecho de prompt do perfil do usuário; vazio quando o perfil não foi informado."""
     return _PROFILES.get(access_kind, "") if access_kind else ""
+
+
+HABIT_REGISTRATION_INTERRUPT_PROMPT = """\
+### CONFIRMAÇÃO DO CADASTRO DE HÁBITO
+Quando o usuário pedir um cadastro, colete os dados essenciais e chame create_habit.
+Com pending_confirmation, a ferramenta NÃO gravou: o sistema pausará o fluxo e
+mostrará a proposta para confirmação. Não diga que cadastrou nem faça outra gravação.
+Se faltar frequência ou houver ambiguidade, pergunte o que falta e não invente dias
+ou horários. Pedidos de consulta e simulação continuam usando apenas leitura e estimativa.
+"""

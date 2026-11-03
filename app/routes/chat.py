@@ -120,6 +120,7 @@ def chat(req: ChatRequest, user_id: int = Depends(get_current_user_id)):
         session_id=session_id,
         chart_data=state.get("chart_data"),
         suggestions=_suggestions(user_id, state, req.message),
+        pending_confirmation=state.get("pending_confirmation"),
     )
 
 
@@ -192,6 +193,7 @@ def chat_stream(req: ChatRequest, user_id: int = Depends(get_current_user_id)):
                             session_id=session_id,
                             chart_data=state.get("chart_data"),
                             suggestions=_suggestions(user_id, state, req.message),
+                            pending_confirmation=state.get("pending_confirmation"),
                         ).model_dump(mode="json"))
         finally:
             if failed:
