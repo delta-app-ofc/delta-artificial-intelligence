@@ -882,6 +882,8 @@ calcula projeção, conta ou tendência por conta própria.
 A fonte da previsão é sempre o histórico de consumo quando houver qualquer leitura,
 mesmo que sejam poucos dias ou consumo zero registrado. Histórico curto exige avisar
 que a projeção é limitada; não autoriza trocar a base pela conta anterior.
+Quando `calculate_forecast` trouxer `scenarios`, apresente a faixa otimista/central/pessimista como
+intervalo estimado (taxa recente ± 1 desvio-padrão), nunca como garantia; sem `scenarios`, não invente faixa.
 Somente se o histórico estiver vazio a última conta pode servir como referência,
 conforme o resultado de `calculate_forecast`. Não misture as duas bases.
 Se houver histórico, mas faltar tarifa, apresente a projeção em litros e explique que

@@ -96,3 +96,26 @@ def test_recorded_zero_is_history_and_does_not_fall_back():
     estimate = estimate_next_bill(history, bill, Decimal("5"), date(2026, 4, 10))
     assert estimate.base == "history_projection"
     assert estimate.estimated_value == Decimal("0.00")
+
+
+def test_scenarios_bracket_central_projection():
+    today = date(2026, 4, 10)
+    history = [_point(date(2026, 4, day), 100 + (20 if day % 2 else -20)) for day in range(1, 11)]
+    from app.tools.forecast.calculations import project_scenarios
+    band = project_scenarios(history, today)
+    assert band.optimistic_liters < band.central_liters < band.pessimistic_liters
+    assert band.sample_days == 10 and band.daily_std_liters > 0
+
+
+def test_scenarios_collapse_when_consumption_is_constant():
+    from app.tools.forecast.calculations import project_scenarios
+    history = [_point(date(2026, 4, day), 100) for day in range(1, 11)]
+    band = project_scenarios(history, date(2026, 4, 10))
+    assert band.optimistic_liters == band.central_liters == band.pessimistic_liters
+
+
+def test_scenarios_absent_with_short_history():
+    from app.tools.forecast.calculations import project_scenarios
+    short = [_point(date(2026, 4, day), 100) for day in range(1, 5)]
+    assert project_scenarios(short, date(2026, 4, 10)) is None
+    assert project_scenarios([], date(2026, 4, 10)) is None
