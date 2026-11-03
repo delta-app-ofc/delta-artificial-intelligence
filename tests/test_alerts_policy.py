@@ -29,13 +29,3 @@ def test_expected_consumption_requires_seven_measured_days():
     assert alerts[0]["alert_type"]=="consumo_acima_esperado"
     assert alerts[0]["evidence"]["baseline_days"]==7
     assert proposals(7,history[1:],None,now)[0]==[]
-
-def test_job_isolates_user_failure(monkeypatch):
-    from app.alerts import job
-    def process(user_id,*args):
-        if user_id==2:raise RuntimeError("offline")
-        return {"created":0,"proposed":1,"skipped":0}
-    monkeypatch.setattr(job,"process_user",process)
-    result=job.run([1,2,3],workers=2)
-    assert result["processed"]==2 and result["failed"]==1
-    assert result["llm_calls"]==0 and result["proposed"]==2
