@@ -210,7 +210,7 @@ def test_mongo_history_uses_utc_half_open_bounds_and_closes_cursor(monkeypatch):
 
     query, max_time_ms = collection.find_args
     assert query == {
-        "user_id": 12,
+        "$or": [{"user_id": 12}, {"user_ids": 12}],
         "window_started_at": {"$gte": start, "$lt": end},
         "window_finished_at": {"$lte": finished_before},
     }

@@ -10,15 +10,22 @@ from __future__ import annotations
 
 import dataclasses
 import logging
+import math
+import re
 from datetime import date
 from decimal import Decimal
 from typing import Any
 
 from langchain_core.tools import BaseTool, tool
 
-from app.config import ConfigurationError
+from app.config import ConfigurationError, get_settings
 from app.data import db_mongo, db_postgres
-from app.tools.exceptions import DatabaseAccessError, DatabaseDataError, RegionRateNotFound
+from app.tools.exceptions import (
+    DatabaseAccessError,
+    DatabaseDataError,
+    LastWaterBillConflictError,
+    RegionRateNotFound,
+)
 from app.tools.forecast import calculations as calc
 from app.tools.habits.calculations import summarize_habit_baseline
 from app.tools.simulation.calculations import simulate_percentage_change
@@ -28,6 +35,68 @@ logger = logging.getLogger(__name__)
 
 # Janela padrão de histórico consultada no MongoDB (dias).
 DEFAULT_HISTORY_DAYS = 45
+
+# Limites de bom senso para o cadastro da conta (pegam erro de digitação, não substituem o banco).
+MAX_BILL_TOTAL = Decimal("50000")
+MAX_BILL_M3 = Decimal("2000")
+
+
+def _parse_bill_month(text: str) -> date | None:
+    """Aceita AAAA-MM (ou AAAA-MM-DD) e devolve o dia 1 desse mês; None se for inválido."""
+    match = re.fullmatch(r"\s*(\d{4})-(\d{2})(?:-\d{2})?\s*", text or "")
+    if not match:
+        return None
+    try:
+        return date(int(match.group(1)), int(match.group(2)), 1)
+    except ValueError:
+        return None
+
+
+def validate_last_bill(
+    month: str, total_value: Any, m3_value: Any, today: date
+) -> tuple[dict | None, tuple[date, Decimal, Decimal] | None]:
+    """Valida os dados da conta; devolve (erro, None) ou (None, (mês, total, m³))."""
+    bill_month = _parse_bill_month(month)
+    if bill_month is None:
+        return {"status": "error", "message": "Mês inválido. Use o formato AAAA-MM, por exemplo 2026-10."}, None
+    if bill_month > today.replace(day=1):
+        return {"status": "error", "message": "O mês da conta não pode ser futuro."}, None
+    total, m3 = _bill_amount(total_value), _bill_amount(m3_value)
+    if total is None or m3 is None:
+        return {"status": "error", "message": "Os valores da conta devem ser números maiores ou iguais a zero."}, None
+    if total > MAX_BILL_TOTAL or m3 > MAX_BILL_M3:
+        return {
+            "status": "error",
+            "message": "Os valores parecem fora do normal para uma conta residencial. Peça ao usuário para conferir.",
+        }, None
+    return None, (bill_month, total, m3)
+
+
+def write_last_bill(user_id: int, bill_month: date, total: Decimal, m3: Decimal) -> dict:
+    """Grava a conta e traduz o resultado em um status seguro (ok, conflict ou error)."""
+    try:
+        saved = db_postgres.register_last_water_bill(user_id, bill_month, total, m3)
+    except LastWaterBillConflictError:
+        return {
+            "status": "conflict",
+            "message": "Já existe uma conta registrada para esse mês. Alterações de uma conta já registrada são feitas pelo aplicativo.",
+        }
+    except ValueError as exc:
+        return {"status": "error", "message": str(exc)}
+    except DatabaseAccessError:
+        return {
+            "status": "error",
+            "message": "Não foi possível gravar agora. Nada foi registrado; tente novamente.",
+        }
+    return {"status": "ok", "saved": _serialize(saved)}
+
+
+def _bill_amount(value: Any) -> Decimal | None:
+    """Valor com 2 casas; None se não for número finito maior ou igual a zero."""
+    if isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(value):
+        return None
+    amount = Decimal(str(value)).quantize(Decimal("0.01"))
+    return amount if amount >= 0 else None
 
 
 def _serialize(value: Any) -> Any:
@@ -490,7 +559,55 @@ def build_tools(user_id: int, today: date, access_kind: str | None = None) -> li
             "note": "Valores de referência do cadastro; a economia real depende da operação de cada unidade.",
         }
 
-    return [
+    @tool
+    def register_last_bill(
+        month: str, total_value: float, m3_value: float, confirmed: bool = False
+    ) -> dict:
+        """Registra a conta de água de um mês do usuário (tb_last_water_bill).
+
+        Use somente quando o usuário pedir para registrar, cadastrar ou informar a
+        última conta de água. Para apenas consultar, use get_last_bill.
+
+        month: mês de referência da conta, no formato AAAA-MM (ex.: 2026-10).
+        total_value: valor total da conta, em reais.
+        m3_value: consumo da conta, em metros cúbicos (m³).
+        confirmed: SEMPRE false na primeira chamada. A ferramenta então só devolve
+          needs_confirmation com os dados; repita esses dados ao usuário e pergunte
+          se pode salvar. Chame de novo com confirmed=true somente depois que o
+          usuário responder que sim em uma mensagem posterior. Nunca grave sem essa
+          confirmação, nunca invente valores e nunca use o que o usuário não disse.
+
+        Não sobrescreve: se o mês já tem conta, devolve conflict. Só confirme o
+        registro quando o status for ok (gravado no banco).
+
+        Disponível apenas para usuários residenciais.
+        """
+        if (access_kind or db_postgres.get_user_access_kind(user_id)) != "residential":
+            return {
+                "status": "not_available",
+                "message": "O cadastro da conta só está disponível para contas residenciais.",
+            }
+        error, parsed = validate_last_bill(month, total_value, m3_value, today)
+        if error is not None:
+            return error
+        bill_month, total, m3 = parsed
+        proposal = {"month": bill_month.isoformat(), "total_value": float(total), "m3_value": float(m3)}
+        if get_settings().confirmation_interrupt_enabled:
+            # Com a pausa do grafo ligada, quem grava é o código depois do "sim"; a ferramenta só propõe.
+            return {
+                "status": "pending_confirmation",
+                "pending_write": {"kind": "register_last_bill", "params": proposal},
+                "message": "Nada foi gravado. O sistema vai pedir a confirmação ao usuário; não faça a pergunta.",
+            }
+        if not confirmed:
+            return {
+                "status": "needs_confirmation",
+                "proposal": proposal,
+                "message": "Nada foi gravado. Repita os dados ao usuário e peça uma confirmação explícita (sim ou não).",
+            }
+        return write_last_bill(user_id, bill_month, total, m3)
+
+    tools = [
         check_can_estimate,
         get_last_bill,
         get_consumption_history,
@@ -502,3 +619,7 @@ def build_tools(user_id: int, today: date, access_kind: str | None = None) -> li
         simulate_target_change,
         get_investment_scenarios,
     ]
+    # Escrita desligada por padrão: sem a chave, o conjunto de tools é o de sempre.
+    if get_settings().bill_registration_enabled:
+        tools.append(register_last_bill)
+    return tools

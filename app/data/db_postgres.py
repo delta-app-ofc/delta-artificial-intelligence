@@ -15,6 +15,7 @@ from app.tools.exceptions import (
     DatabaseConnectionError,
     DatabaseQueryError,
     HabitConflictError,
+    LastWaterBillConflictError,
     RegionRateNotFound,
 )
 from app.tools.models import ConsumptionPoint, LastWaterBill, OrganizationProperty
@@ -255,6 +256,42 @@ def get_last_water_bill(user_id: int) -> LastWaterBill | None:
         total_value=Decimal(str(row[2])),
         m3_value=Decimal(str(row[3])),
     )
+
+
+def register_last_water_bill(
+    user_id: int, month: date, total_value: Decimal, m3_value: Decimal
+) -> dict:
+    """Registra a conta de um mês em tb_last_water_bill e devolve o id gravado.
+
+    Nunca sobrescreve: se já existe conta do usuário nesse mês, levanta
+    LastWaterBillConflictError. Levanta ValueError se os dados não passarem nas
+    regras do banco (mês no dia 1, valores não negativos).
+    """
+    if month.day != 1:
+        raise ValueError("O mês da conta deve ser o primeiro dia do mês.")
+    if total_value < 0 or m3_value < 0:
+        raise ValueError("Os valores da conta não podem ser negativos.")
+    with _cursor() as cur:
+        try:
+            cur.execute(
+                """
+                INSERT INTO tb_last_water_bill (user_id, month, total_value, m3_value)
+                VALUES (%s, %s, %s, %s)
+                ON CONFLICT (user_id, month) DO NOTHING
+                RETURNING id;
+                """,
+                (user_id, month, total_value, m3_value),
+            )
+        except psycopg2.errors.CheckViolation as exc:  # type: ignore[attr-defined]
+            # A mensagem do banco pode trazer detalhes internos: vai só para o log.
+            logger.warning("Registro de conta recusado pelo banco: %s", exc.diag.message_primary)
+            raise ValueError(
+                "Não foi possível registrar a conta: o banco recusou os dados informados."
+            ) from exc
+        row = cur.fetchone()
+    if row is None:
+        raise LastWaterBillConflictError("Já existe uma conta registrada para esse mês.")
+    return {"bill_id": row[0], "month": month, "total_value": total_value, "m3_value": m3_value}
 
 
 def is_user_active(user_id: int) -> bool:
@@ -676,3 +713,10 @@ def get_organization_effective_rate(
     if row is None or row[0] is None:
         return None
     return Decimal(str(row[0])).quantize(Decimal("0.01"))
+
+
+def get_active_user_ids() -> list[int]:
+    """Escopo confiável do job, inclusive usuários sem preferências cadastradas."""
+    with _cursor() as cur:
+        cur.execute("SELECT id FROM tb_user WHERE is_active = TRUE ORDER BY id")
+        return [int(row[0]) for row in cur.fetchall()]

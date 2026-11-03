@@ -1,31 +1,103 @@
-# delta-artificial-intelligence
+# Delta · Inteligência Artificial
 
-Chatbot de IA do Projeto Delta — plataforma de monitoramento inteligente de
-consumo residencial de água. Este repositório reúne os agentes especialistas,
-as tools de acesso a dados, a orquestração LangGraph, guardrails de segurança,
-memória de sessão e longo prazo, a API HTTP (FastAPI) e o Agente Juiz com Jev.
-O Juiz revisa a candidata antes da publicação e permite uma única correção.
-Verificações isoladas não comprovam integração com provedores e bancos reais.
+![Python](https://img.shields.io/badge/Python-3.12-3776AB?logo=python&logoColor=white)
+![FastAPI](https://img.shields.io/badge/API-FastAPI-009688?logo=fastapi&logoColor=white)
+![LangGraph](https://img.shields.io/badge/LangGraph-1.x-1C3C3C?logo=langchain&logoColor=white)
+![PostgreSQL](https://img.shields.io/badge/PostgreSQL-16-4169E1?logo=postgresql&logoColor=white)
+![MongoDB](https://img.shields.io/badge/MongoDB-7-47A248?logo=mongodb&logoColor=white)
+![Jev](https://img.shields.io/badge/langchain--typesafe-0.0.1a3-6A5ACD)
 
-O motor de detecção de vazamento (regras que calculam `anomaly_detected` e
-criam alertas) não usa LLM e por isso mora em outro repositório,
-[`delta-business-rules`](https://github.com/delta-app-ofc/delta-business-rules)
-— o `LeakAgent` aqui só lê o que ele já sinalizou.
+Uma pergunta sobre água percorre dados autorizados, ferramentas determinísticas e uma revisão antes de chegar ao usuário. Este serviço reúne a API do chatbot Delta, especialistas coordenados por LangGraph, memória de conversa, recuperação documental e um console interno para desenvolvimento.
 
-Convenção de código: identificadores (nomes de arquivo, função, classe,
-variável) em **inglês**; comentários, docstrings e o conteúdo dos prompts em
-**português** (é o idioma em que o chatbot conversa com o usuário final).
+Consumo e previsão fazem seus cálculos em Python; o LLM interpreta os resultados. O agente de vazamentos descreve sinais já registrados pelo motor de regras, sem detectar vazamentos por conta própria.
 
-Este README é incremental: cada agente/componente novo ganha sua própria
-seção, descrevendo o que está implementado. Ele não guarda histórico de
-mudanças nem lista de pendências — isso mora na conversa/tarefa que criou cada
-parte.
+**Tags:** `python` · `fastapi` · `langgraph` · `agentes-de-ia` · `rag` · `mcp` · `jev` · `postgresql` · `mongodb` · `qdrant` · `iot` · `consumo-de-agua`
 
----
+## Sumário
+
+- [Visão geral](#visão-geral)
+- [Estrutura do repositório](#estrutura-do-repositório)
+- [Ambiente local de desenvolvimento](#ambiente-local-de-desenvolvimento)
+- [Settings e conexões](#settings-e-conexões)
+- [API HTTP](#api-http)
+- [Orquestração LangGraph](#orquestração-langgraph)
+- [Agentes especialistas](#agente-de-consumo) · [Previsão](#agente-de-previsão) · [Vazamento](#agente-de-vazamento) · [Hábitos](#agente-de-hábitos)
+- [Agente Juiz e revisão](#agente-juiz-e-revisão)
+- [Base documental RAG e MCP](#base-documental-rag)
+- [Guardrails e isolamento](#guardrails) · [Perfis](#perfis-de-usuário-residencial-e-comercial)
+- [Memória](#memória-de-sessão-e-longo-prazo)
+- [Console de testes](#console-de-testes-dos-agentes)
+- [Validação manual e testes](#validação-manual) · [Testes](#testes)
+- [Reutilização de clientes](#reutilização-de-clientes)
+- [Repositórios relacionados](#repositórios-relacionados)
+
+## Visão geral
+
+| Componente | Responsabilidade |
+|---|---|
+| API FastAPI | Chat autenticado, conversa em etapas por SSE, histórico de sessões e health check de configuração |
+| Workflow LangGraph | Valida entrada, resolve perfil e contexto, roteia especialistas, compõe e julga a resposta |
+| Agentes | Consumo, previsão, vazamento, hábitos e RAG; cada um usa ferramentas próprias |
+| Dados | PostgreSQL para dados de produto; MongoDB para telemetria e sessões; Qdrant para recuperação vetorial |
+| Agente Juiz | Avalia a candidata com Jev e pode pedir uma única revisão antes de publicar ou bloquear |
+| MCP externo | Busca conteúdo educativo de fontes públicas por um processo local via stdio |
+| Console interno | Exercita o fluxo e agentes com um usuário fixo; não tem autenticação própria |
+
+O motor de detecção de vazamentos fica em [`delta-business-rules`](https://github.com/delta-app-ofc/delta-business-rules). Redis aparece nas dependências, mas não tem integração de aplicação implementada neste repositório.
+
+## Estrutura do repositório
+
+| Caminho | Conteúdo |
+|---|---|
+| `app/agents/` e `app/graph/` | Especialistas, runtime, workflow, estado, roteamento, contexto e revisão |
+| `app/tools/` e `app/data/` | Cálculos/ferramentas por agente e adaptadores diretos PostgreSQL/MongoDB |
+| `app/guardrails/` e `app/memory/` | Validação de entrada/saída e memória de sessão/longo prazo |
+| `app/routes/` e `app/services/` | Rotas HTTP, prompts, clientes de LLM, RAG e integração Jev |
+| `app/observability/` | Rastreamento por requisição, progresso, métricas e relatório |
+| `frontend/` | Console de desenvolvimento servido pela API |
+| `db/postgres-init/` | Cópias locais de inicialização PostgreSQL; a fonte oficial do schema é `delta-sql-database` |
+| `scripts/` | Diagnósticos PostgreSQL, MongoDB e MCP, além de utilitários operacionais |
+| `tests/` | Testes de agentes, API, dados, guardrails, sessão e isolamento |
+| `docs/playground-test-user.md` | Preparação manual do usuário fixo do console |
+| `Dockerfile` e `docker-compose.dev.yml` | Imagem da API e bancos locais para desenvolvimento |
+
+A imagem e o workflow de CI usam Python 3.12. Dependências e faixas de versão estão em `requirements.txt` e `requirements-dev.txt`.
 
 ## Ambiente local de desenvolvimento
 
-Consulte [DOCKER-HELP.md](DOCKER-HELP.md) para usar o ambiente Docker local.
+O `docker-compose.dev.yml` sobe somente PostgreSQL 16 e MongoDB 7 para desenvolvimento. O Mongo inicia sem dados de aplicação; o Compose não cria uma API nem simula provedores de LLM. Consulte [DOCKER-HELP.md](DOCKER-HELP.md) para portas, volumes e diagnóstico.
+
+No PowerShell, crie o ambiente e instale as dependências:
+
+```powershell
+py -3.12 -m venv .venv
+.\.venv\Scripts\python.exe -m pip install -r requirements-dev.txt
+Copy-Item .env.example .env
+```
+
+Configure no `.env` as chaves e conexões necessárias ao fluxo que pretende usar. O exemplo contém nomes e valores locais descartáveis; nunca substitua-o por credenciais reais versionadas. Para subir os bancos locais:
+
+```powershell
+docker compose -p delta-artificial-intelligence-dev -f docker-compose.dev.yml up -d --wait
+```
+
+Depois de configurar os serviços usados, inicie a API:
+
+```powershell
+.\.venv\Scripts\python.exe -m uvicorn app.main:app --host 127.0.0.1 --port 8000 --reload
+```
+
+Swagger: [http://127.0.0.1:8000/docs](http://127.0.0.1:8000/docs). O console fica em [http://127.0.0.1:8000/playground/](http://127.0.0.1:8000/playground/) quando habilitado pelo ambiente.
+
+### Qualidade e automação
+
+O workflow `.github/workflows/test.yml` usa Python 3.12, define `APP_ENV=test`, instala `requirements-dev.txt`, verifica dependências e sintaxe e executa:
+
+```bash
+python -m pytest tests -q
+```
+
+Os testes não substituem a validação de conectividade e qualidade semântica com bancos ou provedores reais. O Compose local fornece PostgreSQL e MongoDB; não inclui Qdrant, MCP externo nem provedores de LLM.
 
 ## Settings e conexões
 
@@ -80,9 +152,10 @@ acompanha nós do grafo, ferramentas, modelos e fases do RAG. Falhas preservam
 os tipos das causas e a localização do código, sem serializar mensagens brutas
 de SDKs ou credenciais. O playground mostra os detalhes seguros da execução.
 
-A base expõe `set_event_sink()` para conectar o logging. Ela não configura
-handlers, formatadores ou persistência de logs. Veja o [guia de rastreamento](docs/request-tracking.md)
-para integrar o consumidor, consultar os eventos e executar os testes.
+O ponto de extensão `set_event_sink()` permite conectar um consumidor de eventos;
+o repositório não configura handlers, formatadores ou persistência de logs.
+O middleware e os diagnósticos ficam em [app/observability/http.py](app/observability/http.py)
+e [app/observability/diagnostics.py](app/observability/diagnostics.py).
 
 ## Reutilização de clientes
 
@@ -103,14 +176,9 @@ As verificações de revisão/índice e a geração do embedding da pergunta
 continuam acontecendo em cada busca. O primeiro uso ainda paga a criação dos
 clientes; essa reutilização não elimina latência de geração ou erros 429.
 
-A metodologia e os resultados medidos estão em
-[comparação de latência](docs/client-reuse-benchmark.md).
-
-Os testes isolados de concorrência, falhas, fechamento e contexto executam com:
-
-```bash
-python -m unittest discover -s tests -p test_client_reuse.py -v
-```
+O ciclo de criação e fechamento dos clientes fica em `app/services/llms.py`,
+`app/services/rag.py` e `app/agents/judge_specialist.py`. O workflow
+`.github/workflows/test.yml` verifica dependências, sintaxe e a suíte pytest.
 
 ## Base documental RAG
 
@@ -283,9 +351,9 @@ histórico com `assessment.reviewer=specialist`; o parecer Jev original
 permanece em `assessment.jev_result`. O segundo juiz não fornece confidence:
 o valor original do Jev é preservado nesse registro, sem inventar outro número.
 
-Os testes em tests/test_client_reuse.py e tests/test_openai_models.py cobrem
-cache, fechamento, configuração, tools, JSON e tratamento de falhas com
-provedores substituídos. Não medem a qualidade semântica do Jev.
+Os testes relacionados ao Juiz e ao runtime ficam em `tests/test_ci_judge.py`,
+`tests/test_ci_judge_specialist.py` e `tests/test_reasoning_effort.py`.
+Testes com provedores substituídos não medem a qualidade semântica do Jev.
 
 ## Validação manual
 
@@ -315,15 +383,17 @@ A integração e o reuso têm testes persistentes na pasta tests/.
 
 ## Testes
 
-A suíte usa unittest, clientes substituídos e transportes HTTP simulados.
-Execute na raiz do repositório:
+A suíte é executada com pytest. O mesmo comando de testes usado pelo workflow
+de CI pode ser executado na raiz do repositório:
 
 ```powershell
-.\.venv\Scripts\python.exe -m unittest discover -s tests -v
+.\.venv\Scripts\python.exe -m pytest tests -q
 ```
 
-Esses testes não acessam bancos nem provedores reais e não comprovam a
-qualidade semântica das avaliações. Veja também [modelos OpenAI](docs/openai-models.md).
+O workflow executa os testes em `APP_ENV=test`. Testes com clientes substituídos
+não comprovam acesso remoto a bancos/provedores nem qualidade semântica. A
+configuração de modelos está em [app/config.py](app/config.py) e
+[requirements.txt](requirements.txt).
 
 ## Estrutura de `app/data/` e `app/tools/`
 
@@ -372,10 +442,9 @@ tendência de consumo e avalia risco de ultrapassar a meta cadastrada.
   puro — o LLM nunca calcula. `check_can_estimate` (que reproduz
   `fn_user_can_estimate` do banco) é sempre checado antes de qualquer
   estimativa; se vier `False`, nenhum cálculo roda.
-- Estimativa da próxima conta: qualquer histórico de consumo disponível tem
-  prioridade, inclusive curto ou com zero registrado. Usa projeção de consumo ×
-  tarifa vigente; sem tarifa, não estima reais. A última conta só serve como
-  referência quando não há nenhuma leitura no período consultado.
+- Estimativa da próxima conta: usa a última conta cadastrada quando não há
+  histórico Mongo suficiente (menos de 7 dias); usa projeção de consumo ×
+  tarifa vigente quando há.
 - Usa `llm_especialista` com o provedor selecionado em `app/services/llms.py`.
 
 ## Agente de Consumo
@@ -480,8 +549,8 @@ Os clientes de geração são criados sob demanda em app/services/llms.py.
 O padrão usa OpenAI Responses com gpt-6-luna e raciocínio medium para os
 especialistas, modelo rápido e segundo juiz. O fallback Groq permanece
 configurável para falhas transitórias; o modo LLM_PROVIDER=gemini mantém
-a seleção anterior. Os parâmetros e contratos estão em
-[modelos OpenAI](docs/openai-models.md).
+a seleção anterior. Os parâmetros padrão estão em [app/config.py](app/config.py)
+e as dependências estão em [requirements.txt](requirements.txt).
 
 ## Console de testes dos agentes
 
@@ -576,9 +645,8 @@ success, partial, error e skipped.
 python -m pytest -q --basetemp .pytest_cache/tmp
 ~~~
 
-[tests/test_playground.py](tests/test_playground.py) verifica contratos HTTP,
-isolamento de usuário e diagnósticos, guardrails, falhas parciais, componentes
-pendentes, callbacks de modelos/fallback e proteção do console por ambiente.
+Os testes do console incluem [tests/test_playground_stream.py](tests/test_playground_stream.py)
+e [tests/test_playground_rag_profile.py](tests/test_playground_rag_profile.py).
 Usa substitutos controlados: essa suíte não comprova acesso remoto aos
 bancos/provedores nem qualidade semântica.
 
@@ -665,14 +733,17 @@ Aplicados em duas camadas (defesa em profundidade): na rota HTTP
 
 ```bash
 uvicorn app.main:app --reload
-# Swagger UI: http://localhost:8000/docs
+### Swagger UI
+
+`http://localhost:8000/docs`
 ```
 
 | Método | Rota | Descrição |
 |--------|------|-----------|
+| GET | `/chat/suggestions` | Sugere perguntas conforme o perfil da conta autenticada |
 | POST | `/chat` | Envia mensagem ao chatbot |
 | POST | `/chat/stream` | Igual ao `/chat`, com as etapas por SSE (`text/event-stream`); a resposta só sai ao final |
-| GET | `/health` | Status dos serviços configurados |
+| GET | `/health` | Verifica se as configurações carregam; não testa bancos ou provedores |
 | GET | `/sessions?limit=20&offset=0` | Lista as sessões do usuário autenticado, da mais recente à mais antiga |
 | GET | `/sessions/{session_id}/messages` | Histórico de uma sessão do usuário |
 | POST | `/sessions/{session_id}/close` | Encerra uma sessão do usuário |
@@ -777,7 +848,7 @@ do PostgreSQL real.
   (disponibilidade acima de bloqueio).
 - `create_habit` não é idempotente (depende da função SQL); resumos de longo prazo gravados antes da
   autenticação podem ter `user_id` forjado e não são verificáveis pelo código.
-- A emissão do JWT é do back-end e ainda não existe; a checagem de mutação dos filtros ainda não foi executada.
+- A emissão do JWT pertence ao back-end; este serviço valida o token com `AUTH_PUBLIC_KEY`, `AUTH_ISSUER` e `AUTH_AUDIENCE`.
 
 Testes de histórico e de isolamento usam MongoDB real em um banco descartável `delta_test_*`
 (`DELTA_TEST_MONGO_URI`, padrão `mongodb://localhost:27018` do `docker-compose.dev.yml`) e são pulados sem
@@ -788,3 +859,10 @@ MongoDB. Os de isolamento ficam em `tests/isolation/`. O acesso da IA ao `chat_s
 O playground classifica a entrada uma vez no grafo do chat/Juiz; abas isoladas
 mantêm a validação completa. Ao salvar a primeira resposta, o console cria uma
 sessão MongoDB válida; UUIDs antigos são substituídos pelo ObjectId retornado.
+
+## Repositórios relacionados
+
+- [delta-handbook](https://github.com/delta-app-ofc/delta-handbook) — arquitetura, agentes e operação.
+- [delta-sql-database](https://github.com/delta-app-ofc/delta-sql-database) — schema PostgreSQL e funções de dados.
+- [delta-mongo-database](https://github.com/delta-app-ofc/delta-mongo-database) — coleções de telemetria e sessões.
+- [delta-business-rules](https://github.com/delta-app-ofc/delta-business-rules) — regras que calculam sinais de vazamento.

@@ -194,6 +194,8 @@ class Settings:
     openai_reasoning_effort: str = "medium"
     llm_provider: str = "openai"
     mcp_external_enabled: bool = False
+    bill_registration_enabled: bool = False
+    confirmation_interrupt_enabled: bool = False
     mcp_timeout_seconds: float = 45.0
     mcp_cache_ttl_seconds: int = 3600
     obs_support_cost_usd: float = 8.01  # Gartner, 2019: contato atendido por pessoa (telefone, chat, e-mail)
@@ -213,6 +215,9 @@ class Settings:
     db_pool_wait_seconds: int = 5
     langsmith_send_content: bool = False
     _parse_errors: tuple[tuple[str, str], ...] = field(default=(), repr=False)
+    alerts_api_url: str | None = None
+    alerts_service_key: str | None = field(default=None, repr=False)
+
 
 
 def load_settings(
@@ -388,6 +393,8 @@ def load_settings(
         playground_enabled=playground_enabled,
         jwt_secret=values.get("JWT_SECRET"),
         auth_public_key=values.get("AUTH_PUBLIC_KEY"),
+        alerts_api_url=values.get("ALERTS_API_URL"),
+        alerts_service_key=values.get("ALERTS_SERVICE_KEY"),
         auth_issuer=values.get("AUTH_ISSUER", Settings.auth_issuer) or "",
         auth_audience=values.get("AUTH_AUDIENCE", Settings.auth_audience) or "",
         auth_key_id=values.get("AUTH_KEY_ID", Settings.auth_key_id) or "",
@@ -398,6 +405,8 @@ def load_settings(
         openai_reasoning_effort=(values.get("OPENAI_REASONING_EFFORT", Settings.openai_reasoning_effort) or "").casefold(),
         llm_provider=(values.get("LLM_PROVIDER", Settings.llm_provider) or "").casefold(),
         mcp_external_enabled=(values.get("MCP_EXTERNAL_ENABLED") or "false").casefold() == "true",
+        bill_registration_enabled=(values.get("BILL_REGISTRATION_ENABLED") or "false").casefold() == "true",
+        confirmation_interrupt_enabled=(values.get("CONFIRMATION_INTERRUPT_ENABLED") or "false").casefold() == "true",
         mcp_timeout_seconds=parsed_numbers["MCP_TIMEOUT_SECONDS"],
         mcp_cache_ttl_seconds=parsed_numbers["MCP_CACHE_TTL_SECONDS"],
         openai_fast_reasoning_effort=(
@@ -435,6 +444,16 @@ def load_settings(
             (("MCP_EXTERNAL_ENABLED", "use true ou false"),)
             if "MCP_EXTERNAL_ENABLED" in values
             and (values["MCP_EXTERNAL_ENABLED"] or "").casefold() not in {"true", "false"}
+            else ()
+        ) + (
+            (("BILL_REGISTRATION_ENABLED", "use true ou false"),)
+            if "BILL_REGISTRATION_ENABLED" in values
+            and (values["BILL_REGISTRATION_ENABLED"] or "").casefold() not in {"true", "false"}
+            else ()
+        ) + (
+            (("CONFIRMATION_INTERRUPT_ENABLED", "use true ou false"),)
+            if "CONFIRMATION_INTERRUPT_ENABLED" in values
+            and (values["CONFIRMATION_INTERRUPT_ENABLED"] or "").casefold() not in {"true", "false"}
             else ()
         ),
         obs_support_cost_usd=parsed_numbers["OBS_SUPPORT_COST_USD"],
