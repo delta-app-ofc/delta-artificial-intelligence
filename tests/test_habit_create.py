@@ -51,21 +51,17 @@ class CreateHabitToolTest(unittest.TestCase):
         schema = _tools()["create_habit"].args_schema.model_json_schema()
         self.assertEqual(schema["required"], ["name"])
 
-    def test_tool_only_prepares_action_without_writing(self):
+    def test_omitted_days_do_not_fail_and_nothing_is_invented(self):
         out, create = self._create({"name": "lavar roupa", "frequency": 3})
-        self.assertEqual(out["status"], "pending_approval")
-        self.assertEqual(out["action"], {
-            "type": "create_habit", "name": "LAVAR ROUPA", "frequency": 3,
-            "days": [], "start_time": None, "end_time": None,
-        })
-        create.assert_not_called()
+        self.assertEqual(out["status"], "ok")
+        self.assertEqual(out["habit_id"], 41)
+        create.assert_called_once_with(7, "LAVAR ROUPA", 3, [], None, None)
 
-    def test_plural_and_alias_variants_are_prepared_with_canonical_name(self):
+    def test_plural_and_alias_variants_are_saved_with_canonical_name(self):
         for text in ["lavar roupas", "roupas", "Lavar a roupa"]:
             with self.subTest(text=text):
-                out, create = self._create({"name": text, "frequency": 3})
-                self.assertEqual(out["action"]["name"], "LAVAR ROUPA")
-                create.assert_not_called()
+                _, create = self._create({"name": text, "frequency": 3})
+                self.assertEqual(create.call_args.args[1], "LAVAR ROUPA")
 
     def test_ambiguous_name_asks_instead_of_saving(self):
         out, create = self._create({"name": "lavar", "frequency": 2})
@@ -80,10 +76,8 @@ class CreateHabitToolTest(unittest.TestCase):
 
     def test_days_are_normalized_deduplicated_and_give_the_frequency(self):
         out, create = self._create({"name": "lavar carro", "days": ["seg", "Sexta", "segunda"]})
-        self.assertEqual(out["status"], "pending_approval")
-        self.assertEqual(out["action"]["days"], ["SEGUNDA", "SEXTA"])
-        self.assertEqual(out["action"]["frequency"], 2)
-        create.assert_not_called()
+        self.assertEqual(out["status"], "ok")
+        create.assert_called_once_with(7, "LAVAR CARRO", 2, ["SEGUNDA", "SEXTA"], None, None)
 
     def test_missing_frequency_and_days_asks_for_frequency(self):
         out, create = self._create({"name": "lavar carro"})
@@ -105,9 +99,8 @@ class CreateHabitToolTest(unittest.TestCase):
             {"name": "lavar carro", "frequency": 1, "days": ["seg"],
              "start_time": "18h", "end_time": "19:30"}
         )
-        self.assertEqual(out["status"], "pending_approval")
-        self.assertEqual((out["action"]["start_time"], out["action"]["end_time"]), ("18:00", "19:30"))
-        create.assert_not_called()
+        self.assertEqual(out["status"], "ok")
+        self.assertEqual(create.call_args.args[4:], ("18:00", "19:30"))
 
         for bad in [{"start_time": "18:00"}, {"start_time": "19:00", "end_time": "18:00"},
                     {"start_time": "25:00", "end_time": "26:00"}]:
@@ -116,21 +109,22 @@ class CreateHabitToolTest(unittest.TestCase):
                 self.assertEqual(out["status"], "error")
                 create.assert_not_called()
 
-    def test_conflict_is_not_checked_before_approval(self):
-        out, create = self._create(
+    def test_conflict_is_reported_and_not_confirmed(self):
+        out, _ = self._create(
             {"name": "lavar carro", "frequency": 1},
             side_effect=HabitConflictError("Você já tem esse hábito cadastrado nesse dia e horário."),
         )
-        self.assertEqual(out["status"], "pending_approval")
-        create.assert_not_called()
+        self.assertEqual(out["status"], "conflict")
+        self.assertNotIn("habit_id", out)
 
-    def test_bank_refusal_and_outage_are_not_reached_before_approval(self):
+    def test_bank_refusal_and_database_outage_are_not_success(self):
         out, _ = self._create({"name": "lavar carro", "frequency": 1}, side_effect=ValueError("recusado"))
-        self.assertEqual(out["status"], "pending_approval")
+        self.assertEqual(out["status"], "error")
         out, _ = self._create(
             {"name": "lavar carro", "frequency": 1}, side_effect=DatabaseConnectionError("PostgreSQL")
         )
-        self.assertEqual(out["status"], "pending_approval")
+        self.assertEqual(out["status"], "error")
+        self.assertIn("Nada foi cadastrado", out["message"])
 
     def test_organization_account_cannot_create(self):
         with patch.object(habit_tools.db_postgres, "create_habit") as create:
@@ -223,9 +217,9 @@ class CreateFlowTest(unittest.TestCase):
         ):
             result = run_agent(llm=llm, system_prompt="p", tools=list(_tools().values()),
                                question="Adicione lavar roupas 3x na semana")
-        create.assert_not_called()
+        create.assert_called_once()
         listing.assert_not_called()
-        self.assertEqual(result.tool_calls[0].output["status"], "pending_approval")
+        self.assertEqual(result.tool_calls[0].output["status"], "ok")
 
     def test_incomplete_request_is_completed_in_the_next_turn_with_history(self):
         history = "Conversa recente:\nuser: Cadastra regar plantas\nassistant: Quantas vezes por semana?"
@@ -238,7 +232,7 @@ class CreateFlowTest(unittest.TestCase):
                           return_value=_saved(name="REGAR PLANTAS", frequency=2)) as create:
             run_agent(llm=llm, system_prompt="p", tools=list(_tools().values()), question=question)
         self.assertIn("Cadastra regar plantas", llm.seen[0][1].content)
-        create.assert_not_called()
+        create.assert_called_once_with(7, "REGAR PLANTAS", 2, [], None, None)
 
     def test_read_only_tools_never_write(self):
         llm = ScriptedLLM([
@@ -263,9 +257,9 @@ class JudgeRevisionGuardTest(unittest.TestCase):
     def test_first_pass_can_write(self):
         self.assertIn("create_habit", self._run())
 
-    def test_revision_can_prepare_but_never_write(self):
-        self.assertIn("create_habit", self._run(revision_feedback="corrija"))
-        self.assertIn("create_habit", self._run(revision_context={"previous_candidate": "x"}))
+    def test_revision_pass_cannot_write(self):
+        self.assertNotIn("create_habit", self._run(revision_feedback="corrija"))
+        self.assertNotIn("create_habit", self._run(revision_context={"previous_candidate": "x"}))
         self.assertIn("list_habits", self._run(revision_feedback="corrija"))
 
 

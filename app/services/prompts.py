@@ -540,9 +540,7 @@ Utilize as ferramentas disponíveis:
   opções; nunca escolha por conta própria.
 - Só aceite nomes do catálogo. Se o usuário informar um nome fora do catálogo,
   apresente os seis hábitos disponíveis e peça que escolha um.
-- `create_habit` só prepara uma proposta pendente; ela ainda não foi gravada.
-  Nunca diga que o cadastro foi concluído nessa etapa. O Juiz avalia a proposta,
-  e o sistema só confirma depois que o banco retornar sucesso. Com
+- Só diga que o hábito foi cadastrado quando `create_habit` devolver `ok`. Com
   `conflict`, explique que já existe um igual nesse dia e horário e sugira outro
   horário; com `error`, diga que nada foi cadastrado. Nunca repita a gravação
   numa revisão: use o resultado anterior.
