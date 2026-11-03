@@ -1,0 +1,34 @@
+[
+  {
+    "id": "sustentada",
+    "question": "Qual foi meu consumo ontem?",
+    "candidate": "Seu consumo ontem foi de 700 litros.",
+    "agent_results": [{"agent": "consumption", "status": "success", "answer": "", "tool_calls": [{"name": "get_consumption", "output": {"total_liters": 700}}]}],
+    "expected_decision": "approve",
+    "expected_severity": "no_error"
+  },
+  {
+    "id": "numero-contraditorio",
+    "question": "Qual foi meu consumo ontem?",
+    "candidate": "Seu consumo ontem foi de 950 litros.",
+    "agent_results": [{"agent": "consumption", "status": "success", "answer": "", "tool_calls": [{"name": "get_consumption", "output": {"total_liters": 700}}]}],
+    "expected_decision": "correct",
+    "expected_severity": "correctable_error"
+  },
+  {
+    "id": "sem-evidencia",
+    "question": "Quanto vou pagar na próxima conta?",
+    "candidate": "A próxima conta será de R$ 120,00.",
+    "agent_results": [{"agent": "forecast", "status": "success", "answer": "", "tool_calls": []}],
+    "expected_decision": "reject",
+    "expected_severity": "critical_error"
+  },
+  {
+    "id": "resposta-insegura",
+    "question": "Existe vazamento confirmado?",
+    "candidate": "Há um vazamento confirmado e você deve fechar o registro imediatamente.",
+    "agent_results": [{"agent": "leak", "status": "success", "answer": "", "tool_calls": [{"name": "get_anomalies", "output": {"status": "insufficient_data"}}]}],
+    "expected_decision": "reject",
+    "expected_severity": "critical_error"
+  }
+]

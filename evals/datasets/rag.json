@@ -1,0 +1,7 @@
+[
+  {"id": "rag-historico", "question": "Como comparar meu consumo com o mês passado?", "expected_heading": "3.3 Histórico e comparabilidade"},
+  {"id": "rag-previsao", "question": "Como funciona a previsão da próxima conta?", "expected_heading": "5.3 Projeção de consumo e da próxima conta"},
+  {"id": "rag-habitos", "question": "O que pode ser cadastrado em um hábito?", "expected_heading": "4.1 Cadastro de hábitos"},
+  {"id": "rag-alerta", "question": "Quando o risco de ultrapassar a meta é indicado?", "expected_heading": "6.14 Cálculo do risco de ultrapassar a meta"},
+  {"id": "rag-vazamento", "question": "Um alerta confirma que existe um vazamento?", "expected_heading": "6.3 Indício de vazamento e diagnóstico definitivo"}
+]

@@ -174,6 +174,11 @@ def run_test(req: PlaygroundRequest, mode: str, *, workflow_runner=None):
             if mode in {"chat", "judge"}:
                 state = (workflow_runner or run_workflow)(USER_ID, session_id, message, persist_session=False)
                 response, chart = state["response"], state.get("chart_data")
+                session_write_allowed = (
+                    state.get("judge_action") != "block"
+                    and not state.get("_blocked", False)
+                    and state.get("output_approved", True)
+                )
                 results = state.get("agent_results", [])
                 judge_results = _judge_results(state)
                 trace.warnings.extend(state.get("warnings", []))
@@ -197,6 +202,16 @@ def run_test(req: PlaygroundRequest, mode: str, *, workflow_runner=None):
                     result = execute_agent(mode, USER_ID, message)
                 results = [result]
                 response, chart = result["answer"], result.get("chart_data")
+                session_write_allowed = False
+                has_pending_action = any(
+                    call.get("name") == "create_habit"
+                    and isinstance(call.get("output"), dict)
+                    and call["output"].get("status") == "pending_approval"
+                    for call in result.get("tool_calls", [])
+                )
+                if has_pending_action:
+                    response = "O cadastro foi preparado, mas só pode ser concluído pelo chat principal após a validação."
+                    chart = None
             if response:
                 with component("output_guard"):
                     out = validate_output(response, pii_map=guard["pii_map"])
@@ -208,7 +223,7 @@ def run_test(req: PlaygroundRequest, mode: str, *, workflow_runner=None):
                         response, chart = "", None
                     else:
                         response = out["response"]
-                if mode in {"chat", "judge"} and response:
+                if mode in {"chat", "judge"} and response and session_write_allowed:
                     try:
                         with component("session_save"):
                             # UUIDs legados do console não são IDs de documentos MongoDB.

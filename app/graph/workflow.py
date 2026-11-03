@@ -5,9 +5,11 @@ import contextvars
 import json
 import queue
 import threading
+from copy import deepcopy
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import asdict
 from datetime import date
+from datetime import time as time_value
 from time import perf_counter
 from typing import Iterator
 
@@ -22,6 +24,7 @@ from app.graph.context import build_context
 from app.graph.router import AGENT_REGISTRY, AgentNotImplemented, classify, load_agent
 from app.graph.state import AgentOutput, GraphState
 from app.graph.synthesis import synthesize
+from app.data import db_postgres
 from app.guardrails.input import classify_input, validate_input_rules
 from app.guardrails.output import (
     chart_mentions_other_user,
@@ -52,6 +55,9 @@ from app.graph.profile import (
     unavailable_agent_message,
 )
 from app.services.session_meta import refresh_session_meta
+from app.tools.exceptions import DatabaseAccessError, HabitConflictError
+from app.tools.habits.names import CATALOG_NAMES, resolve_habit_name
+from app.tools.habits.tools import normalize_day
 
 RECENT_TURNS = 6
 _AGENT_FAILURE_RESPONSE = "Não foi possível obter uma resposta neste momento. Tente novamente."
@@ -285,6 +291,7 @@ def _execute_node(state: GraphState) -> dict:
         question += f"\n\nConversa recente:\n{transcript}"
 
     results = []
+    pending_actions = list(state.get("pending_actions", []))
     warnings = list(state.get("warnings", []))
     revision_count = state.get("revision_count", 0)
     allowed = allowed_agents(state.get("access_kind"))
@@ -328,6 +335,15 @@ def _execute_node(state: GraphState) -> dict:
                 "agent_result": prior_result,
             } if revision_count else None,
         )
+        new_actions = [
+            call["output"]["action"]
+            for call in output.get("tool_calls", [])
+            if call.get("name") == "create_habit"
+            and isinstance(call.get("output"), dict)
+            and call["output"].get("status") == "pending_approval"
+            and isinstance(call["output"].get("action"), dict)
+        ]
+        pending_actions.extend(new_actions)
         previous_calls = _serialize_tool_calls(prior_result.get("tool_calls", []), "previous")
         current_calls = _serialize_tool_calls(
             output.get("tool_calls", []), "revision" if revision_count else "initial"
@@ -340,7 +356,8 @@ def _execute_node(state: GraphState) -> dict:
             output["chart_data"] = prior_result.get("chart_data")
         results.append(output)
         warnings.extend(output.get("warnings", []))
-    return {"agent_results": results, "warnings": warnings, "pending_write": _find_pending_write(results)}
+    return {"agent_results": results, "warnings": warnings, "pending_actions": pending_actions,
+            "pending_write": _find_pending_write(results)}
 
 
 def _find_pending_write(results: list[dict]) -> dict | None:
@@ -434,6 +451,25 @@ def _compose_node(state: GraphState) -> dict:
                  if result.get("status") == "success" and result.get("answer", "").strip()]
     if not successes:
         return {"composition_status": "no_success", "candidate": ""}
+    actions = state.get("pending_actions", [])
+    if actions:
+        if (not isinstance(actions, list) or len(actions) != 1
+                or not isinstance(actions[0], dict)
+                or set(actions[0]) != {"type", "name", "frequency", "days", "start_time", "end_time"}
+                or actions[0].get("type") != "create_habit"
+                or not isinstance(actions[0].get("name"), str)
+                or isinstance(actions[0].get("frequency"), bool)
+                or not isinstance(actions[0].get("frequency"), int)):
+            return {"composition_status": "ready", "candidate": SAFE_RESPONSE}
+        action = actions[0]
+        return {
+            "composition_status": "ready",
+            "candidate": (
+                f"Preparei o cadastro de {action['name']} para {action['frequency']} "
+                "vez(es) por semana. Ele ainda depende da validação e gravação."
+            ),
+            "chart_data": None,
+        }
     return {"composition_status": "ready", "candidate": state.get("response", "")}
 
 
@@ -455,6 +491,7 @@ def _judge_node(state: GraphState) -> dict:
         "revision_count": revision_count,
         "previous_candidate": state.get("previous_candidate"),
         "previous_agent_results": state.get("previous_agent_results", []),
+        "pending_actions": state.get("pending_actions", []),
     }
     try:
         with component("judge"):
@@ -502,7 +539,12 @@ def _judge_node(state: GraphState) -> dict:
                 "revision_count": revision_count,
             },
         )
-    return {"judge_history": history, "judge_action": action}
+    return {
+        "judge_history": history,
+        "judge_action": action,
+        "judge_status": status,
+        "approved_actions": deepcopy(state.get("pending_actions", [])) if action == "approve" else [],
+    }
 
 
 def _prepare_revision_node(state: GraphState) -> dict:
@@ -527,13 +569,96 @@ def _prepare_revision_node(state: GraphState) -> dict:
         "revision_feedback": feedback,
         "revision_count": next_revision_count,
         "candidate": "", "agent_results": [], "response": "", "chart_data": None,
-        "composition_status": "", "judge_action": "", "warnings": [],
+        "composition_status": "", "judge_action": "", "judge_status": "",
+        "pending_actions": [], "approved_actions": [], "output_approved": False,
+        "warnings": [],
     }
 
 
 def _publish_node(state: GraphState) -> dict:
     return {"response": state.get("candidate", ""),
             "chart_data": state.get("chart_data")}
+
+
+def _persist_approved_node(state: GraphState) -> dict:
+    """Grava a ação aprovada depois do guardrail e só então confirma ao usuário."""
+    if state.get("_blocked"):
+        return {}
+    response = state.get("response", "")
+    actions = state.get("approved_actions", [])
+    if actions:
+        if (state.get("judge_action") != "approve" or state.get("judge_status") != "evaluated"
+                or not state.get("output_approved")
+                or not isinstance(actions, list) or len(actions) != 1):
+            return {"response": SAFE_RESPONSE, "chart_data": None}
+        action = actions[0]
+        required = {"type", "name", "frequency", "days", "start_time", "end_time"}
+        if (not isinstance(action, dict) or set(action) != required
+                or action.get("type") != "create_habit"
+                or state.get("access_kind") != "residential"
+                or actions != state.get("pending_actions", [])):
+            return {"response": SAFE_RESPONSE, "chart_data": None}
+        if (not isinstance(action["name"], str) or not isinstance(action["days"], list)
+                or not all(isinstance(day, str) for day in action["days"])):
+            return {"response": SAFE_RESPONSE, "chart_data": None}
+        canonical_name, _ = resolve_habit_name(action["name"])
+        frequency, days = action["frequency"], action["days"]
+        if (canonical_name != action["name"] or action["name"] not in CATALOG_NAMES
+                or isinstance(frequency, bool) or not isinstance(frequency, int) or frequency < 1
+                or not isinstance(days, list)
+                or any(normalize_day(day) != day for day in days)
+                or len(set(days)) != len(days) or len(days) > frequency):
+            return {"response": SAFE_RESPONSE, "chart_data": None}
+        start, end = action["start_time"], action["end_time"]
+        if (bool(start) != bool(end)):
+            return {"response": SAFE_RESPONSE, "chart_data": None}
+        if start:
+            try:
+                start_time, end_time = time_value.fromisoformat(start), time_value.fromisoformat(end)
+            except (TypeError, ValueError):
+                return {"response": SAFE_RESPONSE, "chart_data": None}
+            if start_time >= end_time:
+                return {"response": SAFE_RESPONSE, "chart_data": None}
+        try:
+            with component("approved_action"):
+                saved = db_postgres.create_habit(
+                    state["user_id"], action["name"], action["frequency"],
+                    action["days"], action["start_time"], action["end_time"],
+                )
+        except (HabitConflictError, ValueError):
+            response = "Não consegui cadastrar o hábito porque os dados entram em conflito ou foram recusados pelo banco."
+        except DatabaseAccessError as error:
+            if trace := current_trace():
+                trace.error("approved_action", error, operation="create_habit")
+            response = "Não consegui confirmar o cadastro agora. Confira os hábitos antes de tentar novamente."
+        else:
+            response = (
+                f"Hábito {saved.get('name', action['name'])} cadastrado para "
+                f"{saved.get('frequency', action['frequency'])} vez(es) por semana."
+            )
+
+    should_save_turn = (
+        state.get("output_approved")
+        and state.get("judge_action") != "block"
+        and state.get("_persist_session", True)
+    )
+    if should_save_turn:
+        try:
+            with component("session_save"):
+                append_turn(state["session_id"], state["user_id"], "human", state["question"])
+                append_turn(state["session_id"], state["user_id"], "assistant", response)
+        except Exception:
+            pass
+        else:
+            threading.Thread(
+                target=refresh_session_meta,
+                args=(state["user_id"], state["session_id"], state["question"], response),
+                daemon=True,
+            ).start()
+    update = {"response": response}
+    if state.get("output_approved") and state.get("judge_action") != "block":
+        update["messages"] = [{"role": "assistant", "content": response}]
+    return update
 
 
 def _block_node(state: GraphState) -> dict:
@@ -554,9 +679,7 @@ def _after_judge(state: GraphState) -> str:
 
 
 def _guardrail_output_node(state: GraphState) -> dict:
-    """Aplica os guardrails de saída: troca a resposta recusada por uma mensagem segura, grava o
-    turno no histórico quando a sessão persiste e descarta o gráfico de resposta recusada ou de
-    outro usuário.
+    """Valida a saída antes de qualquer ação aprovada ser gravada.
     """
     if state.get("_blocked"):
         return {}
@@ -579,22 +702,8 @@ def _guardrail_output_node(state: GraphState) -> dict:
     else:
         safe = capitalize_habit_names(hide_technical_details(result["response"]))
 
-    if state.get("_persist_session", True):
-        try:
-            with component("session_save"):
-                append_turn(state["session_id"], state["user_id"], "human", state["question"])
-                append_turn(state["session_id"], state["user_id"], "assistant", safe)
-        except Exception:
-            pass
-        else:
-            # Título, prévia e ícone são gerados à parte para não atrasar a resposta.
-            threading.Thread(
-                target=refresh_session_meta,
-                args=(state["user_id"], state["session_id"], state["question"], safe),
-                daemon=True,
-            ).start()
-
-    update: dict = {"response": safe, "messages": [{"role": "assistant", "content": safe}]}
+    update: dict = {"response": safe}
+    update["output_approved"] = bool(result["ok"] and state.get("judge_action") != "block")
     if not result["ok"]:
         update["chart_data"] = None
     elif chart_mentions_other_user(state.get("chart_data"), state.get("user_id")):
@@ -707,6 +816,7 @@ _graph.add_node("publish", _tracked_node("publish", _publish_node))
 _graph.add_node("block", _tracked_node("block", _block_node))
 _graph.add_node("confirm", _confirm_node)
 _graph.add_node("output_guard", _tracked_node("output_guard", _guardrail_output_node))
+_graph.add_node("persist", _tracked_node("persist", _persist_approved_node))
 _graph.set_entry_point("guardrail_input")
 _graph.add_conditional_edges("guardrail_input", _after_guardrail_input,
                              {END: END, "prepare": "prepare"})
@@ -723,7 +833,8 @@ _graph.add_conditional_edges("judge", _after_judge,
 _graph.add_edge("revise", "execute")
 _graph.add_edge("publish", "output_guard")
 _graph.add_edge("block", "output_guard")
-_graph.add_edge("output_guard", END)
+_graph.add_edge("output_guard", "persist")
+_graph.add_edge("persist", END)
 workflow = _graph.compile(checkpointer=MemorySaver())
 
 
@@ -867,6 +978,8 @@ def _start_run(
         "agent_results": [], "warnings": [], "recent_messages": [],
         "relevant_memory": [], "intent": "", "complexity": "", "selected_agents": [],
         "_persist_session": persist_session,
+        "pending_actions": [], "approved_actions": [], "judge_status": "",
+        "output_approved": False,
         "candidate": "", "previous_candidate": None, "previous_agent_results": [],
         "revision_feedback": "", "revision_count": 0, "judge_history": [],
         "judge_action": "", "composition_status": "", "pii_map": {}, "_blocked": False,
@@ -966,6 +1079,7 @@ _STAGE_AFTER_NODE = {
     "judge": ("finishing", "Finalizando"),
     "publish": ("finishing", "Finalizando"),
     "block": ("finishing", "Finalizando"),
+    "persist": ("finishing", "Finalizando"),
 }
 STREAM_KEEPALIVE_SECONDS = 15
 

@@ -62,6 +62,16 @@ class TargetRisk:
 
 
 @dataclass(frozen=True)
+class ScenarioRange:
+    """Faixa da projeção mensal: taxa diária recente ± 1 desvio-padrão nos dias restantes."""
+    optimistic_liters: float
+    central_liters: float
+    pessimistic_liters: float
+    daily_std_liters: float
+    sample_days: int
+
+
+@dataclass(frozen=True)
 class FullForecast:
     projection: ConsumptionProjection
     trend: Trend
@@ -69,6 +79,7 @@ class FullForecast:
     target_risk: TargetRisk
     has_enough_history: bool
     notes: list[str] = field(default_factory=list)
+    scenarios: ScenarioRange | None = None
 
 
 def _daily_series(history: list[ConsumptionPoint]) -> dict[date, float]:
@@ -116,6 +127,27 @@ def project_month_consumption(history: list[ConsumptionPoint], today: date) -> C
         remaining_days=remaining_days,
         days_in_month=days_in_month,
         month_projection_liters=round(projection, 2),
+    )
+
+
+def project_scenarios(history: list[ConsumptionPoint], today: date) -> ScenarioRange | None:
+    """Otimista/central/pessimista; sem MIN_HISTORY_DAYS dias medidos na janela não há faixa."""
+    series = _daily_series(history)
+    window_limit = today - timedelta(days=MOVING_AVERAGE_WINDOW_DAYS)
+    values = [liters for day, liters in series.items() if window_limit < day <= today]
+    if len(values) < MIN_HISTORY_DAYS:
+        return None
+    projection = project_month_consumption(history, today)
+    mean = sum(values) / len(values)
+    std = (sum((v - mean) ** 2 for v in values) / (len(values) - 1)) ** 0.5
+    base = projection.month_consumption_so_far_liters
+    remaining = projection.remaining_days
+    return ScenarioRange(
+        optimistic_liters=round(base + max(projection.daily_average_liters - std, 0.0) * remaining, 2),
+        central_liters=projection.month_projection_liters,
+        pessimistic_liters=round(base + (projection.daily_average_liters + std) * remaining, 2),
+        daily_std_liters=round(std, 2),
+        sample_days=len(values),
     )
 
 
@@ -297,4 +329,5 @@ def calculate_full_forecast(
         target_risk=target_risk,
         has_enough_history=enough_history,
         notes=notes,
+        scenarios=project_scenarios(history, today),
     )

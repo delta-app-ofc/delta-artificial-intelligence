@@ -64,21 +64,15 @@ def _run_question(user_id: int, session_id: str, question: str, no_history: bool
             diagnostics = judge.get("assessment", {}).get("diagnostics", {})
             if diagnostics:
                 checks = diagnostics["checks"]
-                quality = diagnostics["quality"]
-                quality_label = quality["legend"].get(
-                    str(int(quality["score"])), str(quality["score"])
-                )
                 print(
                     "   Subcritérios Jev: "
                     f"suporte factual={diagnostics['facts_supported']:.0%} "
                     f"({'passou' if checks['facts_supported'] else 'falhou'}); "
                     f"relevância={diagnostics['relevant']:.0%} "
-                    f"({'passou' if checks['relevant'] else 'falhou'}); "
-                    f"qualidade={quality_label} "
-                    f"({'passou' if checks['quality'] else 'falhou'})"
+                    f"({'passou' if checks['relevant'] else 'falhou'})"
                 )
             elif judge.get("status") == "evaluated":
-                print("   Noul/Score não consultados: o gate principal não passou.")
+                print("   Noul não consultado: o gate principal não passou.")
             print("   Códigos Python: " + ", ".join(judge["reason_codes"]))
             print("   Justificativa Python: " + judge["justification"])
         final_judge = history[-1]["judge"]
@@ -90,6 +84,7 @@ def _run_question(user_id: int, session_id: str, question: str, no_history: bool
     print(f"Revisões: {state.get('revision_count', 0)}")
 
     output = validate_output(state.get("response", ""), guard.get("pii_map", {}))
+    approved = approved and state.get("output_approved", True)
     fallback = state.get("composition_status") in {"no_agents", "no_success"} and not history
     if not output["ok"]:
         print("Guardrail de saída bloqueou o texto.")

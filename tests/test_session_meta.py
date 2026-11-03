@@ -24,11 +24,9 @@ class FakeModel:
 @pytest.fixture
 def use_model():
     def install(model):
-        session_meta.llms.llm_rapido = model
         return model
 
     yield install
-    session_meta.llms.__dict__.pop("llm_rapido", None)
 
 
 def test_parse_accepts_json_inside_code_fence():
@@ -57,19 +55,20 @@ def test_parse_rejects_unusable_output(raw):
     assert session_meta._parse_meta(raw) is None
 
 
-def test_generate_sends_question_and_answer_with_icon_list(use_model):
+def test_generate_copies_source_text_without_calling_model(use_model):
     model = use_model(FakeModel('{"title": "Resumo do mês", "preview": "Você gastou 30% menos", "icon": "summary"}'))
 
     meta = session_meta.generate_session_meta("Resuma meu mês", "Você gastou 30% menos.")
 
-    assert meta["icon"] == "summary"
-    assert "Resuma meu mês" in model.prompts[0] and "Você gastou 30% menos." in model.prompts[0]
-    assert all(icon in model.prompts[0] for icon in session_meta.ICONS)
+    assert meta == {"title": "Resuma meu mês", "preview": "Você gastou 30% menos.", "icon": "general"}
+    assert model.prompts == []
 
 
-def test_generate_without_model_returns_none(use_model):
+def test_generate_without_model_still_uses_source_text(use_model):
     use_model(None)
-    assert session_meta.generate_session_meta("a", "b") is None
+    assert session_meta.generate_session_meta("a", "b") == {
+        "title": "a", "preview": "b", "icon": "general",
+    }
 
 
 def test_refresh_stores_meta_once_with_real_mongo(mongo_db, use_model):
@@ -82,8 +81,8 @@ def test_refresh_stores_meta_once_with_real_mongo(mongo_db, use_model):
     session_meta.refresh_session_meta(7, session_id, "outra pergunta", "outra resposta")
 
     item = memory.get_sessions_for_user(7)[0]
-    assert (item["title"], item["icon"]) == ("Definir rotina nova", "routine")
-    assert len(model.prompts) == 1  # a LLM só é chamada enquanto não há título
+    assert (item["title"], item["preview"], item["icon"]) == ("Crie uma rotina", "Aqui está", "general")
+    assert model.prompts == []
 
 
 def test_refresh_skips_session_already_in_flight(mongo_db, use_model):

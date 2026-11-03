@@ -289,7 +289,8 @@ def build_tools(user_id: int, access_kind: str | None = None) -> list[BaseTool]:
           Cadastrar o mesmo hábito no mesmo dia e horário é recusado (conflict);
           sem horário, dois cadastros no mesmo dia colidem.
 
-        Só confirme o cadastro quando o status for ok (gravado no banco).
+        Esta ferramenta apenas prepara um cadastro pendente para o Juiz; ela
+        nunca grava no banco. Só o fluxo principal executa uma ação aprovada.
 
         Disponível apenas para usuários residenciais.
         """
@@ -304,7 +305,11 @@ def build_tools(user_id: int, access_kind: str | None = None) -> list[BaseTool]:
                 "pending_write": {"kind": "create_habit", "params": proposal["params"]},
                 "message": "Nada foi cadastrado. O sistema vai pedir a confirmação; não confirme o cadastro.",
             }
-        return write_habit(user_id, proposal["params"])
+        return {
+            "status": "pending_approval",
+            "message": "Cadastro preparado para avaliação; ainda não foi gravado.",
+            "action": {"type": "create_habit", **proposal["params"]},
+        }
 
     @tool
     def estimate_habit_water_impact(habit_name: str, frequency: int) -> dict:
