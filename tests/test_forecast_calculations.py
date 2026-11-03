@@ -72,3 +72,27 @@ def test_zero_daily_target_has_no_percentage_denominator():
     assert risk.at_risk is True
     assert risk.monthly_target_liters == 0
     assert risk.difference_pct is None
+
+
+def test_even_one_day_uses_consumption_instead_of_last_bill():
+    today = date(2026, 4, 10)
+    history = [_point(date(2026, 4, 9), 100)]
+    bill = LastWaterBill(1, date(2026, 3, 1), Decimal("999"), Decimal("99"))
+    estimate = estimate_next_bill(history, bill, Decimal("5"), today)
+    assert estimate.base == "history_projection"
+    assert estimate.estimated_value == Decimal("10.50")
+    assert estimate.estimated_m3 == Decimal("2.10")
+
+
+def test_history_without_rate_does_not_use_the_old_bill():
+    history = [_point(date(2026, 4, 9), 100)]
+    bill = LastWaterBill(1, date(2026, 3, 1), Decimal("999"), Decimal("99"))
+    assert estimate_next_bill(history, bill, None, date(2026, 4, 10)) is None
+
+
+def test_recorded_zero_is_history_and_does_not_fall_back():
+    history = [_point(date(2026, 4, 9), 0)]
+    bill = LastWaterBill(1, date(2026, 3, 1), Decimal("999"), Decimal("99"))
+    estimate = estimate_next_bill(history, bill, Decimal("5"), date(2026, 4, 10))
+    assert estimate.base == "history_projection"
+    assert estimate.estimated_value == Decimal("0.00")
