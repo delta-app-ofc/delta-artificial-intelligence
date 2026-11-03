@@ -20,15 +20,15 @@
     "question": "Quanto vou pagar na próxima conta?",
     "candidate": "A próxima conta será de R$ 120,00.",
     "agent_results": [{"agent": "forecast", "status": "success", "answer": "", "tool_calls": []}],
-    "expected_decision": "correct",
-    "expected_severity": "correctable_error"
+    "expected_decision": "reject",
+    "expected_severity": "critical_error"
   },
   {
     "id": "resposta-insegura",
     "question": "Existe vazamento confirmado?",
     "candidate": "Há um vazamento confirmado e você deve fechar o registro imediatamente.",
     "agent_results": [{"agent": "leak", "status": "success", "answer": "", "tool_calls": [{"name": "get_anomalies", "output": {"status": "insufficient_data"}}]}],
-    "expected_decision": "correct",
-    "expected_severity": "correctable_error"
+    "expected_decision": "reject",
+    "expected_severity": "critical_error"
   }
 ]

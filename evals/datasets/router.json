@@ -1,14 +1,14 @@
 [
-  {"id": "consumo-dia", "question": "Quanto consumi ontem?", "access_kind": "residential", "intent": "consumption", "agents": ["consumption"], "complexity": "simple"},
-  {"id": "previsao-conta", "question": "Quanto vou pagar na próxima conta de água?", "access_kind": "residential", "intent": "forecast", "agents": ["forecast"], "complexity": "medium"},
-  {"id": "vazamento", "question": "Recebi um alerta de anomalia, pode explicar?", "access_kind": "residential", "intent": "leak", "agents": ["leak"], "complexity": "simple"},
-  {"id": "habito", "question": "Cadastre o hábito de lavar o carro aos sábados.", "access_kind": "residential", "intent": "habits", "agents": ["habits"], "complexity": "medium"},
-  {"id": "documentacao", "question": "Como cadastro meu hidrômetro no Delta?", "access_kind": "residential", "intent": "water_conservation", "agents": ["rag"], "complexity": "simple"},
-  {"id": "consumo-e-meta", "question": "Compare meu consumo deste mês com a meta e diga se vou ultrapassá-la.", "access_kind": "residential", "intent": "consumption", "agents": ["consumption", "forecast"], "complexity": "complex"},
-  {"id": "habito-e-consumo", "question": "Meu consumo subiu no horário em que costumo lavar roupa?", "access_kind": "residential", "intent": "habits", "agents": ["habits", "consumption"], "complexity": "complex"},
-  {"id": "alerta-e-dica", "question": "O alerta de consumo alto tem relação com meus hábitos?", "access_kind": "residential", "intent": "leak", "agents": ["leak", "habits"], "complexity": "complex"},
-  {"id": "organizacional-unidade", "question": "Posso ver o consumo da unidade Pinheiros?", "access_kind": "organizational", "intent": "consumption", "agents": ["consumption"], "complexity": "simple"},
-  {"id": "organizacional-previsao", "question": "Qual unidade deve ultrapassar a meta no fim do mês?", "access_kind": "organizational", "intent": "forecast", "agents": ["forecast"], "complexity": "complex"},
+  {"id": "consumo-dia", "question": "Quanto consumi ontem?", "access_kind": "residential", "intent": "consumption_history", "agents": ["consumption"], "complexity": "simple"},
+  {"id": "previsao-conta", "question": "Quanto vou pagar na próxima conta de água?", "access_kind": "residential", "intent": "consumption_forecast", "agents": ["forecast"], "complexity": "medium"},
+  {"id": "vazamento", "question": "Recebi um alerta de anomalia, pode explicar?", "access_kind": "residential", "intent": "alert_help", "agents": ["leak"], "complexity": "simple"},
+  {"id": "habito", "question": "Cadastre o hábito de lavar o carro aos sábados.", "access_kind": "residential", "intent": "habit_create", "agents": ["habits"], "complexity": "medium"},
+  {"id": "documentacao", "question": "Como cadastro meu hidrômetro no Delta?", "access_kind": "residential", "intent": "product_help", "agents": ["rag"], "complexity": "simple"},
+  {"id": "consumo-e-meta", "question": "Compare meu consumo deste mês com a meta e diga se vou ultrapassá-la.", "access_kind": "residential", "intent": "consumption_goal_forecast", "agents": ["consumption", "forecast"], "complexity": "complex"},
+  {"id": "habito-e-consumo", "question": "Meu consumo subiu no horário em que costumo lavar roupa?", "access_kind": "residential", "intent": "consumption_habits_comparison", "agents": ["habits", "consumption"], "complexity": "complex"},
+  {"id": "alerta-e-dica", "question": "O alerta de consumo alto tem relação com meus hábitos?", "access_kind": "residential", "intent": "alert_habits", "agents": ["leak", "habits"], "complexity": "complex"},
+  {"id": "organizacional-unidade", "question": "Posso ver o consumo da unidade Pinheiros?", "access_kind": "organizational", "intent": "consumption_history", "agents": ["consumption"], "complexity": "simple"},
+  {"id": "organizacional-previsao", "question": "Qual unidade deve ultrapassar a meta no fim do mês?", "access_kind": "organizational", "intent": "goal_risk", "agents": ["forecast"], "complexity": "complex"},
   {"id": "saudacao", "question": "Oi, tudo bem?", "access_kind": "residential", "intent": "greeting", "agents": [], "complexity": "simple"},
-  {"id": "duvida-mista", "question": "O que é fluxo contínuo e como verifico isso no meu consumo?", "access_kind": "residential", "intent": "water_conservation", "agents": ["rag", "consumption"], "complexity": "medium"}
+  {"id": "duvida-mista", "question": "O que é fluxo contínuo e como verifico isso no meu consumo?", "access_kind": "residential", "intent": "continuous_flow_check", "agents": ["rag", "consumption"], "complexity": "medium"}
 ]
