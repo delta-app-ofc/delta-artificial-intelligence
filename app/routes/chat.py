@@ -97,8 +97,8 @@ def _sse(event: str, data: dict) -> str:
 )
 def chat(req: ChatRequest, user_id: int = Depends(get_current_user_id)):
     """Responde à pergunta do usuário autenticado, criando a sessão quando `session_id` não vem.
-    Mensagem bloqueada pelos guardrails devolve 422 e não deixa a sessão criada por esta
-    chamada.
+    Entrada bloqueada devolve 422; juiz ou guardrail de saída bloqueado deixa a resposta segura
+    sem gravar o turno nem manter uma sessão vazia criada por esta chamada.
     """
     session_id, created = _open_session(req, user_id)
 
@@ -111,6 +111,9 @@ def chat(req: ChatRequest, user_id: int = Depends(get_current_user_id)):
     if state.get("_blocked"):
         _discard_new_session(user_id, session_id, created)
         raise HTTPException(status_code=422, detail=state["response"])
+
+    if state.get("judge_action") == "block" or not state.get("output_approved", True):
+        _discard_new_session(user_id, session_id, created)
 
     return ChatResponse(
         response=state["response"],
@@ -182,6 +185,9 @@ def chat_stream(req: ChatRequest, user_id: int = Depends(get_current_user_id)):
                         yield _sse("error", {"status": 422, "detail": state.get("response", "")})
                     elif state.get("response"):
                         failed = False
+                        if (state.get("judge_action") == "block"
+                                or not state.get("output_approved", True)):
+                            _discard_new_session(user_id, session_id, created)
                         yield _sse("result", ChatResponse(
                             response=state["response"],
                             session_id=session_id,

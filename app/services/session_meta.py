@@ -1,4 +1,4 @@
-"""Título, prévia e ícone da conversa, gerados pela LLM para a lista de histórico."""
+"""Metadados da conversa derivados do texto aprovado para a lista de histórico."""
 
 from __future__ import annotations
 
@@ -15,8 +15,6 @@ from app.memory.session import (
     set_session_meta,
 )
 from app.schemas import ICON_NAMES
-from app.services import llms
-from app.services.prompts import SESSION_META_PROMPT
 
 logger = logging.getLogger(__name__)
 
@@ -24,9 +22,6 @@ _in_flight: set[str] = set()
 _in_flight_lock = threading.Lock()
 
 ICONS = ICON_NAMES
-
-_PROMPT_TEXT_MAX = 1500
-
 
 def _parse_meta(raw: str) -> dict | None:
     """Extrai título, prévia e ícone do JSON devolvido pela LLM. Devolve None se o JSON for
@@ -52,19 +47,12 @@ def _parse_meta(raw: str) -> dict | None:
 
 
 def generate_session_meta(question: str, answer: str) -> dict | None:
-    """Pede à LLM rápida título, prévia e ícone. Retorna None se não conseguir."""
-    model = llms.llm_rapido
-    if model is None:
+    """Deriva os metadados do texto aprovado sem pedir à LLM fatos novos."""
+    title = _shorten(question, _TITLE_MAX)
+    preview = _shorten(answer, _PREVIEW_MAX)
+    if not title or not preview:
         return None
-
-    prompt = SESSION_META_PROMPT.format(
-        icons=", ".join(ICONS),
-        question=question[:_PROMPT_TEXT_MAX],
-        answer=answer[:_PROMPT_TEXT_MAX],
-    )
-    reply = model.invoke(prompt)
-    content = reply.content if hasattr(reply, "content") else str(reply)
-    return _parse_meta(content if isinstance(content, str) else str(content))
+    return {"title": title, "preview": preview, "icon": "general"}
 
 
 def refresh_session_meta(user_id: int, session_id: str, question: str, answer: str) -> None:

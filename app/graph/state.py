@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Literal
+from typing import Literal, TypedDict
 
 from langgraph.graph import MessagesState
 from pydantic import BaseModel, Field
@@ -18,6 +18,17 @@ class AgentOutput(BaseModel):
     tool_calls: list[dict] = Field(default_factory=list)
 
 
+class CreateHabitAction(TypedDict):
+    """Ação de cadastro normalizada, ainda sem efeitos no banco."""
+
+    type: Literal["create_habit"]
+    name: str
+    frequency: int
+    days: list[str]
+    start_time: str | None
+    end_time: str | None
+
+
 class GraphState(MessagesState, total=False):
     """`messages` (herdado) acumula a conversa entre as perguntas da mesma sessão."""
 
@@ -30,6 +41,10 @@ class GraphState(MessagesState, total=False):
     recent_messages: list[dict]
     _history: list[dict] | None
     _persist_session: bool
+    pending_actions: list[CreateHabitAction]
+    approved_actions: list[CreateHabitAction]
+    judge_status: Literal["evaluated", "unavailable"] | str
+    output_approved: bool
     candidate: str
     previous_candidate: str | None
     previous_agent_results: list[dict]
