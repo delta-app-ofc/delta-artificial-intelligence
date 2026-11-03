@@ -100,6 +100,14 @@ o comportamento e as dependências reais antes de descrevê-los como validados.
 
 A fonte documental é `app/knowledge/delta-main-source.md`, caminho padrão de `RAG_DOCUMENT_PATH`, incluída também na imagem Docker. O `RagAgent` usa `app/tools/rag.py` para recuperar trechos de `rag_documents` com fonte, revisão, modelo e linhas, e está registrado no roteador. O modelo de embedding vem de `GEMINI_EMBEDDING_MODEL`; a tool verifica a completude da revisão atual e chama `index_document()` automaticamente quando necessário, antes de consultar. A coleção deve existir previamente com dimensão compatível. O identificador de payload `delta-product-reference` permanece estável ao renomear o arquivo, cuja revisão depende do conteúdo. Testes com Qdrant em memória e embeddings controlados não comprovam Gemini/Qdrant remoto ou qualidade semântica.
 
+### Alertas gerados pela IA (Gluh)
+
+`app/alerts/` propõe alertas de meta, tendência, previsão de conta e dica por regras em Python, sem LLM, push ou e-mail. Nenhuma regra declara vazamento; só `limite_ultrapassado` pode ser `high`. Cada alerta tem `source: gluh` e `dedup_key` `gluh:{user_id}:{tipo}:{período}`. A escrita usa apenas `POST /api/internal/alerts` e `/resolve` da API Mongo, com `X-Service-Key`. Variáveis: `ALERTS_API_URL` (https, ou http em loopback) e `ALERTS_SERVICE_KEY` (igual nos dois lados; nunca versionar).
+
+Agende `python -m scripts.generate_alerts` como processo separado, todo dia às 20h `America/Sao_Paulo`. Sem flag é simulação: lê, calcula e não grava. `--execute` grava; `--user-id N` limita usuários. A simulação com os usuários 1, 3 e 4 propôs somente `previsao_conta_disponivel` (`low`), sem meta cadastrada.
+
+Antes de ativar `--execute`: merge de `feat/api-alertas` (delta-api-mongo) e `feat/contrato-alertas` (delta-mongo-database); administrador cria coleções, índices e migração no Atlas; `ALERTS_SERVICE_KEY` igual nos dois serviços no Render. Gravação real ainda não foi validada.
+
 Redis aparece nas dependências, mas não há integração de aplicação implementada aqui.
 A ingestão e a consulta documental compartilham `app/services/rag.py`. A tool chama
 `ensure_document_indexed()` antes de `search_document()`, sem CLI manual. A preparação
