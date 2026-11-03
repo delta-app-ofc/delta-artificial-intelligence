@@ -161,7 +161,7 @@ def _ensure_collection() -> None:
 
 
 def save_summary(user_id: int, session_id: str, messages: list[dict]) -> None:
-    """Gera resumo, pede aprovação do Juiz e grava no Qdrant apenas se liberado."""
+    """Gera resumo da conversa com llm_rapido, embeda e grava no Qdrant."""
     if not messages:
         return
 
@@ -180,32 +180,6 @@ def save_summary(user_id: int, session_id: str, messages: list[dict]) -> None:
     from app.agents._runtime import _message_text
 
     summary_text = _message_text(summary_msg) if hasattr(summary_msg, "content") else str(summary_msg)
-
-    from app.agents.judge import JudgeAgent, JudgeInput
-
-    review = _run_phase(
-        "judge_summary",
-        lambda: JudgeAgent().run(
-            JudgeInput(
-                question="Resuma a conversa sem acrescentar fatos ou alterar os fatos registrados.",
-                candidate=summary_text,
-                agent_results=[{
-                    "agent": "session_history",
-                    "status": "success",
-                    "answer": transcript,
-                }],
-                context={"evaluation_type": "memory_summary"},
-            )
-        ),
-    )
-    if review.status != "evaluated" or review.decision != "approve":
-        if trace := current_trace():
-            trace.event(
-                "memory.summary.skipped", component="long_term_memory",
-                operation="judge_summary", status="rejected",
-                metadata={"outcome": "summary_not_approved"},
-            )
-        return
 
     embed_model = _run_phase("create_embeddings", _embed_model)
 
