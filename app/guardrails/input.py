@@ -8,6 +8,8 @@ from __future__ import annotations
 
 import re
 import uuid
+import unicodedata
+from collections.abc import Callable
 
 from app.observability.diagnostics import current_trace
 from app.config import ConfigurationError
@@ -15,13 +17,35 @@ from app.agents._runtime import _message_text
 
 _MAX_LEN = 2000
 
-# Padrões de PII — usados aqui e importados pelo guardrail de saída.
-PII_PATTERNS: list[tuple[str, re.Pattern[str]]] = [
-    ("CPF",      re.compile(r"\d{3}\.?\d{3}\.?\d{3}-?\d{2}")),
-    ("CNPJ",     re.compile(r"\d{2}\.?\d{3}\.?\d{3}/?\d{4}-?\d{2}")),
-    ("TELEFONE", re.compile(r"\(?\d{2}\)?\s?\d{4,5}-?\d{4}")),
-    ("EMAIL",    re.compile(r"[a-zA-Z0-9_.+-]+@[a-zA-Z0-9-]+\.[a-zA-Z0-9-.]+")),
-]
+# Uma única passagem evita interpretar parte de um CNPJ como CPF e preserva a pontuação.
+_PII_PATTERN = re.compile(
+    r"(?P<EMAIL>[a-zA-Z0-9_.+-]+@[a-zA-Z0-9-]+(?:\.[a-zA-Z0-9-]+)+)"
+    r"|(?P<CNPJ>(?<!\d)\d{2}\.?\d{3}\.?\d{3}/?\d{4}-?\d{2}(?!\d))"
+    r"|(?P<CPF>(?<!\d)\d{3}\.?\d{3}\.?\d{3}-?\d{2}(?!\d))"
+    r"|(?P<TELEFONE>(?<!\d)\(?\d{2}\)?\s?\d{4,5}-?\d{4}(?!\d))"
+)
+_PHONE_CONTEXT = re.compile(
+    r"\b(?:telefone|celular|whatsapp|fone|contato)(?:\s+(?:cadastrado|principal|é|e))?\s*[:=]?\s*$",
+    re.I,
+)
+
+
+def replace_pii(text: str, replacement: Callable[[str, str], str]) -> str:
+    """Substitui cada ocorrência inteira, compartilhando a detecção entre entrada e saída.
+
+    CPF e telefone sem pontuação podem ter os mesmos 11 dígitos. Um rótulo explícito
+    de telefone decide a categoria; sem contexto, preservamos o padrão anterior (CPF).
+    Em ambos os casos, todos os dígitos são ocultados.
+    """
+    def replace(match: re.Match[str]) -> str:
+        label = match.lastgroup
+        value = match.group()
+        if label == "CPF" and value.isdigit() and _PHONE_CONTEXT.search(text[max(0, match.start() - 60):match.start()]):
+            label = "TELEFONE"
+        return replacement(label, value)
+
+    return _PII_PATTERN.sub(replace, text)
+
 
 _INJECTION_PATTERNS = [
     re.compile(r"ignore\s+(as\s+)?instru[çc][oõ]es", re.I),
@@ -39,6 +63,17 @@ _INJECTION_PATTERNS = [
     re.compile(r"###\s*instruction", re.I),
     re.compile(r"override\s+(your\s+)?instructions?", re.I),
     re.compile(r"desconsider[ea]\s+(suas\s+)?instru[çc][oõ]es", re.I),
+    # Formulações adicionais; a normalização abaixo permite acentos e espaços variados.
+    re.compile(r"\besqueca\s+(?:suas\s+instrucoes|tudo\s+que\s+te\s+disseram)\b", re.I),
+    re.compile(r"\b(?:aja|responda|atue)\s+sem\s+(?:filtros|restricoes|limites)\b", re.I),
+    re.compile(r"\ba\s+partir\s+de\s+agora\s+voce\s+e\b.{0,60}\b(?:sem\s+limites|irrestrit[oa]|sem\s+restricoes)\b", re.I),
+    re.compile(r"\b(?:ative|entre\s+em|habilite)\s+(?:o\s+)?modo\s+(?:desenvolvedor|administrador)\b", re.I),
+    re.compile(r"\b(?:repita|reproduza|mostre)\s+(?:exatamente\s+)?(?:o\s+)?texto\s+(?:que\s+)?(?:aparece|esta)\s+acima\s+(?:desta|da)\s+(?:mensagem|conversa)\b", re.I),
+    re.compile(r"\bfinja\s+que\s+eu\s+sou\s+(?:o|um|a|uma)\s+(?:administrador|admin|outro\s+usuario)\b", re.I),
+    re.compile(r"\b(?:conta(?:\s+de\s+agua)?|dados|consumo|historico)\s+(?:do|da|de)\s+(?:(?:meu|minha|seu|sua)\s+)?(?:vizinh[oa]s?|colega|outra\s+pessoa)\b", re.I),
+    re.compile(r"\b(?:qual|mostre|revele|exiba|copie)\b.{0,70}\bprompt\s+inicial\b", re.I),
+    re.compile(r"\b(?:liste|mostre|revele|exiba)\b.{0,60}\b(?:tabelas|schema|estrutura)\s+(?:do|de)\s+banco(?:\s+de\s+dados)?\b", re.I),
+    re.compile(r"\b(?:execute|rode|executar|rodar)\s+(?:o\s+(?:comando|sql)\s+)?(?:drop\s+table|delete\s+from|truncate(?:\s+table)?|alter\s+table|insert\s+into|update\s+\w+\s+set)\b", re.I),
     # Tentativas de agir como outro usuário ou de consultar dados de outro usuário.
     re.compile(r"\baj[ao]\s+como\s+(o\s+|um\s+)?(usu[aá]rio|cliente|outr[oa]|admin)", re.I),
     re.compile(r"\bfinj[ae]\s+(que\s+)?(ser|sou|é)\b", re.I),
@@ -51,7 +86,7 @@ _INJECTION_PATTERNS = [
 
 _INTERNAL_DATA_KEYWORDS = [
     "prompt do sistema", "system prompt", "suas instruções", "your instructions",
-    "variável de ambiente", "chave de api", "api key", "senha do sistema",
+    "variável de ambiente", "variáveis de ambiente", "chave de api", "api key", "senha do sistema",
     "token de acesso", "banco de dados interno", "dados de outros usuários",
     "lista de usuários", "credenciais",
 ]
@@ -82,14 +117,23 @@ _BLOCK_RESPONSES: dict[str, tuple[str, str]] = {
 def anonymize(text: str) -> tuple[str, dict[str, str]]:
     """Substitui PII por tokens temporários. Retorna (texto_anonimizado, mapa token→valor)."""
     pii_map: dict[str, str] = {}
-    for label, pattern in PII_PATTERNS:
-        for match in pattern.finditer(text):
-            value = match.group()
-            if value not in pii_map.values():
-                token = f"[PII_{label}_{uuid.uuid4().hex[:6]}]"
-                pii_map[token] = value
-                text = text.replace(value, token, 1)
-    return text, pii_map
+    tokens: dict[tuple[str, str], str] = {}
+
+    def token_for(label: str, value: str) -> str:
+        key = (label, value)
+        if key not in tokens:
+            token = f"[PII_{label}_{uuid.uuid4().hex[:6]}]"
+            tokens[key] = token
+            pii_map[token] = value
+        return tokens[key]
+
+    return replace_pii(text, token_for), pii_map
+
+
+def _normalize_rules(text: str) -> str:
+    """Normaliza apenas a cópia de comparação, sem mudar o texto enviado ao chatbot."""
+    decomposed = unicodedata.normalize("NFKD", text.casefold())
+    return " ".join("".join(char for char in decomposed if not unicodedata.combining(char)).split())
 
 
 def validate_input_rules(user_id: int, message: str) -> dict:
@@ -109,13 +153,13 @@ def validate_input_rules(user_id: int, message: str) -> dict:
 
     anonymized, pii_map = anonymize(message)
 
+    normalized = _normalize_rules(anonymized)
     for pattern in _INJECTION_PATTERNS:
-        if pattern.search(anonymized):
+        if pattern.search(normalized):
             return {"ok": False, "reason": "Mensagem contém padrão não permitido."}
 
-    lower = anonymized.lower()
     for kw in _INTERNAL_DATA_KEYWORDS:
-        if kw in lower:
+        if _normalize_rules(kw) in normalized:
             return {"ok": False, "reason": "Não consigo compartilhar dados internos do sistema."}
 
     return {"ok": True, "message": anonymized, "pii_map": pii_map}
