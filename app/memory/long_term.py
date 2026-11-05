@@ -88,9 +88,11 @@ def _qdrant():
     from qdrant_client import QdrantClient
 
     settings = get_settings()
+    if not settings.qdrant_url:
+        raise ConfigurationError("QDRANT_URL ausente para a memória de longo prazo.")
 
     return QdrantClient(
-        url=settings.qdrant_url or "http://localhost:6333",
+        url=settings.qdrant_url,
         api_key=settings.qdrant_api_key,
     )
 
