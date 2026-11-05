@@ -21,6 +21,11 @@ _ENVIRONMENTS = {"development", "test", "staging", "production"}
 _DEFAULT_ENV_FILE = object()
 
 JUDGE_RUBRIC_VERSION = "delta-judge-fixed-v8"
+DEFAULT_CORS_ALLOWED_ORIGINS = ",".join((
+    "http://localhost:5173",
+    "http://127.0.0.1:5173",
+    "https://delta-web-app.onrender.com",
+))
 
 JUIZ_PROMPT_COMPLETO = """
 Avalie a candidata inteira para o pedido atual. A pergunta define o pedido;
@@ -183,7 +188,7 @@ class Settings:
     auth_audience: str = "delta-api"
     auth_key_id: str = "delta-1"
     auth_check_active: bool = True
-    cors_allowed_origins: str = "*"
+    cors_allowed_origins: str = DEFAULT_CORS_ALLOWED_ORIGINS
     jev_confidence_threshold: float = 0.70
     jev_probability_threshold: float = 0.70
     jev_facts_supported_threshold: float = 0.60
@@ -396,7 +401,7 @@ def load_settings(
         auth_audience=values.get("AUTH_AUDIENCE", Settings.auth_audience) or "",
         auth_key_id=values.get("AUTH_KEY_ID", Settings.auth_key_id) or "",
         auth_check_active=auth_check_active,
-        cors_allowed_origins=values.get("CORS_ALLOWED_ORIGINS") or "*",
+        cors_allowed_origins=values.get("CORS_ALLOWED_ORIGINS") or DEFAULT_CORS_ALLOWED_ORIGINS,
         openai_api_key=values.get("OPENAI_API_KEY"),
         openai_model=values.get("OPENAI_MODEL", Settings.openai_model) or "",
         openai_reasoning_effort=(values.get("OPENAI_REASONING_EFFORT", Settings.openai_reasoning_effort) or "").casefold(),
