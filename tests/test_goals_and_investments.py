@@ -80,6 +80,7 @@ def _run(name, args, forecast=None, access_kind="residential", scenarios=None):
         patch.object(pg, "get_organization_effective_rate", return_value=None),
         # Funções que a main acrescentou à leitura de histórico (Mongo primeiro, view como reserva).
         patch.object(pg, "get_authorized_device_ids", return_value=[], create=True),
+        patch.object(pg, "get_organization_monthly_target", return_value=None, create=True),
         patch.object(pg, "get_residential_consumption_history", return_value=_POINTS, create=True),
         patch.object(mongo, "get_consumption_history_by_devices", return_value=_POINTS, create=True),
         patch.object(mongo, "get_daily_liters_target", return_value=None),

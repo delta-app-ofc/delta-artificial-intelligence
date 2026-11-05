@@ -185,7 +185,7 @@ def test_habitos_confere_o_vinculo_a_cada_chamada(monkeypatch, calls):
     assert calls == [1]
 
 
-def test_habito_so_prepara_acao_sem_gravar(monkeypatch):
+def test_habito_recusado_pelo_banco_devolve_mensagem_generica(monkeypatch):
     monkeypatch.setattr(db_postgres, "get_user_access_kind", lambda uid: "residential")
 
     def recusa(*args, **kwargs):
@@ -196,8 +196,7 @@ def test_habito_so_prepara_acao_sem_gravar(monkeypatch):
 
     resposta = criar.invoke({"name": "banho", "frequency": 3, "days": ["segunda"]})
 
-    # A ferramenta só prepara a ação; a recusa do banco ocorre na gravação, depois do Juiz.
-    assert resposta["status"] == "pending_approval"
+    assert resposta == {"status": "error", "message": "Não foi possível cadastrar o hábito."}
 
 
 # --- consumo: unidade escolhida pelo modelo precisa ser autorizada ---------------------

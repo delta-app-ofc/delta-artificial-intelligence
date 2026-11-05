@@ -50,6 +50,7 @@ def sources(monkeypatch):
     monkeypatch.setattr(pg, "get_organization_effective_rate", lambda *a: data["rate"])
     monkeypatch.setattr(pg, "get_user_organization_properties", lambda uid: [OrganizationProperty(10, "Alfa", "São Paulo", "SP")])
     monkeypatch.setattr(pg, "get_authorized_device_ids", lambda *a: ["DEVICE-1"])
+    monkeypatch.setattr(pg, "get_organization_monthly_target", lambda *a: None)
     return data, bill
 
 
