@@ -15,7 +15,7 @@ from app.tools.rag import search_knowledge_base
 from app.tools.external_knowledge import build_external_knowledge_tool
 
 
-_TECHNICAL_SUFFIX = re.compile(r"\s*\((?:revisão [^;)]*;\s*)?linhas [^)]*\)\s*$")
+_TECHNICAL_SUFFIX = re.compile(r"\((?:revisão [^;)]*;\s*)?linhas [^)]*\)$")
 _HEADING_NUMBER = re.compile(r"^(?:CAPÍTULO\s+\d+\s*[—-]\s*|\d+(?:\.\d+)*\.?\s+)", re.IGNORECASE)
 _INTERNAL_SOURCE = "delta-product-reference"
 
@@ -25,7 +25,7 @@ def display_source(citation: str) -> str:
 
     Documentação interna vira "Documentação do Delta — <seção>"; fontes externas mantêm a URL.
     """
-    text = _TECHNICAL_SUFFIX.sub("", citation).strip()
+    text = _TECHNICAL_SUFFIX.sub("", citation.rstrip()).strip()
     if not text.startswith(_INTERNAL_SOURCE):
         return text
     headings = [part.strip() for part in text.split(" > ")[1:]]

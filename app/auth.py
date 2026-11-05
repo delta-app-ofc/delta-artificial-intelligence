@@ -118,7 +118,7 @@ def get_current_user_id(
     token = credentials.credentials
 
     try:
-        header = jwt.get_unverified_header(token)
+        header = jwt.get_unverified_header(token)  # NOSONAR: só lê alg/kid; o jwt.decode abaixo verifica a assinatura
         # O algoritmo vem do nosso lado, nunca do token: HS256 com a chave pública como segredo é recusado.
         if header.get("alg") != algorithm:
             logger.warning("Token recusado: algoritmo %s, esperado %s.", header.get("alg"), algorithm)
