@@ -198,6 +198,7 @@ class Settings:
     confirmation_interrupt_enabled: bool = False
     mcp_timeout_seconds: float = 45.0
     mcp_cache_ttl_seconds: int = 3600
+    ranking_service_url: str | None = field(default=None, repr=False)
     obs_support_cost_usd: float = 8.01  # Gartner, 2019: contato atendido por pessoa (telefone, chat, e-mail)
     obs_questions_per_user_week: float = 0.0  # 0 = usar o valor medido; não há fonte externa confiável
     obs_usd_to_brl: float = 5.4212  # PTAX de venda do Banco Central em 30/10/2026
@@ -404,6 +405,7 @@ def load_settings(
         bill_registration_enabled=(values.get("BILL_REGISTRATION_ENABLED") or "false").casefold() == "true",
         confirmation_interrupt_enabled=(values.get("CONFIRMATION_INTERRUPT_ENABLED") or "false").casefold() == "true",
         mcp_timeout_seconds=parsed_numbers["MCP_TIMEOUT_SECONDS"],
+        ranking_service_url=(values.get("RANKING_SERVICE_URL") or "").strip().rstrip("/") or None,
         mcp_cache_ttl_seconds=parsed_numbers["MCP_CACHE_TTL_SECONDS"],
         openai_fast_reasoning_effort=(
             values.get("OPENAI_FAST_REASONING_EFFORT", Settings.openai_fast_reasoning_effort) or ""

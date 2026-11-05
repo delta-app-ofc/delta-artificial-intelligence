@@ -15,6 +15,25 @@ from app.tools.rag import search_knowledge_base
 from app.tools.external_knowledge import build_external_knowledge_tool
 
 
+_TECHNICAL_SUFFIX = re.compile(r"\s*\((?:revisão [^;)]*;\s*)?linhas [^)]*\)\s*$")
+_HEADING_NUMBER = re.compile(r"^(?:CAPÍTULO\s+\d+\s*[—-]\s*|\d+(?:\.\d+)*\.?\s+)", re.IGNORECASE)
+_INTERNAL_SOURCE = "delta-product-reference"
+
+
+def display_source(citation: str) -> str:
+    """Versão curta da citação para o usuário: sem hash de revisão, linhas nem o caminho completo.
+
+    Documentação interna vira "Documentação do Delta — <seção>"; fontes externas mantêm a URL.
+    """
+    text = _TECHNICAL_SUFFIX.sub("", citation).strip()
+    if not text.startswith(_INTERNAL_SOURCE):
+        return text
+    headings = [part.strip() for part in text.split(" > ")[1:]]
+    section = _HEADING_NUMBER.sub("", headings[-1]).strip() if len(headings) > 1 else ""
+    section = section[:1].upper() + section[1:].lower() if section.isupper() else section
+    return f"Documentação do Delta — {section}" if section else "Documentação do Delta"
+
+
 class RagAgent:
     def __init__(self, user_id: int, llm: Any = None, access_kind: str | None = None) -> None:
         """Cria o agente RAG com o modelo rápido; levanta ConfigurationError se não houver modelo
@@ -107,8 +126,8 @@ class RagAgent:
         # A lista final é construída das evidências; o modelo não pode substituí-la.
         result.response = result.response.partition("Fontes consultadas:")[0].rstrip()
         result.response = re.sub(r"(?m)^\s*Fontes?:[^\n]*", "", result.response).rstrip()
-        result.response += "\n\nFontes consultadas:\n" + "\n".join(
-            f"- {source}" for source in result.sources
-        )
+        # Só a exibição é simplificada; result.sources mantém a citação completa para o Juiz.
+        labels = list(dict.fromkeys(display_source(source) for source in result.sources))
+        result.response += "\n\nFontes consultadas:\n" + "\n".join(f"- {label}" for label in labels)
 
         return result

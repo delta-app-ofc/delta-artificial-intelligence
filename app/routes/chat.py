@@ -62,7 +62,7 @@ def _suggestions(user_id: int, state: dict, asked: str) -> list[str]:
     "/chat/suggestions",
     response_model=SuggestionsResponse,
     summary="Perguntas sugeridas para começar a conversa",
-    description="Devolve até 3 perguntas iniciais de acordo com o perfil da conta autenticada.",
+    description="Devolve até 4 perguntas iniciais de acordo com o perfil da conta autenticada.",
     responses={**AUTH_ERRORS},
 )
 def chat_suggestions(user_id: int = Depends(get_current_user_id)):

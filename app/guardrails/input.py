@@ -89,6 +89,9 @@ _INTERNAL_DATA_KEYWORDS = [
     "variável de ambiente", "variáveis de ambiente", "chave de api", "api key", "senha do sistema",
     "token de acesso", "banco de dados interno", "dados de outros usuários",
     "lista de usuários", "credenciais",
+    "url do banco", "uri do banco", "endereço do banco",
+    "senha do banco", "usuário do banco", "host do banco",
+    "url do mongo", "url do postgres", "url do qdrant", "url do redis",
 ]
 
 _PROMPT_CLASSIFIER = """\

@@ -307,7 +307,7 @@ def calculate_full_forecast(
     if region_rate is None:
         notes.append("Sem tarifa vigente disponível para a região.")
     if daily_target is None:
-        notes.append("Meta diária não cadastrada; risco de meta não avaliado.")
+        notes.append("Meta cadastrada não disponível; risco de ultrapassar a meta não avaliado.")
 
     projection = project_month_consumption(history, today)
     trend = calculate_trend(history, today)
@@ -318,9 +318,22 @@ def calculate_full_forecast(
             if history else
             "Sem histórico de consumo e sem conta anterior; não é possível estimar a próxima conta."
         )
-    target_risk = assess_target_risk(
-        projection.month_projection_liters, daily_target, projection.days_in_month
-    )
+    if enough_history:
+        target_risk = assess_target_risk(
+            projection.month_projection_liters, daily_target, projection.days_in_month
+        )
+    elif daily_target is not None:
+        # Preserva a meta cadastrada no retorno, mas não compara com uma
+        # projeção sem base histórica suficiente.
+        target_risk = TargetRisk(
+            assessable=False,
+            at_risk=False,
+            monthly_target_liters=round(daily_target * projection.days_in_month, 2),
+            month_projection_liters=None,
+            difference_pct=None,
+        )
+    else:
+        target_risk = TargetRisk(False, False, None, None, None)
 
     return FullForecast(
         projection=projection,

@@ -48,12 +48,21 @@ _data_hora_fmt = _agora.strftime(
 )
 
 
+_DIAS_SEMANA = (
+    "segunda-feira", "terça-feira", "quarta-feira", "quinta-feira",
+    "sexta-feira", "sábado", "domingo",
+)
+
+
 def _contexto_temporal_atual() -> str:
     """Data/hora em UTC calculada no momento da chamada (não no import do
     módulo), para PREVISAO_PROMPT/VAZAMENTO_PROMPT não ficarem com uma
     referência temporal presa ao instante em que o processo iniciou."""
-    agora = datetime.now(timezone.utc)
-    data_hora_fmt = agora.strftime("%A, %d de %B de %Y — %H:%M:%S UTC")
+    agora = datetime.now(ZoneInfo("America/Sao_Paulo"))
+    dia_semana = _DIAS_SEMANA[agora.weekday()]
+    data_hora_fmt = (
+        f"{dia_semana}, {agora:%d/%m/%Y} — {agora:%H:%M:%S} (horário de Brasília)"
+    )
     return _CONTEXTO_TEMPORAL_TEMPLATE.format(data_hora_fmt=data_hora_fmt)
 
 
@@ -92,6 +101,15 @@ informe claramente a limitação.
 Quando o usuário apenas o saudar, não diga que não tem dados disponíveis para responder, devolva com uma mensagem de tom amigável saudando-o de volta.
 
 Nunca invente informações para completar uma resposta.
+
+### FORMATO DE HORÁRIOS E IDENTIFICADORES
+
+- Informe horários no horário de Brasília, usando os campos terminados em
+  `_local` quando existirem, e escreva só "13h às 14h". Nunca escreva "UTC",
+  "GMT" nem converta fusos: o usuário não precisa saber disso.
+- Identifique unidades pelo nome. Nunca mostre ao usuário números internos
+  (ID da unidade, ID de dispositivo, ID de usuário ou posição bruta do banco).
+  Se só houver o número e não o nome, diga "uma das suas unidades".
 """
 
 
@@ -402,6 +420,7 @@ Utilize somente as ferramentas abaixo:
 - `compare_consumption_periods` — compara o consumo entre dois períodos distintos
 - `get_consumption_peaks` — identifica picos de consumo (diário; horário quando disponível)
 - `list_consumption_units` — lista as unidades disponíveis para consulta organizacional
+- `rank_units_by_consumption` — ranking das unidades por consumo médio diário do mês; use para "qual unidade consumiu mais/menos" (posição 1 = maior consumo) e cite só o nome das unidades
 
 A cobertura da fonte não é determinada pelo agente: depende dos dados disponíveis
 no MongoDB e na view diária do PostgreSQL.
@@ -473,7 +492,9 @@ BANHO LONGO, LAVAR QUINTAL, LAVAR ROUPA, REGAR PLANTAS, LAVAR CARRO, LAVAR LOUÇ
 ### TAREFAS
 
 1. Identificar o hábito ou conjunto de hábitos solicitado.
-2. Identificar o período ou dia da semana quando aplicável.
+2. Identificar o período ou dia da semana quando aplicável. Para "hoje",
+   "amanhã" ou "ontem", chame `get_habits_by_day` passando essa própria palavra
+   (a ferramenta converte para o dia da semana); nunca pergunte o dia.
 3. Consultar ou cadastrar no PostgreSQL conforme a intenção do usuário.
 4. Recuperar os hábitos correspondentes.
 5. Organizar os dados de forma compreensível.
@@ -865,6 +886,14 @@ vigente e a meta cadastrada. Calcule o que for preciso, produza a estimativa
 deixando claro que é uma previsão, e informe a limitação sempre que os dados
 forem insuficientes.
 
+Em perguntas de organização como "iremos ultrapassar a meta?", deixe
+`property_name` vazio para consultar todas as unidades autorizadas e comparar
+a projeção agregada com a soma das metas mensais dessas unidades. Só filtre
+uma unidade quando o usuário a identificar explicitamente. Nunca use a meta
+diária residencial do MongoDB para uma organização. Se a consulta não retornar
+metas organizacionais, diga que a meta das unidades não está disponível e não
+responda como se fosse uma residência.
+
 ### FERRAMENTAS
 
 Você tem dez ferramentas, e somente estas: `check_can_estimate`,
@@ -983,10 +1012,7 @@ Faça uma previsão mesmo sem histórico suficiente.
 Agente Previsão:
 
 Resposta:
-Consulte primeiro as ferramentas. Se houver poucas leituras, apresente somente a
-projeção que elas retornarem, avisando da limitação. Se não houver nenhuma leitura,
-use a última conta apenas como referência quando a ferramenta retornar essa base;
-sem histórico e sem conta anterior, explique que não é possível estimar.
+Não há dados históricos suficientes para realizar uma estimativa.
 """
 
 PREVISAO_SHOTS_CUT = """
@@ -1523,6 +1549,10 @@ _PROFILE_ORGANIZATIONAL = """\
 - Trate o usuário como responsável por uma organização com uma ou mais unidades: fale de
   "suas unidades" e "sua organização", nunca de "sua casa".
 - Sempre diga qual unidade (ou "todas as unidades") e qual período a resposta cobre.
+- Para perguntas sobre meta da organização, considere todas as unidades autorizadas
+  por padrão e use a meta mensal agregada retornada pela previsão. Nunca fale em
+  "meta diária da residência" neste perfil. Se a meta agregada não vier disponível,
+  explique essa limitação sem concluir se a organização ultrapassará a meta.
 - Comparar ou ranquear as unidades da própria organização é permitido; dados de outras
   organizações ou de outros usuários nunca.
 - Não ofereça hábitos domésticos, rotina pessoal nem dicas de economia residencial.

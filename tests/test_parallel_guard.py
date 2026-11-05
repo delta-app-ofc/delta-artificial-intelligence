@@ -108,7 +108,7 @@ def test_grafo_completo_chama_guarda_e_roteador_uma_vez_cada(falsos, monkeypatch
 
     assert (falsos.registro.guarda, falsos.registro.roteador, falsos.registro.contexto) == (1, 1, 1)
     assert estado_final["_blocked"] is False
-    assert "Não entendi" in estado_final["response"]
+    assert "Esse assunto foge" in estado_final["response"]
 
 
 def test_apos_a_guarda_o_fluxo_segue_para_o_preparo_e_depois_para_execucao():
