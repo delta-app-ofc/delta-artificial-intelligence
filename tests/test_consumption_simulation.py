@@ -8,6 +8,11 @@ import pytest
 from app.agents._runtime import ToolCall
 from app.tools.charts import build_simulation_chart
 from app.tools.forecast import tools as forecast_tools
+from app.tools.models import ConsumptionPoint
+from datetime import datetime, timezone
+
+
+_POINTS = [ConsumptionPoint(7, datetime(2026, 11, 1, tzinfo=timezone.utc), datetime(2026, 11, 1, 1, tzinfo=timezone.utc), 100.0, None)]
 from app.tools.simulation.calculations import simulate_percentage_change
 
 
@@ -59,7 +64,7 @@ def _simulate(forecast, args, can_estimate=True):
         patch.object(pg, "get_user_region_id", return_value=None),
         patch.object(pg, "get_user_property_classification_id", return_value=None),
         patch.object(mongo, "get_daily_liters_target", return_value=None),
-        patch.object(mongo, "get_consumption_history", return_value=[]),
+        patch.object(mongo, "get_consumption_history", return_value=_POINTS),
         patch.object(forecast_tools.calc, "calculate_full_forecast", return_value=forecast),
     ):
         return _tool()["simulate_consumption_change"].invoke(args)

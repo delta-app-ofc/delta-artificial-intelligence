@@ -116,9 +116,10 @@ def test_no_history_and_no_bill_gives_no_monetary_estimate(sources):
     data, bill = sources
     data["history"] = []
     bill.return_value = None
-    result = forecast("residential")
-    assert result["bill"] is None
-    assert any("Sem histórico de consumo e sem conta anterior" in note for note in result["notes"])
+    tool = next(t for t in tools.build_tools(7, TODAY, "residential") if t.name == "calculate_forecast")
+    result = tool.invoke({})
+    assert result["status"] == "insufficient_data"
+    assert "forecast" not in result
 
 
 def test_readable_sql_backup_history_also_has_priority(sources, monkeypatch):

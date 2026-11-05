@@ -4,6 +4,7 @@ from app.agents._runtime import ToolCall
 from app.tools.charts import build_forecast_chart
 
 FORECAST = {"status": "ok", "forecast": {
+    "has_enough_history": True,
     "projection": {"month_consumption_so_far_liters": 4200.0, "month_projection_liters": 14114.0},
     "target_risk": {"monthly_target_liters": 12000.0},
 }}
@@ -16,9 +17,9 @@ def test_without_daily_history_it_draws_month_bars_with_data():
 
 
 def test_without_target_the_bar_is_left_out():
-    forecast = {"status": "ok", "forecast": {"projection": {"month_projection_liters": 100.0}, "target_risk": {}}}
+    forecast = {"status": "ok", "forecast": {"has_enough_history": True, "projection": {"month_consumption_so_far_liters": 50.0, "month_projection_liters": 100.0}, "target_risk": {}}}
     chart = build_forecast_chart([ToolCall("calculate_forecast", {}, forecast)])
-    assert chart["data"][0]["y"] == [100.0]
+    assert chart["data"][0]["y"] == [50.0, 100.0]
 
 
 def test_with_history_it_keeps_the_line_chart():

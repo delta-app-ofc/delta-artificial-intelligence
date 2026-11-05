@@ -7,6 +7,11 @@ from unittest.mock import patch
 from app.tools.forecast import calculations as calc
 from app.tools.models import OrganizationProperty
 from app.tools.forecast import tools as forecast_tools
+from app.tools.models import ConsumptionPoint
+from datetime import datetime, timezone
+
+
+_POINTS = [ConsumptionPoint(7, datetime(2026, 11, 1, tzinfo=timezone.utc), datetime(2026, 11, 1, 1, tzinfo=timezone.utc), 100.0, None)]
 
 TODAY = date(2026, 11, 10)  # novembro: 30 dias
 UNIT = OrganizationProperty(1, "Filial Alfa", "Lins", "SP")
@@ -70,15 +75,15 @@ def _run(name, args, forecast=None, access_kind="residential", scenarios=None):
         patch.object(pg, "get_investment_scenarios", return_value=scenarios or []),
         patch.object(pg, "get_user_organization_properties", return_value=[UNIT]),
         patch.object(pg, "organization_can_estimate", return_value=True),
-        patch.object(pg, "get_organization_consumption_history", return_value=[]),
+        patch.object(pg, "get_organization_consumption_history", return_value=_POINTS),
         patch.object(pg, "get_organization_last_billed_period", return_value=None),
         patch.object(pg, "get_organization_effective_rate", return_value=None),
         # Funções que a main acrescentou à leitura de histórico (Mongo primeiro, view como reserva).
         patch.object(pg, "get_authorized_device_ids", return_value=[], create=True),
-        patch.object(pg, "get_residential_consumption_history", return_value=[], create=True),
-        patch.object(mongo, "get_consumption_history_by_devices", return_value=[], create=True),
+        patch.object(pg, "get_residential_consumption_history", return_value=_POINTS, create=True),
+        patch.object(mongo, "get_consumption_history_by_devices", return_value=_POINTS, create=True),
         patch.object(mongo, "get_daily_liters_target", return_value=None),
-        patch.object(mongo, "get_consumption_history", return_value=[]),
+        patch.object(mongo, "get_consumption_history", return_value=_POINTS),
         patch.object(forecast_tools.calc, "calculate_full_forecast", return_value=forecast or _Forecast()),
     ):
         return _tools(access_kind)[name].invoke(args)
