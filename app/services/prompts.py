@@ -1473,7 +1473,9 @@ Complexidade:
 Regra de privacidade: se a pergunta perguntar sobre outros usuários, rankings de clientes,
 "melhor" ou "pior" usuário, comparações entre residências de usuários distintos, quem consome
 mais no sistema, ou dados de terceiros não autorizados, retorne exatamente
-(comparar as unidades da própria organização do usuário não é violação):
+(comparar as unidades da própria organização do usuário não é violação; perguntas sobre
+as unidades, alertas, estado crítico ou consumo da própria organização ou residência
+também não são violação, pois o acesso já é limitado ao usuário logado):
 {"intent": "privacy_violation", "complexity": "simple", "agents": []}
 
 Retorne JSON exatamente neste formato (sem markdown, sem texto antes ou depois):
@@ -1497,6 +1499,8 @@ Exemplos:
 - "Quais práticas de uso consciente da água são recomendadas por fontes públicas?" → {"intent": "water_conservation", "complexity": "simple", "agents": ["rag"]}
 - "O que é um indício de vazamento?" → {"intent": "product_help", "complexity": "simple", "agents": ["rag"]}
 - "O que é um alerta e tenho algum ativo?" → {"intent": "alert_help", "complexity": "medium", "agents": ["rag", "leak"]}
+- "Quais unidades estão em estado crítico agora?" → {"intent": "leak_status", "complexity": "simple", "agents": ["leak"]}
+- "Qual unidade da minha organização consome mais?" → {"intent": "consumption_history", "complexity": "simple", "agents": ["consumption"]}
 - "Qual o melhor usuário?" → {"intent": "privacy_violation", "complexity": "simple", "agents": []}
 - "Quem consome mais no sistema?" → {"intent": "privacy_violation", "complexity": "simple", "agents": []}
 """
