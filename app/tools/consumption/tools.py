@@ -12,7 +12,7 @@ from langchain_core.tools import BaseTool, tool
 from pydantic import StrictInt
 
 from app.config import ConfigurationError
-from app.data import db_mongo, db_postgres
+from app.data import db_mongo, db_postgres, ranking_client
 from app.tools.consumption import analysis
 from app.tools.exceptions import DatabaseAccessError, DatabaseDataError
 from app.tools.models import OrganizationProperty
@@ -456,7 +456,9 @@ def build_tools(
 
         Use os períodos today, yesterday, this_week, this_month, last_7_days
         ou last_30_days. Para datas informadas pelo usuário, use period='custom'
-        com início e fim inclusivos no formato AAAA-MM-DD. O fuso configurado
+        com início e fim inclusivos no formato AAAA-MM-DD; também aceita a data
+        como o usuário escreveu ("13 de outubro", "13/10"), sem ano = ano
+        corrente. Para um único dia, repita a data em início e fim. O fuso configurado
         (America/Sao_Paulo por padrão) usa limite final exclusivo. O histórico
         usa últimos 30 dias. Para organização, unit_name seleciona uma unidade
         vinculada ao usuário; use unit_id para distinguir unidades com nomes
@@ -653,9 +655,54 @@ def build_tools(
 
         return _run_safely(list_units)
 
+    @tool
+    def rank_units_by_consumption(month: str | None = None) -> dict:
+        """Ranking das unidades da organização pelo consumo médio diário do mês.
+
+        Use para "qual unidade consome mais/menos" ou comparar unidades. month é
+        AAAA-MM (padrão: mês atual). Considera só dias fechados e vem do serviço
+        de ranking; a posição 1 é a unidade que mais consumiu. Cite as unidades
+        pelo nome. Só para contas organizacionais.
+        """
+
+        def rank() -> dict[str, object]:
+            kind = access_kind or db_postgres.get_user_access_kind(user_id)
+            if kind != "organizational":
+                return _scope_failure(
+                    "insufficient_data",
+                    "O ranking entre unidades só existe para contas organizacionais.",
+                    timezone=timezone_name,
+                )
+            local_now = now_provider().astimezone(ZoneInfo(timezone_name))
+            period = month or f"{local_now:%Y-%m}"
+            if len(period) != 7 or period[4] != "-" or not (period[:4] + period[5:]).isdigit():
+                raise analysis.InvalidConsumptionInput("O mês deve estar no formato AAAA-MM.")
+            units = _units()
+            if not units:
+                return _scope_failure(
+                    "insufficient_data",
+                    "Não há unidades organizacionais autorizadas disponíveis.",
+                    timezone=timezone_name,
+                )
+            items: list[dict] = []
+            for organization_id in db_postgres.get_user_organization_ids(user_id):
+                items.extend(ranking_client.get_organization_ranking(organization_id, period))
+            ranking = analysis.rank_units(items, {unit.property_id for unit in units})
+            return {
+                "status": "ok" if ranking else "insufficient_data",
+                "source": "serviço de ranking (Redis)",
+                "period": period,
+                "criterion": "consumo médio diário (litros/dia), só dias fechados",
+                "ranking": ranking,
+                "note": "Unidades com cobertura de leituras insuficiente ficam fora do ranking.",
+            }
+
+        return _run_safely(rank)
+
     return [
         get_consumption_summary,
         compare_consumption_periods,
         get_consumption_peaks,
         list_consumption_units,
+        rank_units_by_consumption,
     ]

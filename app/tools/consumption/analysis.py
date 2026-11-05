@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import calendar
 import math
+import re
 from dataclasses import dataclass
 from datetime import date, datetime, time, timedelta, timezone
 from typing import Iterable, Literal
@@ -149,13 +150,57 @@ def _record_aware_utc(value: datetime, field_name: str) -> datetime:
         ) from exc
 
 
-def _date_value(value: str | date | None, field_name: str) -> date:
+_MONTH_NUMBERS = {
+    "janeiro": 1, "fevereiro": 2, "marco": 3, "março": 3, "abril": 4, "maio": 5,
+    "junho": 6, "julho": 7, "agosto": 8, "setembro": 9, "outubro": 10,
+    "novembro": 11, "dezembro": 12,
+}
+
+_TEXT_DATE = re.compile(
+    r"^(?:dia\s+)?(\d{1,2})\s*(?:de\s+)?([a-zç]+)(?:\s+de\s+(\d{4}))?$"
+)
+_SLASH_DATE = re.compile(r"^(?:dia\s+)?(\d{1,2})/(\d{1,2})(?:/(\d{4}))?$")
+
+
+def parse_natural_date(text: str, today: date) -> date | None:
+    """Lê datas como "13 de outubro", "dia 13/10" ou "13/10/2026".
+
+    Sem ano, usa o ano de `today`; se a data ficar no futuro, usa o ano anterior.
+    Devolve None quando o texto não parece uma data em português.
+    """
+    value = text.strip().lower()
+    day = month = year = None
+    if match := _SLASH_DATE.match(value):
+        day, month = int(match.group(1)), int(match.group(2))
+        year = int(match.group(3)) if match.group(3) else None
+    elif match := _TEXT_DATE.match(value):
+        month = _MONTH_NUMBERS.get(match.group(2))
+        if month is None:
+            return None
+        day = int(match.group(1))
+        year = int(match.group(3)) if match.group(3) else None
+    else:
+        return None
+    try:
+        if year is not None:
+            return date(year, month, day)
+        parsed = date(today.year, month, day)
+        return parsed if parsed <= today else date(today.year - 1, month, day)
+    except ValueError as exc:
+        raise InvalidConsumptionInput("A data informada não existe no calendário.") from exc
+
+
+def _date_value(
+    value: str | date | None, field_name: str, today: date | None = None
+) -> date:
     if isinstance(value, datetime):
         raise InvalidConsumptionInput(f"{field_name} deve usar o formato AAAA-MM-DD.")
     if isinstance(value, date):
         return value
     if not isinstance(value, str):
         raise InvalidConsumptionInput(f"Informe {field_name} no formato AAAA-MM-DD.")
+    if today is not None and (natural := parse_natural_date(value, today)) is not None:
+        return natural
     try:
         parsed = date.fromisoformat(value)
     except ValueError as exc:
@@ -200,8 +245,8 @@ def resolve_period(
             raise InvalidConsumptionInput(
                 "Para um período personalizado, informe início e fim no formato AAAA-MM-DD."
             )
-        first_day = _date_value(start_date, "início")
-        last_day = _date_value(end_date, "fim")
+        first_day = _date_value(start_date, "início", local_now.date())
+        last_day = _date_value(end_date, "fim", local_now.date())
         if first_day > last_day:
             raise InvalidConsumptionInput("A data inicial é posterior à data final.")
         if last_day > local_now.date():
@@ -504,3 +549,31 @@ def validate_peak_limit(limit: int) -> None:
     """Valida o limite antes que a tool consulte uma fonte externa."""
     if isinstance(limit, bool) or not isinstance(limit, int) or not 1 <= limit <= 10:
         raise InvalidConsumptionInput("O limite de picos deve estar entre 1 e 10.")
+
+
+def rank_units(items: list[dict], authorized_ids: set[int]) -> list[dict]:
+    """Ordena do maior para o menor consumo médio diário, só com unidades autorizadas.
+
+    Devolve apenas nome e valores: o identificador numérico da unidade não sai daqui.
+    """
+    ranked = []
+    for item in items:
+        property_id = item.get("propertyId")
+        days = item.get("closedDaysWithReading")
+        liters = item.get("consumptionLiters")
+        if property_id not in authorized_ids or not isinstance(item.get("name"), str):
+            continue
+        if not isinstance(days, int) or days <= 0 or not isinstance(liters, (int, float)):
+            continue
+        ranked.append(
+            {
+                "name": item["name"],
+                "total_liters": round(float(liters), 2),
+                "average_daily_liters": round(float(liters) / days, 2),
+                "days_with_records": days,
+            }
+        )
+    ranked.sort(key=lambda unit: (-unit["average_daily_liters"], unit["name"]))
+    for position, unit in enumerate(ranked, start=1):
+        unit["position"] = position
+    return ranked

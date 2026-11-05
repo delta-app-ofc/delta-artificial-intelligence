@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-MAX_SUGGESTIONS = 3
+MAX_SUGGESTIONS = 4
 
 _BY_AGENT = {
     "consumption": [
@@ -46,9 +46,10 @@ _START = {
         "Quanto eu gastaria se lavasse roupa 3 vezes por semana?",
     ],
     "organizational": [
-        "Quanto minhas unidades consumiram esta semana?",
-        "Qual é a estimativa da próxima conta?",
-        "Há algum sinal de vazamento nas minhas unidades?",
+        "Quais unidades estão em estado crítico agora?",
+        "Tem algum vazamento crítico no momento?",
+        "Qual foi o maior consumo entre as unidades?",
+        "Iremos ultrapassar a meta?",
     ],
 }
 
@@ -61,7 +62,7 @@ def initial_suggestions(access_kind: str | None) -> list[str]:
 def suggest_next_questions(
     agents: list[str], access_kind: str | None, asked: str = ""
 ) -> list[str]:
-    """Até três perguntas ligadas aos assuntos já tratados, sem repetir a que acabou de ser feita.
+    """Até quatro perguntas ligadas aos assuntos já tratados, sem repetir a que acabou de ser feita.
 
     Hábitos só existem para conta residencial. Sem agentes (saudação, por exemplo), devolve as
     perguntas iniciais do perfil.

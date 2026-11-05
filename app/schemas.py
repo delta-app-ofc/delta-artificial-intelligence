@@ -71,7 +71,7 @@ class ChatResponse(BaseModel):
     )
     suggestions: list[str] = Field(
         default_factory=list,
-        description="Até 3 perguntas sugeridas para continuar a conversa.",
+        description="Até 4 perguntas sugeridas para continuar a conversa.",
     )
     pending_confirmation: PendingConfirmation | None = Field(
         default=None,

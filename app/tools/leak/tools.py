@@ -7,8 +7,9 @@ de detecção (delta-api-mongo) já sinalizou.
 from __future__ import annotations
 
 import dataclasses
-from datetime import date, datetime
+from datetime import date, datetime, timezone
 from typing import Any
+from zoneinfo import ZoneInfo
 
 from langchain_core.tools import BaseTool, tool
 
@@ -33,6 +34,30 @@ def _serialize(value: Any) -> Any:
     return value
 
 
+LOCAL_TIMEZONE = ZoneInfo("America/Sao_Paulo")
+_LOCAL_TIME_FIELDS = ("window_started_at", "window_ended_at", "triggered_at", "resolved_at")
+
+
+def to_local_iso(value: str) -> str | None:
+    """Converte um ISO 8601 (UTC se sem fuso) para o horário de Brasília."""
+    try:
+        parsed = datetime.fromisoformat(value)
+    except (TypeError, ValueError):
+        return None
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=timezone.utc)
+    return parsed.astimezone(LOCAL_TIMEZONE).isoformat()
+
+
+def _with_local_times(item: dict) -> dict:
+    """Acrescenta `<campo>_local` (Brasília) para o modelo citar horários sem converter UTC."""
+    result = dict(item)
+    for field in _LOCAL_TIME_FIELDS:
+        if isinstance(item.get(field), str) and (local := to_local_iso(item[field])):
+            result[f"{field}_local"] = local
+    return result
+
+
 def build_tools(user_id: int, access_kind: str | None = None) -> list[BaseTool]:
     """Cria as tools já amarradas a user_id (não exposto ao LLM)."""
     validate_user_id(user_id)
@@ -53,7 +78,8 @@ def build_tools(user_id: int, access_kind: str | None = None) -> list[BaseTool]:
             "status": "ok" if windows else "insufficient_data",
             "days": days,
             "total_anomalous_windows": len(windows),
-            "windows": [_serialize(w) for w in windows],
+            "timezone_note": "Campos *_local estão no horário de Brasília; cite sempre esses.",
+            "windows": [_with_local_times(_serialize(w)) for w in windows],
         }
 
     @tool
@@ -71,7 +97,8 @@ def build_tools(user_id: int, access_kind: str | None = None) -> list[BaseTool]:
             "days": days,
             "only_active": only_active,
             "total_alerts": len(alerts),
-            "alerts": [_serialize(a) for a in alerts],
+            "timezone_note": "Campos *_local estão no horário de Brasília; cite sempre esses.",
+            "alerts": [_with_local_times(_serialize(a)) for a in alerts],
         }
 
     @tool

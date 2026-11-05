@@ -345,6 +345,46 @@ def get_user_organization_properties(user_id: int) -> list[OrganizationProperty]
     ]
 
 
+def get_user_organization_ids(user_id: int) -> list[int]:
+    """Identificadores das organizações vinculadas ao usuário (tb_user_organization)."""
+    with _cursor() as cur:
+        cur.execute(
+            "SELECT DISTINCT organization_id FROM tb_user_organization WHERE user_id = %s ORDER BY 1;",
+            (user_id,),
+        )
+        return [row[0] for row in cur.fetchall()]
+
+
+def get_organization_monthly_target(user_id: int, property_ids: list[int]) -> float | None:
+    """Soma a meta mensal das unidades autorizadas, conforme a view analítica.
+
+    `property_ids` deve vir de `fn_user_organization_properties`; a consulta
+    agrega uma meta por unidade para não somar novamente valores repetidos em
+    vários meses da view.
+    """
+    if not property_ids:
+        return None
+    with _cursor() as cur:
+        cur.execute(
+            """
+            WITH authorized_properties AS (
+                SELECT UNNEST(fn_user_authorized_property_ids(%s, %s)) AS property_id
+            ), unit_goals AS (
+                SELECT goal.property_id, MAX(goal.monthly_target_liters) AS monthly_target_liters
+                      FROM dw.vw_ft_property_monthly AS goal
+                  JOIN authorized_properties AS authorized
+                    ON authorized.property_id = goal.property_id
+                 WHERE goal.monthly_target_liters > 0
+                 GROUP BY goal.property_id
+            )
+            SELECT SUM(monthly_target_liters) FROM unit_goals;
+            """,
+            (user_id, property_ids),
+        )
+        row = cur.fetchone()
+    return float(row[0]) if row is not None and row[0] is not None else None
+
+
 def organization_can_estimate(user_id: int, property_ids: list[int]) -> bool:
     """Elegibilidade organizacional: existe telemetria real (com tarifa já
     calculada) para pelo menos uma das propriedades do usuário. O banco

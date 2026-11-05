@@ -29,6 +29,7 @@ _AGENT_LABELS_ORGANIZATIONAL = {
 # Rótulo de cada tool (nome fixo no código). Tool fora desta lista não gera evento.
 _TOOL_LABELS = {
     "list_consumption_units": "Listando as suas unidades",
+    "rank_units_by_consumption": "Comparando o consumo das suas unidades",
     "get_consumption_summary": "Lendo o consumo registrado",
     "compare_consumption_periods": "Comparando períodos de consumo",
     "get_consumption_peaks": "Procurando os picos de consumo",

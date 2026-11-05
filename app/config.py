@@ -21,6 +21,11 @@ _ENVIRONMENTS = {"development", "test", "staging", "production"}
 _DEFAULT_ENV_FILE = object()
 
 JUDGE_RUBRIC_VERSION = "delta-judge-fixed-v8"
+DEFAULT_CORS_ALLOWED_ORIGINS = ",".join((
+    "http://localhost:5173",
+    "http://127.0.0.1:5173",
+    "https://delta-web-app.onrender.com",
+))
 
 JUIZ_PROMPT_COMPLETO = """
 Avalie a candidata inteira para o pedido atual. A pergunta define o pedido;
@@ -183,7 +188,7 @@ class Settings:
     auth_audience: str = "delta-api"
     auth_key_id: str = "delta-1"
     auth_check_active: bool = True
-    cors_allowed_origins: str = "*"
+    cors_allowed_origins: str = DEFAULT_CORS_ALLOWED_ORIGINS
     jev_confidence_threshold: float = 0.70
     jev_probability_threshold: float = 0.70
     jev_facts_supported_threshold: float = 0.60
@@ -198,6 +203,7 @@ class Settings:
     confirmation_interrupt_enabled: bool = False
     mcp_timeout_seconds: float = 45.0
     mcp_cache_ttl_seconds: int = 3600
+    ranking_service_url: str | None = field(default=None, repr=False)
     obs_support_cost_usd: float = 8.01  # Gartner, 2019: contato atendido por pessoa (telefone, chat, e-mail)
     obs_questions_per_user_week: float = 0.0  # 0 = usar o valor medido; não há fonte externa confiável
     obs_usd_to_brl: float = 5.4212  # PTAX de venda do Banco Central em 30/10/2026
@@ -395,7 +401,7 @@ def load_settings(
         auth_audience=values.get("AUTH_AUDIENCE", Settings.auth_audience) or "",
         auth_key_id=values.get("AUTH_KEY_ID", Settings.auth_key_id) or "",
         auth_check_active=auth_check_active,
-        cors_allowed_origins=values.get("CORS_ALLOWED_ORIGINS") or "*",
+        cors_allowed_origins=values.get("CORS_ALLOWED_ORIGINS") or DEFAULT_CORS_ALLOWED_ORIGINS,
         openai_api_key=values.get("OPENAI_API_KEY"),
         openai_model=values.get("OPENAI_MODEL", Settings.openai_model) or "",
         openai_reasoning_effort=(values.get("OPENAI_REASONING_EFFORT", Settings.openai_reasoning_effort) or "").casefold(),
@@ -404,6 +410,7 @@ def load_settings(
         bill_registration_enabled=(values.get("BILL_REGISTRATION_ENABLED") or "false").casefold() == "true",
         confirmation_interrupt_enabled=(values.get("CONFIRMATION_INTERRUPT_ENABLED") or "false").casefold() == "true",
         mcp_timeout_seconds=parsed_numbers["MCP_TIMEOUT_SECONDS"],
+        ranking_service_url=(values.get("RANKING_SERVICE_URL") or "").strip().rstrip("/") or None,
         mcp_cache_ttl_seconds=parsed_numbers["MCP_CACHE_TTL_SECONDS"],
         openai_fast_reasoning_effort=(
             values.get("OPENAI_FAST_REASONING_EFFORT", Settings.openai_fast_reasoning_effort) or ""

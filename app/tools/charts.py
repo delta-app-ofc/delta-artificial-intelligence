@@ -6,12 +6,18 @@ valores gerados pelo LLM.
 
 from __future__ import annotations
 
+from datetime import datetime, timedelta
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     from app.agents._runtime import ToolCall
 
 _LAYOUT = {"height": 300, "margin": {"l": 50, "r": 20, "t": 40, "b": 40}}
+
+
+def _is_positive(value: object) -> bool:
+    """True para número maior que zero; None, texto e zero contam como sem dado."""
+    return isinstance(value, (int, float)) and not isinstance(value, bool) and value > 0
 
 
 def build_habits_chart(tool_calls: list[ToolCall]) -> dict | None:
@@ -86,7 +92,11 @@ def _month_summary_chart(forecast: dict) -> dict | None:
         ("Meta do mês", risk.get("monthly_target_liters"), "#4CAF50"),
     ]
     bars = [(label, value, color) for label, value, color in bars if value is not None]
-    if not bars:
+    # A rotina de previsão pode retornar zeros quando não encontrou leituras;
+    # isso não é uma série útil para visualização e não deve virar um gráfico
+    # aparentemente válido.
+    usage_bars = [value for label, value, _ in bars if label != "Meta do mês"]
+    if len(bars) < 2 or not any(float(value) > 0 for value in usage_bars):
         return None
 
     import plotly.graph_objects as go
@@ -110,9 +120,15 @@ def build_forecast_chart(tool_calls: list[ToolCall]) -> dict | None:
 
     for tc in tool_calls:
         if tc.name == "get_consumption_history" and isinstance(tc.output, dict):
-            points = tc.output.get("windows") or []
+            if tc.output.get("status") == "ok":
+                points = tc.output.get("windows") or []
         if tc.name == "calculate_forecast" and isinstance(tc.output, dict):
-            forecast = tc.output.get("forecast") or {}
+            if tc.output.get("status") == "ok":
+                forecast = tc.output.get("forecast") or {}
+
+    # Histórico só com zeros ou sem litros não vira linha de consumo.
+    if not any(_is_positive(p.get("consumption_liters")) for p in points):
+        points = []
 
     if not points and not forecast:
         return None
@@ -120,6 +136,8 @@ def build_forecast_chart(tool_calls: list[ToolCall]) -> dict | None:
     import plotly.graph_objects as go
 
     if not points:
+        if not forecast.get("has_enough_history"):
+            return None
         return _month_summary_chart(forecast)
 
     fig = go.Figure()
@@ -137,7 +155,7 @@ def build_forecast_chart(tool_calls: list[ToolCall]) -> dict | None:
             )
         )
 
-    if forecast:
+    if forecast and forecast.get("has_enough_history"):
         projection = forecast.get("projection") or {}
         proj_liters = projection.get("month_projection_liters")
         bill = forecast.get("bill") or {}
@@ -173,35 +191,59 @@ def build_forecast_chart(tool_calls: list[ToolCall]) -> dict | None:
     return fig.to_dict()
 
 
+def _window_label(window: dict) -> str:
+    """Rótulo curto "16/10 10h-11h" no horário de Brasília."""
+    from app.tools.leak.tools import to_local_iso
+
+    start_text = window.get("window_started_at") or ""
+    start_local = to_local_iso(start_text)
+    if start_local is None:
+        return start_text[:10]
+    start = datetime.fromisoformat(start_local)
+    label = f"{start:%d/%m} {start:%H}h"
+    end_local = to_local_iso(window.get("window_ended_at") or "")
+    if end_local:
+        end = datetime.fromisoformat(end_local)
+        # Janela que termina às 00:00:00 ou às 23:59:59.999 é arredondada para a hora cheia.
+        end = (end + timedelta(milliseconds=1)).replace(microsecond=0)
+        label += f"-{end:%H}h"
+    return label
+
+
 def build_leak_chart(tool_calls: list[ToolCall]) -> dict | None:
     """Gráfico de barras com janelas anômalas por data."""
     windows: list[dict] = []
     for tc in tool_calls:
         if tc.name in ("get_anomalous_windows", "summarize_anomalous_windows"):
             out = tc.output or {}
-            if isinstance(out, dict):
+            if isinstance(out, dict) and out.get("status") == "ok":
                 windows = out.get("windows") or []
                 break
 
+    # Sem janela com litros registrados não há o que desenhar: melhor sem gráfico do que um vazio.
+    windows = [w for w in windows if _is_positive(w.get("consumption_liters"))]
     if not windows:
         return None
 
     import plotly.graph_objects as go
 
-    dates = [w.get("window_started_at", "")[:10] for w in windows]
+    labels = [_window_label(w) for w in windows]
     liters = [w.get("consumption_liters", 0) for w in windows]
 
     fig = go.Figure(
         go.Bar(
-            x=dates,
+            x=labels,
             y=liters,
             marker_color="#F44336",
             name="Janelas anômalas (L)",
+            width=0.4,
         )
     )
+    # Categoria evita que o Plotly trate o texto como data e estique a barra pelo eixo de tempo.
+    fig.update_xaxes(type="category")
     fig.update_layout(
         title="Janelas de consumo anômalo",
-        xaxis_title="Data",
+        xaxis_title="Horário de Brasília",
         yaxis_title="Litros",
         **_LAYOUT,
     )
