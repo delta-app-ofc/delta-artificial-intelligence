@@ -4,7 +4,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from app.observability.http import RequestTracingMiddleware
 
-from app.config import get_settings
+from app.config import DEFAULT_CORS_ALLOWED_ORIGINS, get_settings
 from app.routes.health import router as health_router
 from app.routes.chat import router as chat_router
 from app.routes.sessions import router as sessions_router
@@ -40,9 +40,9 @@ app = FastAPI(title="Delta AI", version="0.1.0", lifespan=lifespan)
 
 
 def cors_origins() -> list[str]:
-    """Origens do CORS vindas de CORS_ALLOWED_ORIGINS; sem valor, aceita qualquer origem."""
-    raw = get_settings().cors_allowed_origins
-    return [origin.strip() for origin in raw.split(",") if origin.strip()] or ["*"]
+    """Origens permitidas, configuráveis por ambiente e limitadas por padrão aos sites conhecidos."""
+    raw = get_settings().cors_allowed_origins or DEFAULT_CORS_ALLOWED_ORIGINS
+    return [origin.strip().rstrip("/") for origin in raw.split(",") if origin.strip()]
 
 
 app.add_middleware(RequestTracingMiddleware)

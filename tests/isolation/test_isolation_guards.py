@@ -294,10 +294,11 @@ def test_cors_nao_permite_credenciais():
 
 
 @pytest.mark.parametrize("valor, esperado", [
-    ("", ["*"]),
+    ("", ["http://localhost:5173", "http://127.0.0.1:5173", "https://delta-web-app.onrender.com"]),
     ("*", ["*"]),
     ("https://app.exemplo.com", ["https://app.exemplo.com"]),
     (" https://a.com , https://b.com ,", ["https://a.com", "https://b.com"]),
+    ("https://delta-web-app.onrender.com/", ["https://delta-web-app.onrender.com"]),
 ])
 def test_origens_do_cors_vem_da_configuracao(monkeypatch, valor, esperado):
     import app.main as main

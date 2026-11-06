@@ -39,12 +39,12 @@ _GREETINGS = {
 
 _NO_AGENT_RESPONSES = {
     "residential": (
-        "Não entendi o que você gostaria de saber. Posso ajudar com previsão de consumo, "
-        "detecção de vazamentos ou seus hábitos de água."
+        "Esse assunto foge do que eu consigo ajudar. Posso falar do seu consumo de água, "
+        "previsões, vazamentos, hábitos e dicas para economizar."
     ),
     "organizational": (
-        "Não entendi o que você gostaria de saber. Posso ajudar com o consumo, a previsão "
-        "e a detecção de vazamentos das suas unidades."
+        "Esse assunto foge do que eu consigo ajudar. Posso falar do consumo, da previsão "
+        "e dos alertas de vazamento das suas unidades."
     ),
     "none": (
         "Sua conta ainda não está vinculada a uma residência ou organização, então não consigo "

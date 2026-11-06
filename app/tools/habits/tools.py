@@ -2,7 +2,8 @@ from __future__ import annotations
 
 import re
 import unicodedata
-from datetime import date
+from datetime import date, datetime
+from zoneinfo import ZoneInfo
 
 from langchain_core.tools import BaseTool, tool
 
@@ -72,8 +73,23 @@ def parse_frequency(text: str) -> int | None:
     return None
 
 
-def normalize_day(day: str) -> str | None:
+_WEEKDAYS = ("SEGUNDA", "TERÇA", "QUARTA", "QUINTA", "SEXTA", "SÁBADO", "DOMINGO")
+
+_RELATIVE_DAY_OFFSETS = {
+    "hoje": 0, "today": 0,
+    "amanha": 1, "amanhã": 1, "tomorrow": 1,
+    "ontem": -1, "yesterday": -1,
+}
+
+
+def normalize_day(day: str, now: datetime | None = None) -> str | None:
+    """Converte o dia informado em nome canônico; "hoje", "amanhã" e "ontem" usam o fuso de
+    Brasília (`now` permite fixar o instante nos testes).
+    """
     normalized = day.strip().lower()
+    if normalized in _RELATIVE_DAY_OFFSETS:
+        current = now or datetime.now(ZoneInfo("America/Sao_Paulo"))
+        return _WEEKDAYS[(current.weekday() + _RELATIVE_DAY_OFFSETS[normalized]) % 7]
     canonical = _DAY_ALIASES.get(normalized)
     if canonical:
         return canonical
@@ -239,6 +255,7 @@ def build_tools(user_id: int, access_kind: str | None = None) -> list[BaseTool]:
 
         Aceita o nome do dia em português, com ou sem acento, abreviado ou
         completo: seg, segunda, segunda-feira, ter, terça, sab, sábado, etc.
+        Também aceita "hoje", "amanhã" e "ontem" (fuso de Brasília).
 
         Retorna lista com name e frequency dos hábitos daquele dia.
 

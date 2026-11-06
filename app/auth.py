@@ -118,12 +118,14 @@ def get_current_user_id(
     token = credentials.credentials
 
     try:
-        header = jwt.get_unverified_header(token)
+        header = jwt.get_unverified_header(token)  # NOSONAR: só lê alg/kid; o jwt.decode abaixo verifica a assinatura
         # O algoritmo vem do nosso lado, nunca do token: HS256 com a chave pública como segredo é recusado.
         if header.get("alg") != algorithm:
+            logger.warning("Token recusado: algoritmo %s, esperado %s.", header.get("alg"), algorithm)
             raise _unauthorized()
         if algorithm == "RS256":
             if settings.auth_key_id and header.get("kid") != settings.auth_key_id:
+                logger.warning("Token recusado: kid diferente do AUTH_KEY_ID configurado.")
                 raise _unauthorized()
             claims = jwt.decode(
                 token,
@@ -136,7 +138,9 @@ def get_current_user_id(
             )
         else:
             claims = jwt.decode(token, key, algorithms=["HS256"], options={"require": ["exp", "sub"]})
-    except jwt.PyJWTError:
+    except jwt.PyJWTError as error:
+        # Só o tipo do erro (ex.: ExpiredSignatureError, InvalidIssuerError); nunca o token.
+        logger.warning("Token recusado: %s.", type(error).__name__)
         raise _unauthorized() from None
 
     subject = claims["sub"]

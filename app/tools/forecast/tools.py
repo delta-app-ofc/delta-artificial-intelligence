@@ -8,6 +8,7 @@ uma, sem repetir a descrição.
 
 from __future__ import annotations
 
+import calendar
 import dataclasses
 import logging
 import math
@@ -285,11 +286,18 @@ def build_tools(user_id: int, today: date, access_kind: str | None = None) -> li
 
     @tool
     def get_daily_target() -> dict:
-        """Meta diária de consumo do usuário (user_preferences.daily_liters_target).
+        """Meta diária de consumo de uma conta residencial.
 
-        Necessária para responder "vou ultrapassar minha meta?". None quando
-        não há meta cadastrada — nesse caso não afirme nada sobre a meta.
+        Para organização, use `calculate_forecast`, que agrega a meta mensal
+        cadastrada para todas as unidades autorizadas (ou para a unidade
+        mencionada). Não use a preferência residencial como meta da organização.
         """
+        kind = access_kind or db_postgres.get_user_access_kind(user_id)
+        if kind == "organizational":
+            return {
+                "status": "not_applicable",
+                "message": "Para organizações, a meta é mensal e deve ser consultada junto da previsão das unidades.",
+            }
         target = db_mongo.get_daily_liters_target(user_id)
         if target is None:
             return {"status": "insufficient_data", "message": "Meta diária não cadastrada."}
@@ -379,11 +387,10 @@ def build_tools(user_id: int, today: date, access_kind: str | None = None) -> li
                 ),
             }
 
-        daily_target = db_mongo.get_daily_liters_target(user_id)
-
         history = _history(kind, ids, history_days)
 
         if kind == "residential":
+            daily_target = db_mongo.get_daily_liters_target(user_id)
             last_bill = db_postgres.get_last_water_bill(user_id) if not history else None
             region_id = db_postgres.get_user_region_id(user_id)
             classification_id = db_postgres.get_user_property_classification_id(user_id)
@@ -394,11 +401,44 @@ def build_tools(user_id: int, today: date, access_kind: str | None = None) -> li
                 except RegionRateNotFound:
                     region_rate = None
         else:
+            try:
+                monthly_target = db_postgres.get_organization_monthly_target(user_id, ids or [])
+            except DatabaseAccessError as exc:
+                # A indisponibilidade da view de metas não deve transformar a
+                # projeção em erro nem inventar uma meta para a organização.
+                logger.warning("Não foi possível consultar as metas mensais organizacionais (%s).", type(exc).__name__)
+                monthly_target = None
+            daily_target = (
+                monthly_target / calendar.monthrange(today.year, today.month)[1]
+                if monthly_target
+                else None
+            )
             last_bill = (
                 db_postgres.get_organization_last_billed_period(user_id, ids, today)
                 if not history else None
             )
             region_rate = db_postgres.get_organization_effective_rate(user_id, ids, today)
+
+        if not history and last_bill is None:
+            unavailable: dict[str, object] = {
+                "status": "insufficient_data",
+                "message": (
+                    "Não há leituras de consumo nem uma conta anterior disponíveis para calcular "
+                    "uma projeção confiável."
+                ),
+                "scope": "all_authorized_units" if kind == "organizational" else "residential_property",
+            }
+            if kind == "organizational":
+                unavailable["property_count"] = len(ids or [])
+                unavailable["monthly_target_liters"] = monthly_target
+                unavailable["target_risk"] = {
+                    "assessable": False,
+                    "at_risk": False,
+                    "monthly_target_liters": monthly_target,
+                    "month_projection_liters": None,
+                    "difference_pct": None,
+                }
+            return unavailable
 
         result = calc.calculate_full_forecast(
             can_estimate=can_estimate,

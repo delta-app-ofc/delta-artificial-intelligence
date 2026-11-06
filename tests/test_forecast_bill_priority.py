@@ -50,6 +50,7 @@ def sources(monkeypatch):
     monkeypatch.setattr(pg, "get_organization_effective_rate", lambda *a: data["rate"])
     monkeypatch.setattr(pg, "get_user_organization_properties", lambda uid: [OrganizationProperty(10, "Alfa", "São Paulo", "SP")])
     monkeypatch.setattr(pg, "get_authorized_device_ids", lambda *a: ["DEVICE-1"])
+    monkeypatch.setattr(pg, "get_organization_monthly_target", lambda *a: None)
     return data, bill
 
 
@@ -116,9 +117,10 @@ def test_no_history_and_no_bill_gives_no_monetary_estimate(sources):
     data, bill = sources
     data["history"] = []
     bill.return_value = None
-    result = forecast("residential")
-    assert result["bill"] is None
-    assert any("Sem histórico de consumo e sem conta anterior" in note for note in result["notes"])
+    tool = next(t for t in tools.build_tools(7, TODAY, "residential") if t.name == "calculate_forecast")
+    result = tool.invoke({})
+    assert result["status"] == "insufficient_data"
+    assert "forecast" not in result
 
 
 def test_readable_sql_backup_history_also_has_priority(sources, monkeypatch):
