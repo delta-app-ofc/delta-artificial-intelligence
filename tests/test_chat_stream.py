@@ -197,7 +197,7 @@ class GrafoFalso:
         self.checkpointer = SimpleNamespace(delete_thread=self.apagados.append)
 
     def get_state(self, config):
-        return SimpleNamespace(values={"messages": ["já existe"]})
+        return SimpleNamespace(tasks=(), values={"messages": ["já existe"]})
 
     def stream(self, initial, config=None, stream_mode=None):
         self.stream_mode = stream_mode

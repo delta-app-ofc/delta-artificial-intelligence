@@ -19,17 +19,17 @@ from app.tools.forecast import tools as forecast_tools
 TODAY = date(2026, 11, 2)
 
 
-def _tools(enabled=True, access_kind="residential"):
+def _tools(enabled=True, access_kind="residential", source="8,4 m³"):
     with patch.object(forecast_tools, "get_settings") as settings:
         settings.return_value.bill_registration_enabled = enabled
-        return {t.name: t for t in forecast_tools.build_tools(7, TODAY, access_kind)}
+        return {t.name: t for t in forecast_tools.build_tools(7, TODAY, access_kind, source_question=source)}
 
 
 def _register(args, access_kind="residential", **db):
     db.setdefault("return_value", {"bill_id": 5, "month": date(2026, 10, 1),
                                    "total_value": Decimal("120.50"), "m3_value": Decimal("8.40")})
     with patch.object(forecast_tools.db_postgres, "register_last_water_bill", **db) as write:
-        return _tools(access_kind=access_kind)["register_last_bill"].invoke(args), write
+        return _tools(access_kind=access_kind, source=str(args["m3_value"]).replace(".", ",") + " m³")["register_last_bill"].invoke(args), write
 
 
 GOOD = {"month": "2026-10", "total_value": 120.5, "m3_value": 8.4}
@@ -52,34 +52,27 @@ class FlagTest(unittest.TestCase):
 class ProposeThenSaveTest(unittest.TestCase):
     def test_default_call_only_proposes_and_never_writes(self):
         out, write = _register(GOOD)
-        self.assertEqual(out["status"], "needs_confirmation")
-        self.assertEqual(out["proposal"], {"month": "2026-10-01", "total_value": 120.5, "m3_value": 8.4})
+        self.assertEqual(out["status"], "pending_confirmation")
+        self.assertEqual(out["pending_write"]["params"], {"month": "2026-10-01", "total_value": 120.5, "m3_value": 8.4})
         write.assert_not_called()
 
     def test_explicit_false_also_does_not_write(self):
         out, write = _register({**GOOD, "confirmed": False})
-        self.assertEqual(out["status"], "needs_confirmation")
+        self.assertEqual(out["status"], "pending_confirmation")
         write.assert_not_called()
 
-    def test_confirmed_writes_once_with_the_trusted_user_and_first_day(self):
-        out, write = _register({**GOOD, "month": "2026-10-17", "confirmed": True})
-        self.assertEqual(out["status"], "ok")
-        self.assertEqual(out["saved"]["bill_id"], 5)
-        write.assert_called_once_with(7, date(2026, 10, 1), Decimal("120.50"), Decimal("8.40"))
+    def test_confirmed_true_still_only_proposes(self):
+        out, write = _register({**GOOD, "confirmed": True})
+        self.assertEqual(out["status"], "pending_confirmation")
+        write.assert_not_called()
 
-    def test_conflict_is_reported_and_not_confirmed(self):
-        out, _ = _register({**GOOD, "confirmed": True}, side_effect=LastWaterBillConflictError("x"))
-        self.assertEqual(out["status"], "conflict")
-        self.assertIn("aplicativo", out["message"])
-
-    def test_database_outage_is_not_success_and_hides_details(self):
-        out, _ = _register({**GOOD, "confirmed": True}, side_effect=DatabaseConnectionError("PostgreSQL"))
-        self.assertEqual(out["status"], "error")
-        self.assertIn("Nada foi registrado", out["message"])
-
-    def test_bank_refusal_becomes_error(self):
-        out, _ = _register({**GOOD, "confirmed": True}, side_effect=ValueError("O banco recusou."))
-        self.assertEqual(out, {"status": "error", "message": "O banco recusou."})
+    def test_write_helper_translates_database_failures(self):
+        for error, status in [(LastWaterBillConflictError("x"), "conflict"),
+                              (DatabaseConnectionError("PostgreSQL"), "error"),
+                              (ValueError("recusado"), "error")]:
+            with patch.object(forecast_tools.db_postgres, "register_last_water_bill", side_effect=error):
+                result = forecast_tools.write_last_bill(7, date(2026,10,1), Decimal("120"), Decimal("8"))
+                self.assertEqual(result["status"], status)
 
 
 class ValidationTest(unittest.TestCase):
@@ -95,7 +88,7 @@ class ValidationTest(unittest.TestCase):
 
     def test_current_month_is_accepted(self):
         out, _ = _register({**GOOD, "month": "2026-11"})
-        self.assertEqual(out["status"], "needs_confirmation")
+        self.assertEqual(out["status"], "pending_confirmation")
 
     def test_negative_nan_and_implausible_values(self):
         self._error(total_value=-1)
@@ -106,7 +99,7 @@ class ValidationTest(unittest.TestCase):
 
     def test_zero_is_a_valid_value(self):
         out, _ = _register({**GOOD, "total_value": 0, "m3_value": 0})
-        self.assertEqual(out["status"], "needs_confirmation")
+        self.assertEqual(out["status"], "pending_confirmation")
 
     def test_organization_account_cannot_register(self):
         out, write = _register({**GOOD, "confirmed": True}, access_kind="organizational")
@@ -187,12 +180,12 @@ class AgentWiringTest(unittest.TestCase):
         self.assertIn("register_last_bill", names)
         self.assertIn("CADASTRO DA ÚLTIMA CONTA", prompt)
 
-    def test_revision_pass_cannot_write_and_drops_the_instructions(self):
+    def test_revision_keeps_the_preparation_tool_and_instructions(self):
         for kwargs in ({"revision_feedback": "corrija"}, {"revision_context": {"previous_candidate": "x"}}):
             names, prompt = self._run(**kwargs)
-            self.assertNotIn("register_last_bill", names)
+            self.assertIn("register_last_bill", names)
             self.assertIn("get_last_bill", names)
-            self.assertNotIn("CADASTRO DA ÚLTIMA CONTA", prompt)
+            self.assertIn("CADASTRO DA ÚLTIMA CONTA", prompt)
 
     def test_disabled_flag_changes_nothing(self):
         names, prompt = self._run(enabled=False)

@@ -208,7 +208,10 @@ def run_test(req: PlaygroundRequest, mode: str, *, workflow_runner=None):
                         response, chart = "", None
                     else:
                         response = out["response"]
-                if mode in {"chat", "judge"} and response:
+                if (mode in {"chat", "judge"} and response
+                        and state.get("judge_action") != "block"
+                        and state.get("output_approved", True)
+                        and not state.get("pending_confirmation")):
                     try:
                         with component("session_save"):
                             # UUIDs legados do console não são IDs de documentos MongoDB.

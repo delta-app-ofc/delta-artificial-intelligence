@@ -22,6 +22,17 @@ A stack inclui Python, FastAPI/Uvicorn, Pydantic, LangChain/LangGraph, OpenAI Re
 PostgreSQL, MongoDB, Qdrant e langchain-typesafe. Redis consta nas dependências,
 sem fluxo de aplicação implementado.
 
+### Atualização dos cadastros — 06/11/2026
+
+O fluxo atual é preparar → validar unidades → julgar → validar saída → confirmar
+por código → gravar. As ferramentas de conta e hábitos nunca gravam diretamente,
+inclusive quando `confirmed=true` ou `CONFIRMATION_INTERRUPT_ENABLED=false`.
+Essa última flag é legada; as descrições anteriores de escrita direta abaixo são
+históricas. `BILL_REGISTRATION_ENABLED` continua controlando a ferramenta de conta.
+A revisão descarta a proposta anterior e julga a nova. O consumo deve vir com m³
+ou litros na mensagem atual; a conversão e a validação usam Python e o texto
+original fornecido pelo servidor. As limitações de checkpoint por processo continuam.
+
 ### Componentes implementados
 
 - `ConsumptionAgent`, `ForecastAgent`, `LeakAgent`, `HabitsAgent` e `RagAgent` estão implementados e podem ser usados diretamente; os agentes disponíveis também são registrados no workflow LangGraph.

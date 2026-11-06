@@ -114,7 +114,7 @@ def _serialize(value: Any) -> Any:
     return value
 
 
-def build_tools(user_id: int, today: date, access_kind: str | None = None) -> list[BaseTool]:
+def build_tools(user_id: int, today: date, access_kind: str | None = None, source_question: str | None = None) -> list[BaseTool]:
     """Cria as tools já amarradas a user_id e à data de referência.
 
     O user_id NUNCA é um argumento exposto ao LLM — ele não pode inventá-lo.
@@ -603,7 +603,7 @@ def build_tools(user_id: int, today: date, access_kind: str | None = None) -> li
     def register_last_bill(
         month: str, total_value: float, m3_value: float, confirmed: bool = False
     ) -> dict:
-        """Registra a conta de água de um mês do usuário (tb_last_water_bill).
+        """Prepara a conta de água de um mês para avaliação e confirmação.
 
         Use somente quando o usuário pedir para registrar, cadastrar ou informar a
         última conta de água. Para apenas consultar, use get_last_bill.
@@ -611,14 +611,10 @@ def build_tools(user_id: int, today: date, access_kind: str | None = None) -> li
         month: mês de referência da conta, no formato AAAA-MM (ex.: 2026-10).
         total_value: valor total da conta, em reais.
         m3_value: consumo da conta, em metros cúbicos (m³).
-        confirmed: SEMPRE false na primeira chamada. A ferramenta então só devolve
-          needs_confirmation com os dados; repita esses dados ao usuário e pergunte
-          se pode salvar. Chame de novo com confirmed=true somente depois que o
-          usuário responder que sim em uma mensagem posterior. Nunca grave sem essa
-          confirmação, nunca invente valores e nunca use o que o usuário não disse.
-
-        Não sobrescreve: se o mês já tem conta, devolve conflict. Só confirme o
-        registro quando o status for ok (gravado no banco).
+        confirmed: argumento legado, ignorado. A ferramenta nunca grava; o grafo
+          exige avaliação do juiz e confirmação do usuário antes da execução.
+        O consumo é extraído da mensagem original do servidor: m³ ou litros.
+        m3_value é mantido por compatibilidade; a conversão é feita em Python.
 
         Disponível apenas para usuários residenciais.
         """
@@ -627,25 +623,22 @@ def build_tools(user_id: int, today: date, access_kind: str | None = None) -> li
                 "status": "not_available",
                 "message": "O cadastro da conta só está disponível para contas residenciais.",
             }
+        from app.tools.forecast.bill_units import consumption_from_message
+        try:
+            m3_value, source = consumption_from_message(source_question)
+        except ValueError as exc:
+            return {"status": "error", "message": str(exc)}
         error, parsed = validate_last_bill(month, total_value, m3_value, today)
         if error is not None:
             return error
         bill_month, total, m3 = parsed
         proposal = {"month": bill_month.isoformat(), "total_value": float(total), "m3_value": float(m3)}
-        if get_settings().confirmation_interrupt_enabled:
-            # Com a pausa do grafo ligada, quem grava é o código depois do "sim"; a ferramenta só propõe.
-            return {
-                "status": "pending_confirmation",
-                "pending_write": {"kind": "register_last_bill", "params": proposal},
-                "message": "Nada foi gravado. O sistema vai pedir a confirmação ao usuário; não faça a pergunta.",
-            }
-        if not confirmed:
-            return {
-                "status": "needs_confirmation",
-                "proposal": proposal,
-                "message": "Nada foi gravado. Repita os dados ao usuário e peça uma confirmação explícita (sim ou não).",
-            }
-        return write_last_bill(user_id, bill_month, total, m3)
+        return {
+            "status": "pending_confirmation",
+            "pending_write": {"kind": "register_last_bill", "params": proposal,
+                              "source_consumption": source},
+            "message": "Nada foi gravado. O sistema avalia a proposta e pede a confirmação.",
+        }
 
     tools = [
         check_can_estimate,

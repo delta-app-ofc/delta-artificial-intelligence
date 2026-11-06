@@ -49,3 +49,6 @@ class GraphState(MessagesState, total=False):
     pii_map: dict
     _blocked: bool
     pending_write: dict | None
+
+    approved_write: dict | None
+    output_approved: bool

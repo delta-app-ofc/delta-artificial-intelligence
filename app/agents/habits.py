@@ -30,11 +30,10 @@ class HabitsAgent:
         revision_feedback: str | None = None,
         revision_context: dict | None = None,
     ) -> AgentResult:
-        # Na revisão do Juiz a gravação já aconteceu (ou não): a nova passada só lê.
-        is_revision = bool(revision_feedback or revision_context)
-        tools = [t for t in self.tools if t.name != "create_habit"] if is_revision else self.tools
+        # A revisão pode preparar outra proposta; a ferramenta nunca grava.
+        tools = self.tools
         prompt = full_habits_prompt() + profile_block(self.access_kind)
-        if not is_revision and get_settings().confirmation_interrupt_enabled:
+        if any(getattr(tool, "name", None) == "create_habit" for tool in tools):
             prompt += "\n\n" + HABIT_REGISTRATION_INTERRUPT_PROMPT
         result = run_agent(
             llm=self.llm,

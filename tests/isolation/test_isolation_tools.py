@@ -196,7 +196,9 @@ def test_habito_recusado_pelo_banco_devolve_mensagem_generica(monkeypatch):
 
     resposta = criar.invoke({"name": "banho", "frequency": 3, "days": ["segunda"]})
 
-    assert resposta == {"status": "error", "message": "Não foi possível cadastrar o hábito."}
+    assert resposta["status"] == "pending_confirmation"
+    result = habits_tools.write_habit(1, resposta["pending_write"]["params"])
+    assert result == {"status": "error", "message": "Não foi possível cadastrar o hábito."}
 
 
 # --- consumo: unidade escolhida pelo modelo precisa ser autorizada ---------------------

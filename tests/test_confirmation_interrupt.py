@@ -20,7 +20,7 @@ TODAY = date(2026, 11, 2)
 GOOD = {"month": "2025-06", "total_value": 142.3, "m3_value": 9.8}
 SAVED = {"bill_id": 5, "month": date(2025, 6, 1), "total_value": Decimal("142.30"), "m3_value": Decimal("9.80")}
 PAUSE_TEXT = (
-    "Confirma o registro da conta de junho de 2025: R$ 142,30 e 9,8 m³? "
+    "Confirma o registro da conta de junho de 2025: R$ 142,30 e 9,8 m³ (informado: 9,8 m³)? "
     "Responda sim para salvar ou não para cancelar."
 )
 DONE_TEXT = "Pronto! Registrei a conta de junho de 2025: R$ 142,30 e 9,8 m³."
@@ -66,7 +66,7 @@ def pipeline(monkeypatch):
         if args is None:
             return {"agent": name, "status": "success", "answer": "A estimativa é R$ 100,00.",
                     "sources": [], "chart_data": None, "tool_calls": [], "warnings": [], "data": {}}
-        tools = {t.name: t for t in forecast_tools.build_tools(user_id, TODAY, "residential")}
+        tools = {t.name: t for t in forecast_tools.build_tools(user_id, TODAY, "residential", source_question="9,8 m³")}
         output = tools["register_last_bill"].invoke(args)
         return {"agent": name, "status": "success", "answer": "Pode salvar? (texto do modelo)",
                 "sources": [], "chart_data": None, "warnings": [], "data": {},
@@ -233,9 +233,9 @@ class TestFlagOff:
         pipeline.config.confirmation_interrupt_enabled = False
         session = new_session()
         result = chat(pipeline, session, "Registre minha conta")
-        assert "pending_confirmation" not in result
+        assert "pending_confirmation" in result
         pipeline.write.assert_not_called()
-        assert pending_of(session) is None
+        assert pending_of(session) is not None
 
 
 class TestStreaming:

@@ -1,6 +1,7 @@
 """Workflow dos agentes Delta, compartilhado pelo chat e pelo console de testes."""
 from __future__ import annotations
 
+from copy import deepcopy
 import contextvars
 import json
 import queue
@@ -223,6 +224,7 @@ def execute_agent(
     revision_feedback: str | None = None,
     revision_context: dict | None = None,
     access_kind: str | None = None,
+    source_question: str | None = None,
 ) -> dict:
     """Executa o mesmo especialista usado pelas abas individuais e pelo grafo."""
     trace = current_trace()
@@ -254,6 +256,8 @@ def execute_agent(
             if trace:
                 trace.executed_agents.append(name)
             report_agent_started(name, access_kind)
+            if name == "forecast":
+                agent.source_question = source_question or question
             if revision_feedback or revision_context:
                 result = agent.run(
                     question,
@@ -285,6 +289,7 @@ def _execute_node(state: GraphState) -> dict:
         question += f"\n\nConversa recente:\n{transcript}"
 
     results = []
+    current_results = []
     warnings = list(state.get("warnings", []))
     revision_count = state.get("revision_count", 0)
     allowed = allowed_agents(state.get("access_kind"))
@@ -322,12 +327,14 @@ def _execute_node(state: GraphState) -> dict:
             state["user_id"],
             agent_question,
             access_kind=state.get("access_kind"),
+            source_question=state["question"],
             revision_feedback=state.get("revision_feedback") if revision_count else None,
             revision_context={
                 "candidate": state.get("previous_candidate") or "",
                 "agent_result": prior_result,
             } if revision_count else None,
         )
+        current_results.append(deepcopy(output))
         previous_calls = _serialize_tool_calls(prior_result.get("tool_calls", []), "previous")
         current_calls = _serialize_tool_calls(
             output.get("tool_calls", []), "revision" if revision_count else "initial"
@@ -340,22 +347,22 @@ def _execute_node(state: GraphState) -> dict:
             output["chart_data"] = prior_result.get("chart_data")
         results.append(output)
         warnings.extend(output.get("warnings", []))
-    return {"agent_results": results, "warnings": warnings, "pending_write": _find_pending_write(results)}
+    return {"agent_results": results, "warnings": warnings, "pending_write": _find_pending_write(current_results)}
 
 
 def _find_pending_write(results: list[dict]) -> dict | None:
-    """Primeira proposta de gravação devolvida por uma ferramenta (só existe com a pausa ligada)."""
+    """Aceita uma única proposta da execução atual; evidências antigas não são ações."""
+    proposals = []
     for result in results:
         for call in result.get("tool_calls", []):
             output = call.get("output") if isinstance(call, dict) else None
             pending = output.get("pending_write") if isinstance(output, dict) else None
             if isinstance(pending, dict) and pending.get("kind") and isinstance(pending.get("params"), dict):
-                return pending
-    return None
+                proposals.append(pending)
+    if len(proposals) > 1:
+        raise ValueError("Só é possível avaliar uma proposta de gravação por pedido.")
+    return proposals[0] if proposals else None
 
-
-def _after_execute(state: GraphState) -> str:
-    return "confirm" if state.get("pending_write") else "synthesize"
 
 
 def _confirm_node(state: GraphState) -> dict:
@@ -365,6 +372,9 @@ def _confirm_node(state: GraphState) -> dict:
     Na retomada o nó roda de novo desde o início, por isso antes do interrupt() só há código simples.
     """
     pending = state["pending_write"]
+    if (state.get("judge_action") != "approve" or not state.get("output_approved")
+            or pending != state.get("approved_write")):
+        return {"response": SAFE_RESPONSE, "pending_write": None, "chart_data": None}
     decision = interrupt({
         "kind": pending["kind"],
         "params": pending["params"],
@@ -434,6 +444,9 @@ def _compose_node(state: GraphState) -> dict:
                  if result.get("status") == "success" and result.get("answer", "").strip()]
     if not successes:
         return {"composition_status": "no_success", "candidate": ""}
+    if state.get("pending_write"):
+        return {"composition_status": "ready",
+                "candidate": confirmations.describe(state["pending_write"]), "chart_data": None}
     return {"composition_status": "ready", "candidate": state.get("response", "")}
 
 
@@ -453,6 +466,7 @@ def _judge_node(state: GraphState) -> dict:
         "relevant_memory": _safe_relevant_memory(state.get("relevant_memory", [])[:2]),
         "warnings": state.get("warnings", []),
         "revision_count": revision_count,
+        "pending_write": state.get("pending_write"),
         "previous_candidate": state.get("previous_candidate"),
         "previous_agent_results": state.get("previous_agent_results", []),
     }
@@ -502,7 +516,8 @@ def _judge_node(state: GraphState) -> dict:
                 "revision_count": revision_count,
             },
         )
-    return {"judge_history": history, "judge_action": action}
+    return {"judge_history": history, "judge_action": action,
+            "approved_write": deepcopy(state.get("pending_write")) if action == "approve" else None}
 
 
 def _prepare_revision_node(state: GraphState) -> dict:
@@ -528,6 +543,7 @@ def _prepare_revision_node(state: GraphState) -> dict:
         "revision_count": next_revision_count,
         "candidate": "", "agent_results": [], "response": "", "chart_data": None,
         "composition_status": "", "judge_action": "", "warnings": [],
+        "pending_write": None, "approved_write": None, "output_approved": False,
     }
 
 
@@ -579,7 +595,8 @@ def _guardrail_output_node(state: GraphState) -> dict:
     else:
         safe = capitalize_habit_names(hide_technical_details(result["response"]))
 
-    if state.get("_persist_session", True):
+    if (state.get("_persist_session", True) and result["ok"]
+            and state.get("judge_action") != "block" and not state.get("pending_write")):
         try:
             with component("session_save"):
                 append_turn(state["session_id"], state["user_id"], "human", state["question"])
@@ -594,7 +611,9 @@ def _guardrail_output_node(state: GraphState) -> dict:
                 daemon=True,
             ).start()
 
-    update: dict = {"response": safe, "messages": [{"role": "assistant", "content": safe}]}
+    update: dict = {"response": safe, "output_approved": bool(result["ok"])}
+    if not state.get("pending_write"):
+        update["messages"] = [{"role": "assistant", "content": safe}]
     if not result["ok"]:
         update["chart_data"] = None
     elif chart_mentions_other_user(state.get("chart_data"), state.get("user_id")):
@@ -603,6 +622,15 @@ def _guardrail_output_node(state: GraphState) -> dict:
                                  "message": "Gráfico com dados de outro usuário descartado."})
         update["chart_data"] = None
     return update
+
+
+def _after_output_guard(state: GraphState) -> str:
+    """Só expõe confirmação de uma ação aprovada e com saída válida."""
+    if (state.get("pending_write") and state.get("judge_action") == "approve"
+            and state.get("output_approved") and not state.get("_blocked")
+            and state.get("pending_write") == state.get("approved_write")):
+        return "confirm"
+    return END
 
 
 def _node_outcome(name: str, result: dict) -> str | None:
@@ -711,8 +739,7 @@ _graph.set_entry_point("guardrail_input")
 _graph.add_conditional_edges("guardrail_input", _after_guardrail_input,
                              {END: END, "prepare": "prepare"})
 _graph.add_conditional_edges("prepare", _after_prepare, {END: END, "execute": "execute"})
-_graph.add_conditional_edges("execute", _after_execute,
-                             {"synthesize": "synthesize", "confirm": "confirm"})
+_graph.add_edge("execute", "synthesize")
 _graph.add_edge("confirm", "output_guard")
 _graph.add_edge("synthesize", "respond")
 _graph.add_edge("respond", "compose")
@@ -723,7 +750,8 @@ _graph.add_conditional_edges("judge", _after_judge,
 _graph.add_edge("revise", "execute")
 _graph.add_edge("publish", "output_guard")
 _graph.add_edge("block", "output_guard")
-_graph.add_edge("output_guard", END)
+_graph.add_conditional_edges("output_guard", _after_output_guard,
+                             {"confirm": "confirm", END: END})
 workflow = _graph.compile(checkpointer=MemorySaver())
 
 
@@ -756,7 +784,7 @@ _PENDING: dict[str, str] = {}
 
 
 def _confirmation_enabled() -> bool:
-    return get_settings().confirmation_interrupt_enabled
+    return True  # Escritas exigem confirmação por código em todos os pedidos.
 
 
 def _remember_pending(thread_id: str, expires_at: str) -> None:
@@ -820,6 +848,8 @@ def _paused_result(
     _remember_pending(f"{user_id}:{session_id}", payload["expires_at"])
     return {
         "response": text, "chart_data": None, "session_id": session_id,
+        "judge_history": state.get("judge_history", []),
+        "judge_action": state.get("judge_action", ""), "output_approved": state.get("output_approved", False),
         "access_kind": state.get("access_kind"), "selected_agents": state.get("selected_agents", []),
         "pending_confirmation": {
             "kind": payload["kind"], "summary": text, "expires_at": payload["expires_at"],
@@ -867,6 +897,7 @@ def _start_run(
         "agent_results": [], "warnings": [], "recent_messages": [],
         "relevant_memory": [], "intent": "", "complexity": "", "selected_agents": [],
         "_persist_session": persist_session,
+        "pending_write": None, "approved_write": None, "output_approved": False,
         "candidate": "", "previous_candidate": None, "previous_agent_results": [],
         "revision_feedback": "", "revision_count": 0, "judge_history": [],
         "judge_action": "", "composition_status": "", "pii_map": {}, "_blocked": False,
