@@ -14,6 +14,7 @@ from typing import Callable, TypeVar
 from app.config import ConfigurationError, get_settings
 from app.observability.diagnostics import component, current_trace, embedding_call
 from app.memory.session import load_history_validated
+from app.services.prompts import LONG_TERM_SUMMARY_PROMPT
 
 
 _COLLECTION = "session_summaries"
@@ -174,7 +175,7 @@ def save_summary(user_id: int, session_id: str, messages: list[dict]) -> None:
     summary_msg = _run_phase(
         "summary_generation",
         lambda: llm_rapido.invoke(
-            [HumanMessage(content=f"Resuma em até 3 frases esta conversa:\n\n{transcript}")]
+            [HumanMessage(content=LONG_TERM_SUMMARY_PROMPT.format(transcript=transcript))]
         ),
     )
     from app.agents._runtime import _message_text

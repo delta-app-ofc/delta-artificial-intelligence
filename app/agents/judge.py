@@ -11,6 +11,10 @@ from pydantic import BaseModel, Field
 
 from app.config import (
     JUDGE_RUBRIC_VERSION,
+    ConfigurationError,
+    get_judge_config,
+)
+from app.services.prompts import (
     JUIZ_FACTS_SUPPORTED_CRITERIA,
     JUIZ_FACTS_SUPPORTED_INSTRUCTIONS,
     JUIZ_PROMPT_COMPLETO,
@@ -18,8 +22,6 @@ from app.config import (
     JUIZ_RELEVANT_INSTRUCTIONS,
     JUIZ_SEVERITY_CRITERIA,
     JUIZ_SEVERITY_INSTRUCTIONS,
-    ConfigurationError,
-    get_judge_config,
 )
 from app.observability.diagnostics import component, current_trace
 

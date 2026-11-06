@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from langchain_core.messages import HumanMessage, SystemMessage
 
-from app.services.prompts import SYNTHESIS_PROMPT, profile_block
+from app.services.prompts import SYNTHESIS_PROMPT, SYNTHESIS_REQUEST_PROMPT, profile_block
 from app.agents._runtime import _message_text
 from app.observability.diagnostics import current_trace
 
@@ -26,7 +26,7 @@ def synthesize(question: str, answers: list[dict], access_kind: str | None = Non
 
     try:
         response = llm.invoke(
-            [SystemMessage(content=prompt), HumanMessage(content="Unifique as respostas.")]
+            [SystemMessage(content=prompt), HumanMessage(content=SYNTHESIS_REQUEST_PROMPT)]
         )
     except Exception as error:
         if trace := current_trace():

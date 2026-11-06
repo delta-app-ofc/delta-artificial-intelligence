@@ -13,6 +13,7 @@ from collections.abc import Callable
 
 from app.observability.diagnostics import current_trace
 from app.config import ConfigurationError
+from app.services.prompts import INPUT_CLASSIFIER_PROMPT
 from app.agents._runtime import _message_text
 
 _MAX_LEN = 2000
@@ -91,21 +92,6 @@ _INTERNAL_DATA_KEYWORDS = [
     "lista de usuários", "credenciais",
 ]
 
-_PROMPT_CLASSIFIER = """\
-Você é um classificador de segurança de um sistema de monitoramento de consumo de água.
-Classifique a mensagem em UMA categoria. Responda SOMENTE:
-
-CATEGORIA: [categoria]
-JUSTIFICATIVA: [uma linha]
-
-Categorias:
-APROVADO  - pergunta legítima sobre consumo, vazamentos, previsão, conta ou hábitos
-OFENSIVO  - xingamentos, assédio ou discurso de ódio
-PERIGOSO  - instruções que causam dano físico, psicológico ou coletivo
-ILICITO   - pedido de auxílio para atividades ilegais ou fraudulentas
-
-Mensagem: {message}
-"""
 
 _BLOCK_RESPONSES: dict[str, tuple[str, str]] = {
     "OFENSIVO": ("conteudo_ofensivo", "Por favor, mantenha um tom respeitoso para que eu possa te ajudar."),
@@ -178,7 +164,7 @@ def classify_input(anonymized: str) -> dict | None:
         if llm_rapido is None:
             raise ConfigurationError("Configure o provedor de linguagem selecionado para o guardrail de entrada.")
         raw = _message_text(llm_rapido.invoke(
-            [HumanMessage(content=_PROMPT_CLASSIFIER.format(message=anonymized))]
+            [HumanMessage(content=INPUT_CLASSIFIER_PROMPT.format(message=anonymized))]
         ))
         category = "APROVADO"
         for line in raw.splitlines():

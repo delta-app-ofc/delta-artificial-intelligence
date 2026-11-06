@@ -9,7 +9,12 @@ from app.config import ConfigurationError, get_settings
 from app.agents._runtime import _message_text
 from app.observability.diagnostics import current_trace
 from app.graph.profile import allowed_agents
-from app.services.prompts import BILL_ROUTING_HINT, ROUTER_PROMPT, profile_block
+from app.services.prompts import (
+    BILL_ROUTING_HINT,
+    ROUTER_AVAILABLE_AGENTS_PROMPT,
+    ROUTER_PROMPT,
+    profile_block,
+)
 
 AGENT_REGISTRY: dict[str, str] = {
     "consumption": "app.agents.consumption.ConsumptionAgent",
@@ -61,9 +66,8 @@ def classify(question: str, context: dict) -> RoutingDecision:
             system_prompt += BILL_ROUTING_HINT
         allowed = allowed_agents(access_kind)
         if allowed is not None:
-            system_prompt += (
-                "\nAgentes disponíveis para este usuário: "
-                f"{', '.join(sorted(allowed))}. Não selecione outros.\n"
+            system_prompt += ROUTER_AVAILABLE_AGENTS_PROMPT.format(
+                agents=', '.join(sorted(allowed))
             )
         response = llm.invoke(
             [SystemMessage(content=system_prompt), HumanMessage(content=user_text)]

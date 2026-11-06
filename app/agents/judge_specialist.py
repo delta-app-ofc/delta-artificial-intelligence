@@ -11,14 +11,16 @@ from pydantic import BaseModel, Field
 
 from app.agents.judge import JudgeInput, JudgeResult, SAFE_RESPONSE
 from app.config import (
-    JUDGE_SPECIALIST_PROMPT,
     JUDGE_SPECIALIST_TEMPERATURE,
-    JUIZ_FACTS_SUPPORTED_CRITERIA,
-    JUIZ_RELEVANT_CRITERIA,
-    JUIZ_SEVERITY_CRITERIA,
     Settings,
     get_judge_config,
     validate_llm_config,
+)
+from app.services.prompts import (
+    JUDGE_SPECIALIST_PROMPT,
+    JUIZ_FACTS_SUPPORTED_CRITERIA,
+    JUIZ_RELEVANT_CRITERIA,
+    JUIZ_SEVERITY_CRITERIA,
 )
 from app.observability.diagnostics import ModelDiagnostics, component, current_trace, fallback_call
 
