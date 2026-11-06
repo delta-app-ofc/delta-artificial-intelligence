@@ -413,6 +413,9 @@ def _respond_node(state: GraphState) -> dict:
                     "chart_data": None}
         if state.get("response"):
             return {}
+        if state.get("intent") == "routing_unavailable":
+            return {"response": "Não consegui processar sua pergunta agora. Tente novamente em instantes.",
+                    "chart_data": None}
         results = state.get("agent_results", [])
         selected = state.get("selected_agents", [])
         if not selected:
