@@ -4,10 +4,8 @@ from datetime import date
 from typing import Any
 
 from app.agents._runtime import AgentResult, run_agent
-from app.config import get_settings
 from app.services.prompts import (
     BILL_REGISTRATION_INTERRUPT_PROMPT,
-    BILL_REGISTRATION_PROMPT,
     profile_block,
     full_forecast_prompt,
 )
@@ -43,16 +41,13 @@ class ForecastAgent:
         revision_feedback: str | None = None,
         revision_context: dict | None = None,
     ) -> AgentResult:
-        # Na revisão do Juiz a gravação já aconteceu (ou não): a nova passada só lê.
-        is_revision = bool(revision_feedback or revision_context)
-        tools = [t for t in self.tools if t.name != "register_last_bill"] if is_revision else self.tools
+        # A revisão prepara uma proposta nova, sem executar gravações.
+        self.tools = build_tools(self.user_id, self.today, self.access_kind,
+                                 source_question=getattr(self, "source_question", question))
+        tools = self.tools
         system_prompt = full_forecast_prompt() + profile_block(self.access_kind)
         if any(t.name == "register_last_bill" for t in tools):
-            system_prompt += "\n\n" + (
-                BILL_REGISTRATION_INTERRUPT_PROMPT
-                if get_settings().confirmation_interrupt_enabled
-                else BILL_REGISTRATION_PROMPT
-            )
+            system_prompt += "\n\n" + BILL_REGISTRATION_INTERRUPT_PROMPT
         result = run_agent(
             llm=self.llm,
             system_prompt=system_prompt,

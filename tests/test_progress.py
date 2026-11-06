@@ -146,7 +146,7 @@ class GrafoComProgresso:
         self.checkpointer = type("C", (), {"delete_thread": self.apagados.append})()
 
     def get_state(self, config):
-        return type("S", (), {"values": {"messages": ["x"]}})()
+        return type("S", (), {"tasks": (), "values": {"messages": ["x"]}})()
 
     def stream(self, initial, config=None, stream_mode=None):
         yield ("updates", {"guardrail_input": {"question": "oi"}})

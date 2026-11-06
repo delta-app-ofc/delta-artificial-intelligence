@@ -107,7 +107,9 @@ def describe(pending: dict) -> str:
     params = pending["params"]
     return (
         f"Confirma o registro da conta de {_month_label(params['month'])}: "
-        f"{_brl(params['total_value'])} e {_number(params['m3_value'])} m³? "
+        f"{_brl(params['total_value'])} e {_number(params['m3_value'])} m³"
+        + (f" (informado: {pending['source_consumption']})" if pending.get("source_consumption") else "")
+        + "? "
         "Responda sim para salvar ou não para cancelar."
     )
 
@@ -127,6 +129,13 @@ def execute_pending(pending: dict, user_id: int, today: date) -> str:
     if db_postgres.get_user_access_kind(user_id) != "residential":
         return "O cadastro da conta só está disponível para contas residenciais."
     params = pending["params"]
+    from app.tools.forecast.bill_units import consumption_from_message
+    try:
+        volume, _ = consumption_from_message(pending.get("source_consumption"))
+    except ValueError as exc:
+        return str(exc)
+    if volume != params["m3_value"]:
+        return UNKNOWN_ACTION_TEXT
     error, parsed = validate_last_bill(params["month"], params["total_value"], params["m3_value"], today)
     if error is not None:
         return error["message"]
@@ -147,8 +156,6 @@ def declined(pending: dict) -> str:
 
 
 def _execute_habit(pending: dict, user_id: int) -> str:
-    if not get_settings().confirmation_interrupt_enabled:
-        return "A confirmação de hábitos está desativada. Nada foi cadastrado."
     if db_postgres.get_user_access_kind(user_id) != "residential":
         return "O cadastro de hábitos só está disponível para contas residenciais."
     params = pending.get("params")

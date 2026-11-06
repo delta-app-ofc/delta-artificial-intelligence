@@ -140,7 +140,7 @@ def test_historico_e_lido_uma_vez_para_o_grafo_inteiro(monkeypatch):
         checkpointer = SimpleNamespace(delete_thread=lambda thread_id: None)
 
         def get_state(self, config):
-            return SimpleNamespace(values={})
+            return SimpleNamespace(tasks=(), values={})
 
         def invoke(self, initial, config=None):
             capturado.update(initial)
@@ -178,7 +178,7 @@ def test_falha_na_leitura_inicial_deixa_o_contexto_tentar_e_registrar(monkeypatc
         checkpointer = SimpleNamespace(delete_thread=lambda thread_id: None)
 
         def get_state(self, config):
-            return SimpleNamespace(values={})
+            return SimpleNamespace(tasks=(), values={})
 
         def invoke(self, initial, config=None):
             capturado.update(initial)
@@ -201,7 +201,7 @@ def test_checkpoint_existente_nao_reaproveita_historico_antigo(monkeypatch):
         checkpointer = SimpleNamespace(delete_thread=lambda thread_id: None)
 
         def get_state(self, config):
-            return SimpleNamespace(values={"messages": ["já existe"]})
+            return SimpleNamespace(tasks=(), values={"messages": ["já existe"]})
 
         def invoke(self, initial, config=None):
             capturado.update(initial)

@@ -846,3 +846,24 @@ sessão MongoDB válida; UUIDs antigos são substituídos pelo ObjectId retornad
 - [delta-sql-database](https://github.com/delta-app-ofc/delta-sql-database) — schema PostgreSQL e funções de dados.
 - [delta-mongo-database](https://github.com/delta-app-ofc/delta-mongo-database) — coleções de telemetria e sessões.
 - [delta-business-rules](https://github.com/delta-app-ofc/delta-business-rules) — regras que calculam sinais de vazamento.
+
+
+### Segurança dos cadastros pelo chatbot
+
+As ferramentas de conta e hábitos apenas preparam propostas. O fluxo aplica
+validações, avalia a proposta no Juiz e valida a saída antes de perguntar se pode
+salvar. Só um aceite posterior do usuário executa a operação aprovada. Rejeição,
+indisponibilidade do Juiz ou saída recusada não autorizam gravação. A antiga
+`CONFIRMATION_INTERRUPT_ENABLED=false` não habilita mais escrita direta;
+a confirmação por código é obrigatória. `BILL_REGISTRATION_ENABLED` continua
+controlando a disponibilidade do cadastro de conta.
+
+O consumo da conta é extraído da mensagem original: aceita m³ e litros, com
+vírgula decimal e ponto de milhar. Litros são convertidos em Python. Unidade
+ausente, não suportada, valores divergentes ou perda de precisão na coluna de
+duas casas decimais pedem esclarecimento. O usuário precisa repetir o consumo
+com a unidade na mensagem atual; texto antigo não autoriza um cadastro novo.
+
+Checkpoints e confirmação continuam em memória, limitados ao processo. Reinício
+perde propostas pendentes; múltiplas instâncias ou repetição de requisição após
+uma gravação exigem mecanismos adicionais para garantir execução única.

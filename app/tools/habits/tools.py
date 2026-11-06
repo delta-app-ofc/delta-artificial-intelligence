@@ -315,13 +315,11 @@ def build_tools(user_id: int, access_kind: str | None = None) -> list[BaseTool]:
         proposal = prepare_habit(name, frequency, days, start_time, end_time)
         if proposal["status"] != "ready":
             return proposal
-        if get_settings().confirmation_interrupt_enabled:
-            return {
-                "status": "pending_confirmation",
-                "pending_write": {"kind": "create_habit", "params": proposal["params"]},
-                "message": "Nada foi cadastrado. O sistema vai pedir a confirmação; não confirme o cadastro.",
-            }
-        return write_habit(user_id, proposal["params"])
+        return {
+            "status": "pending_confirmation",
+            "pending_write": {"kind": "create_habit", "params": proposal["params"]},
+            "message": "Nada foi cadastrado. O sistema avalia a proposta e pede a confirmação.",
+        }
 
     @tool
     def estimate_habit_water_impact(habit_name: str, frequency: int) -> dict:

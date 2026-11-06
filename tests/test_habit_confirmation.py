@@ -171,18 +171,18 @@ def test_parallel_yes_writes_once(pipeline):
     assert sum(result["response"] == DONE for result in results) == 1
 
 
-def test_flag_off_preserves_direct_registration(pipeline):
+def test_legacy_flag_off_still_requires_confirmation(pipeline):
     pipeline.config.confirmation_interrupt_enabled = False
     result = chat(pipeline, session(pipeline), "Cadastre lavar roupa")
-    assert "pending_confirmation" not in result
-    pipeline.write.assert_called_once()
+    assert "pending_confirmation" in result
+    pipeline.write.assert_not_called()
 
 
-def test_direct_execution_refuses_disabled_confirmation(pipeline):
+def test_trusted_execution_after_confirmation_ignores_legacy_flag(pipeline):
     pipeline.config.confirmation_interrupt_enabled = False
     text = confirmations.execute_pending({"kind": "create_habit", "params": PARAMS}, 7, datetime.now().date())
-    assert "desativada" in text
-    pipeline.write.assert_not_called()
+    assert text == DONE
+    pipeline.write.assert_called_once()
 
 
 @pytest.mark.parametrize("args", [
@@ -247,5 +247,5 @@ def test_agent_instructions_and_write_tool_follow_revision_policy(pipeline, monk
     agent_module.HabitsAgent(7, llm=object(), access_kind="residential").run(
         "Cadastre", revision_feedback="Corrija" if revision else None)
     names = [tool.name for tool in run.call_args.kwargs["tools"]]
-    assert ("create_habit" in names) is (not revision)
-    assert ("CONFIRMAÇÃO DO CADASTRO DE HÁBITO" in run.call_args.kwargs["system_prompt"]) is (not revision)
+    assert "create_habit" in names
+    assert "CONFIRMAÇÃO DO CADASTRO DE HÁBITO" in run.call_args.kwargs["system_prompt"]
