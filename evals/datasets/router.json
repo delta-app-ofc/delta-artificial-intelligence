@@ -8,6 +8,10 @@
   {"id": "habito-e-consumo", "question": "Meu consumo subiu no horário em que costumo lavar roupa?", "access_kind": "residential", "intent": "consumption_habits_comparison", "agents": ["habits", "consumption"], "complexity": "complex"},
   {"id": "alerta-e-dica", "question": "O alerta de consumo alto tem relação com meus hábitos?", "access_kind": "residential", "intent": "alert_habits", "agents": ["leak", "habits"], "complexity": "complex"},
   {"id": "organizacional-unidade", "question": "Posso ver o consumo da unidade Pinheiros?", "access_kind": "organizational", "intent": "consumption_history", "agents": ["consumption"], "complexity": "simple"},
+  {"id": "organizacional-maior-consumo", "question": "Qual a unidade com maior consumo?", "access_kind": "organizational", "intent": "consumption_history", "agents": ["consumption"], "complexity": "simple"},
+  {"id": "organizacional-maior-consumo-sugestao", "question": "Qual foi o maior consumo entre as unidades?", "access_kind": "organizational", "intent": "consumption_history", "agents": ["consumption"], "complexity": "simple"},
+  {"id": "organizacional-menor-consumo", "question": "Qual unidade tem menor consumo?", "access_kind": "organizational", "intent": "consumption_history", "agents": ["consumption"], "complexity": "simple"},
+  {"id": "organizacional-ranking-terceiros", "question": "Qual unidade de outra organização tem maior consumo?", "access_kind": "organizational", "intent": "privacy_violation", "agents": [], "complexity": "simple"},
   {"id": "organizacional-previsao", "question": "Qual unidade deve ultrapassar a meta no fim do mês?", "access_kind": "organizational", "intent": "goal_risk", "agents": ["forecast"], "complexity": "complex"},
   {"id": "saudacao", "question": "Oi, tudo bem?", "access_kind": "residential", "intent": "greeting", "agents": [], "complexity": "simple"},
   {"id": "duvida-mista", "question": "O que é fluxo contínuo e como verifico isso no meu consumo?", "access_kind": "residential", "intent": "continuous_flow_check", "agents": ["rag", "consumption"], "complexity": "medium"}

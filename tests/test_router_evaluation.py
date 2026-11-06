@@ -30,7 +30,7 @@ def test_router_evaluation_marks_provider_error_unavailable(monkeypatch):
 
     def failing_classify(question, context):
         diagnostics.current_trace().error("router", TimeoutError("teste"))
-        return SimpleNamespace(agents=[], intent="unknown", complexity="simple")
+        return SimpleNamespace(agents=[], intent="routing_unavailable", complexity="simple")
 
     monkeypatch.setattr(evaluate_router, "classify", failing_classify)
     report = evaluate_router.evaluate_cases([

@@ -39,7 +39,7 @@ class RoutingDecision(BaseModel):
 def classify(question: str, context: dict) -> RoutingDecision:
     """Pede ao modelo rápido a intenção, a complexidade e os agentes da pergunta, considerando o
     histórico recente e o perfil da conta. Descarta agentes desconhecidos ou fora do perfil.
-    Qualquer falha devolve intenção `unknown` sem agentes.
+    Qualquer falha devolve intenção `routing_unavailable` sem agentes.
     """
     import app.services.llms as _llm_module
     from langchain_core.messages import HumanMessage, SystemMessage
@@ -91,7 +91,7 @@ def classify(question: str, context: dict) -> RoutingDecision:
     except Exception as error:
         if trace := current_trace():
             trace.error("router", error)
-    return RoutingDecision(intent="unknown", complexity="simple", agents=[])
+    return RoutingDecision(intent="routing_unavailable", complexity="simple", agents=[])
 
 
 def load_agent(name: str, user_id: int, access_kind: str | None = None):

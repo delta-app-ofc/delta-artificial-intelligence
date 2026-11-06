@@ -118,6 +118,61 @@ def test_prompt_do_roteador_traz_o_perfil_e_os_agentes_disponiveis(llm):
     assert "habits" not in prompt.rsplit("Agentes disponíveis para este usuário", 1)[1]
 
 
+@pytest.mark.parametrize("failure", ["timeout", "invalid_json", "not_configured"])
+def test_falha_do_roteador_nao_vira_fora_do_escopo(monkeypatch, failure):
+    class UnavailableLLM:
+        def invoke(self, messages):
+            if failure == "timeout":
+                raise TimeoutError("provedor indisponível")
+            return SimpleNamespace(content="resposta sem JSON")
+
+    monkeypatch.setattr("app.services.llms.llm_rapido",
+                        None if failure == "not_configured" else UnavailableLLM())
+    state = {"question": "Qual a unidade com maior consumo?",
+             "access_kind": "organizational", "messages": []}
+
+    routed = workflow._route_node(state)
+    response = workflow._respond_node({**state, **routed})
+
+    assert routed["intent"] == "routing_unavailable"
+    assert routed["selected_agents"] == []
+    assert "Tente novamente" in response["response"]
+    assert "foge" not in response["response"]
+    assert response["chart_data"] is None
+
+
+def test_assunto_fora_do_escopo_continua_com_resposta_do_perfil(monkeypatch):
+    class OutOfScopeLLM:
+        def invoke(self, messages):
+            return SimpleNamespace(content='{"intent": "unknown", "complexity": "simple", "agents": []}')
+
+    monkeypatch.setattr("app.services.llms.llm_rapido", OutOfScopeLLM())
+    state = {"question": "Qual o resultado do futebol?",
+             "access_kind": "organizational", "messages": []}
+
+    routed = workflow._route_node(state)
+    response = workflow._respond_node({**state, **routed})
+
+    assert routed["intent"] == "unknown"
+    assert "foge" in response["response"]
+
+
+def test_terceiros_continuam_bloqueados_apos_roteamento(monkeypatch):
+    class PrivacyLLM:
+        def invoke(self, messages):
+            return SimpleNamespace(content='{"intent": "privacy_violation", "complexity": "simple", "agents": []}')
+
+    monkeypatch.setattr("app.services.llms.llm_rapido", PrivacyLLM())
+    state = {"question": "Qual unidade de outra organização tem maior consumo?",
+             "access_kind": "organizational", "messages": []}
+
+    routed = workflow._route_node(state)
+    response = workflow._respond_node({**state, **routed})
+
+    assert routed["selected_agents"] == []
+    assert "outros usuários" in response["response"]
+
+
 # --- respostas fixas e execução no grafo ---------------------------------------------------
 
 
