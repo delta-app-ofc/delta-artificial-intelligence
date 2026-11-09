@@ -36,11 +36,11 @@ def _open_session(req: ChatRequest, user_id: int) -> tuple[str, bool]:
     except HTTPException:
         raise
     except Exception:
-    logger.exception("Falha ao abrir sessão de conversa")
-    raise HTTPException(
-        status_code=503,
-        detail="Histórico de conversas indisponível.",
-    )
+        logger.exception("Falha ao abrir sessão de conversa")
+        raise HTTPException(
+            status_code=503,
+            detail="Histórico de conversas indisponível.",
+        )
 
 def _discard_new_session(user_id: int, session_id: str, created: bool) -> None:
     """Remove a sessão recém-criada que ficou sem mensagens; falha na remoção só vai para o log."""
